@@ -18,13 +18,14 @@ export async function getBayesianStrategy(): Promise<BayesianStrategy> {
   }
 
   const raw = (await response.json()) as Record<string, unknown>
+  const mapGroupsSource = raw.mapGroups ?? raw.MapGroups
 
   return {
     strategyKey: String(raw.strategyKey ?? raw.StrategyKey ?? "bayesian_statistics"),
     learnedFeatureCount: Number(raw.learnedFeatureCount ?? raw.LearnedFeatureCount ?? 0),
     learnedAccountCount: Number(raw.learnedAccountCount ?? raw.LearnedAccountCount ?? 0),
-    mapGroups: Array.isArray(raw.mapGroups ?? raw.MapGroups)
-      ? (raw.mapGroups ?? raw.MapGroups as unknown[]).map((group) => {
+    mapGroups: Array.isArray(mapGroupsSource)
+      ? mapGroupsSource.map((group) => {
           const item = group as Record<string, unknown>
           const entries = item.entries ?? item.Entries
 
