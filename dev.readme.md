@@ -149,8 +149,8 @@ docker compose up --build
 
 Services:
 
-- SPA: `http://localhost:3000`
-- API: `http://localhost:5132`
+- SPA: `http://localhost:3056`
+- API: `http://localhost:5133`
 - PostgreSQL: `localhost:5432`
 
 Stop the stack:

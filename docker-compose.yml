@@ -34,10 +34,10 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=finance_db;Username=finance_user;Password=strongpassword
-      Cors__AllowedOrigins__0: http://localhost:3000
-      Cors__AllowedOrigins__1: http://127.0.0.1:3000
+      Cors__AllowedOrigins__0: http://localhost:3056
+      Cors__AllowedOrigins__1: http://127.0.0.1:3056
     ports:
-      - "5132:8080"
+      - "5133:8080"
     networks:
       - finance-network
 
@@ -48,16 +48,16 @@ services:
       provenance: false
       sbom: false
       args:
-        NEXT_PUBLIC_FINANCE_API_BASE_URL: http://localhost:5132
+        NEXT_PUBLIC_FINANCE_API_BASE_URL: http://localhost:5133
     container_name: finance-spa
     restart: unless-stopped
     depends_on:
       - api
     environment:
       NODE_ENV: production
-      NEXT_PUBLIC_FINANCE_API_BASE_URL: http://localhost:5132
+      NEXT_PUBLIC_FINANCE_API_BASE_URL: http://localhost:5133
     ports:
-      - "3001:3000"
+      - "3056:3000"
     networks:
       - finance-network
 
