@@ -1,7 +1,7 @@
 const apiProxyDestination =
   process.env.FINANCE_API_BASE_URL ||
   process.env.INTERNAL_FINANCE_API_BASE_URL ||
-  "http://localhost:5132"
+  "http://localhost:5133"
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
