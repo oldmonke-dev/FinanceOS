@@ -11,6 +11,8 @@ services:
       - "5432:5432"
     volumes:
       - finance-postgres-data:/var/lib/postgresql/data
+    networks:
+      - finance-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U finance_user -d finance_db"]
       interval: 10s
@@ -36,6 +38,8 @@ services:
       Cors__AllowedOrigins__1: http://127.0.0.1:3000
     ports:
       - "5132:8080"
+    networks:
+      - finance-network
 
   spa:
     build:
@@ -54,6 +58,13 @@ services:
       NEXT_PUBLIC_FINANCE_API_BASE_URL: http://localhost:5132
     ports:
       - "3000:3000"
+    networks:
+      - finance-network
 
 volumes:
   finance-postgres-data:
+
+networks:
+  finance-network:
+    name: finance-network
+    driver: bridge
