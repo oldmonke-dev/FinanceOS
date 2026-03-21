@@ -132,3 +132,35 @@ Example:
 ```env
 NEXT_PUBLIC_FINANCE_API_BASE_URL=http://localhost:5132
 ```
+
+## Docker
+
+This repository includes:
+
+- `docker-compose.yml`
+- `Finance.WebAPI/Dockerfile`
+- `Finance.WebAPI/finance-spa/Dockerfile`
+
+Start the full stack:
+
+```bash
+docker compose up --build
+```
+
+Services:
+
+- SPA: `http://localhost:3000`
+- API: `http://localhost:5132`
+- PostgreSQL: `localhost:5432`
+
+Stop the stack:
+
+```bash
+docker compose down
+```
+
+Stop the stack and remove the database volume:
+
+```bash
+docker compose down -v
+```

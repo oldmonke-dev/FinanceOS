@@ -1,0 +1,16 @@
+.git
+.vs
+.dotnet
+build.log
+README.md
+dev.readme.md
+
+**/bin
+**/obj
+**/node_modules
+**/.next
+**/coverage
+**/*.tsbuildinfo
+
+Dockerfile*
+docker-compose*.yml

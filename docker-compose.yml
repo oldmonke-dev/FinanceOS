@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: finance-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: finance_db
+      POSTGRES_USER: finance_user
+      POSTGRES_PASSWORD: strongpassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - finance-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finance_user -d finance_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Finance.WebAPI/Dockerfile
+    container_name: finance-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=finance_db;Username=finance_user;Password=strongpassword
+      Cors__AllowedOrigins__0: http://localhost:3000
+      Cors__AllowedOrigins__1: http://127.0.0.1:3000
+    ports:
+      - "5132:8080"
+
+  spa:
+    build:
+      context: Finance.WebAPI/finance-spa
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_FINANCE_API_BASE_URL: http://localhost:5132
+    container_name: finance-spa
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_FINANCE_API_BASE_URL: http://localhost:5132
+    ports:
+      - "3000:3000"
+
+volumes:
+  finance-postgres-data:

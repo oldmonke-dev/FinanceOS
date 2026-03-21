@@ -18,9 +18,9 @@
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       },
-      "spaProxyServerUrl": "http://localhost:5173",
+      "spaProxyServerUrl": "http://localhost:3000",
       "spaProxyLaunchCommand": "npm run dev",
-      "workingDirectory": "ClientApp"
+      "workingDirectory": "finance-spa"
 
     }
 
