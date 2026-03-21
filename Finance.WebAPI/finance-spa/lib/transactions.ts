@@ -62,7 +62,10 @@ export async function createTransaction(
 }
 
 export async function getTransactions(accountId?: string): Promise<Transaction[]> {
-  const url = new URL(`${API_BASE_URL}/Transactions`)
+  const url =
+    typeof window === "undefined"
+      ? new URL(`${API_BASE_URL}/Transactions`)
+      : new URL(`${API_BASE_URL}/Transactions`, window.location.origin)
 
   if (accountId) {
     url.searchParams.set("accountId", accountId)
