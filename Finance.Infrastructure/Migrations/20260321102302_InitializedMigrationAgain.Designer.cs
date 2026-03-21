@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Finance.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260321050047_AddedBayesianLearning")]
-    partial class AddedBayesianLearning
+    [Migration("20260321102302_InitializedMigrationAgain")]
+    partial class InitializedMigrationAgain
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)

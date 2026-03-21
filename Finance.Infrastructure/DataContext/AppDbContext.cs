@@ -209,7 +209,6 @@ namespace Finance.Infrastructure.Data
             var expensesId = Guid.Parse("44444444-4444-4444-4444-444444444444");
             var cashId = Guid.Parse("55555555-5555-5555-5555-555555555555");
             var rootUserId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-
             modelBuilder.Entity<User>().HasData(
                 new User
                 {
