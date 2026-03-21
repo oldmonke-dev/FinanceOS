@@ -1,4 +1,4 @@
-const FALLBACK_BROWSER_API_BASE_URL = "http://localhost:5133"
+const FALLBACK_BROWSER_API_BASE_URL = "/api-proxy"
 const FALLBACK_SERVER_API_BASE_URL = "http://api:8080"
 
 const browserApiBaseUrl =

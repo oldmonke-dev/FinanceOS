@@ -48,7 +48,7 @@ services:
       provenance: false
       sbom: false
       args:
-        NEXT_PUBLIC_FINANCE_API_BASE_URL: http://localhost:5133
+        NEXT_PUBLIC_FINANCE_API_BASE_URL: /api-proxy
     container_name: finance-spa
     restart: unless-stopped
     depends_on:
@@ -56,7 +56,7 @@ services:
     environment:
       NODE_ENV: production
       FINANCE_API_BASE_URL: http://api:8080
-      NEXT_PUBLIC_FINANCE_API_BASE_URL: http://localhost:5133
+      NEXT_PUBLIC_FINANCE_API_BASE_URL: /api-proxy
     ports:
       - "3056:3000"
     networks:
