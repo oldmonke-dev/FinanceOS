@@ -1,5 +1,6 @@
 using Finance.BusinessLayer.Interfaces;
 using Finance.BusinessLayer.Services;
+using Finance.Domain.Entities.Core;
 using Finance.Domain.Interfaces;
 using Finance.Infrastructure.Data;
 using Finance.Infrastructure.Repositories;
@@ -68,6 +69,7 @@ using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     dbContext.Database.Migrate();
+    EnsureRootUserSeeded(dbContext);
 }
 
 // Configure the HTTP request pipeline.
@@ -89,3 +91,42 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+static void EnsureRootUserSeeded(AppDbContext dbContext)
+{
+    var rootUserId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    const string rootEmail = "root@finance.local";
+
+    if (dbContext.Users.Any(user => user.Id == rootUserId))
+    {
+        return;
+    }
+
+    var existingRootUser = dbContext.Users.FirstOrDefault(user => user.Email == rootEmail);
+    if (existingRootUser is not null)
+    {
+        existingRootUser.Id = rootUserId;
+        existingRootUser.DisplayName = "Root User";
+        existingRootUser.IsActive = true;
+
+        if (existingRootUser.CreatedAt == default)
+        {
+            existingRootUser.CreatedAt = new DateTime(2026, 3, 20, 0, 0, 0, DateTimeKind.Utc);
+        }
+
+        dbContext.SaveChanges();
+        return;
+    }
+
+    dbContext.Users.Add(new User
+    {
+        Id = rootUserId,
+        Email = rootEmail,
+        DisplayName = "Root User",
+        IsActive = true,
+        CreatedAt = new DateTime(2026, 3, 20, 0, 0, 0, DateTimeKind.Utc),
+        LastSeenAt = null,
+    });
+
+    dbContext.SaveChanges();
+}
