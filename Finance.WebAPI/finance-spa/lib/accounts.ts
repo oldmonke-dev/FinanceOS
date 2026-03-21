@@ -3,11 +3,7 @@ import {
   type AccountNode,
   type CreateAccountInput,
 } from "@/models/account"
-
-const API_BASE_URL =
-  process.env.FINANCE_API_BASE_URL ??
-  process.env.NEXT_PUBLIC_FINANCE_API_BASE_URL ??
-  "http://localhost:5132"
+import { API_BASE_URL } from "@/lib/api-config"
 
 function normalizeAccount(raw: Record<string, unknown>): Account {
   return {

@@ -3,11 +3,7 @@ import {
   type BayesianTrainingExample,
   type ImportBayesianTrainingResult,
 } from "@/models/strategy"
-
-const API_BASE_URL =
-  process.env.FINANCE_API_BASE_URL ??
-  process.env.NEXT_PUBLIC_FINANCE_API_BASE_URL ??
-  "http://localhost:5132"
+import { API_BASE_URL } from "@/lib/api-config"
 
 export async function getBayesianStrategy(): Promise<BayesianStrategy> {
   const response = await fetch(`${API_BASE_URL}/Strategies/bayesian`, {

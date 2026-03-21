@@ -3,11 +3,7 @@ import {
   type Transaction,
   type UpdateTransactionInput,
 } from "@/models/transaction"
-
-const API_BASE_URL =
-  process.env.FINANCE_API_BASE_URL ??
-  process.env.NEXT_PUBLIC_FINANCE_API_BASE_URL ??
-  "http://localhost:5132"
+import { API_BASE_URL } from "@/lib/api-config"
 
 function normalizeTransaction(raw: Record<string, unknown>): Transaction {
   const splitSource = raw.splits ?? raw.Splits
