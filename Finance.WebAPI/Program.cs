@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
+var enableHttpsRedirection = !builder.Environment.IsDevelopment();
 
 // Add services to the container.
 
@@ -76,9 +77,12 @@ if (app.Environment.IsDevelopment())
 
 }
 
-
-app.UseHttpsRedirection();
 app.UseCors("Spa");
+
+if (enableHttpsRedirection)
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseAuthorization();
 
