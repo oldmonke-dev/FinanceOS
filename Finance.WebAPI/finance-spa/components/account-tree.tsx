@@ -1,0 +1,1157 @@
+"use client"
+
+import { useEffect, useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
+import {
+  ArrowDownCircle,
+  ArrowUpCircle,
+  Briefcase,
+  ChevronRight,
+  CircleDashed,
+  FileSpreadsheet,
+  FolderPlus,
+  FolderTree,
+  Landmark,
+  Plus,
+  Trash2,
+  Upload,
+} from "lucide-react"
+
+import { useAccounts } from "@/components/providers/accounts-provider"
+import { useImportSessions } from "@/components/providers/import-sessions-provider"
+import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { buildAccountTree, createAccount, deleteAccount, formatAccountType } from "@/lib/accounts"
+import { getTransactions } from "@/lib/transactions"
+import {
+  type Account,
+  type AccountNode,
+  type AccountType,
+  type CreateAccountInput,
+} from "@/models/account"
+
+type AccountFormProps = {
+  parentAccountId: string | null
+  parentLabel: string
+  onCancel: () => void
+  onCreated: (account: Account) => void
+}
+
+type ImportedAccountDraft = {
+  id: string
+  fullPath: string
+  accountType: AccountType
+  include: boolean
+  isExisting: boolean
+}
+
+type ImportedAccountNode = {
+  id: string
+  name: string
+  fullPath: string
+  accountType: AccountType
+  children: ImportedAccountNode[]
+}
+
+const accountTypeOptions: { value: AccountType; label: string }[] = [
+  { value: 1, label: "Asset" },
+  { value: 2, label: "Liability" },
+  { value: 3, label: "Equity" },
+  { value: 4, label: "Income" },
+  { value: 5, label: "Expense" },
+]
+
+export function AccountTree() {
+  const router = useRouter()
+  const { accounts, addAccount, errorMessage, isLoading, refreshAccounts } = useAccounts()
+  const { refreshSessions } = useImportSessions()
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set())
+  const [activeParentId, setActiveParentId] = useState<string | "root" | null>(null)
+  const [balanceLookup, setBalanceLookup] = useState<Record<string, number>>({})
+  const [balanceError, setBalanceError] = useState<string | null>(null)
+  const [isImportOpen, setIsImportOpen] = useState(false)
+  const [deletingAccountId, setDeletingAccountId] = useState<string | null>(null)
+
+  const nodes = buildAccountTree(accounts)
+  const rolledUpBalanceLookup = useMemo(() => {
+    const nextLookup = { ...balanceLookup }
+
+    function visit(node: AccountNode): number {
+      const ownBalance = balanceLookup[node.id] ?? 0
+      const childBalance = node.children.reduce((sum, child) => sum + visit(child), 0)
+      const total = ownBalance + childBalance
+      nextLookup[node.id] = total
+      return total
+    }
+
+    nodes.forEach((node) => {
+      visit(node)
+    })
+
+    return nextLookup
+  }, [nodes, balanceLookup])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    async function loadBalances() {
+      try {
+        const transactions = await getTransactions()
+
+        if (isCancelled) {
+          return
+        }
+
+        const nextLookup: Record<string, number> = {}
+
+        for (const transaction of transactions) {
+          for (const split of transaction.splits) {
+            nextLookup[split.accountId] = (nextLookup[split.accountId] ?? 0) + split.amount
+          }
+        }
+
+        setBalanceLookup(nextLookup)
+        setBalanceError(null)
+      } catch (error) {
+        if (isCancelled) {
+          return
+        }
+
+        setBalanceLookup({})
+        setBalanceError(
+          error instanceof Error ? error.message : "Failed to load account balances.",
+        )
+      }
+    }
+
+    void loadBalances()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [])
+
+  if (isLoading) {
+    return (
+      <div className="rounded-2xl border bg-card p-8 text-center text-muted-foreground">
+        Loading accounts...
+      </div>
+    )
+  }
+
+  if (errorMessage) {
+    return (
+      <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-6">
+        <h2 className="text-lg font-semibold">Could not load accounts</h2>
+        <p className="mt-2 text-sm text-muted-foreground">{errorMessage}</p>
+        <div className="mt-4">
+          <Button type="button" variant="outline" onClick={() => void refreshAccounts()}>
+            Retry
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  if (nodes.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed bg-card p-8 text-center text-muted-foreground">
+        No accounts were returned by the backend.
+      </div>
+    )
+  }
+
+  function toggleCollapsed(accountId: string) {
+    setCollapsedIds((current) => {
+      const next = new Set(current)
+
+      if (next.has(accountId)) {
+        next.delete(accountId)
+      } else {
+        next.add(accountId)
+      }
+
+      return next
+    })
+  }
+
+  function collapseAll() {
+    setCollapsedIds(new Set(collectAccountIds(nodes)))
+  }
+
+  function expandAll() {
+    setCollapsedIds(new Set())
+  }
+
+  function handleCreated(account: Account) {
+    addAccount(account)
+    setActiveParentId(null)
+  }
+
+  async function handleDeleteAccount(account: Account) {
+    const confirmed = window.confirm(
+      `Delete ${account.name}? Any transactions tagged to this account will be moved into a mandatory review session for remapping.`,
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    setDeletingAccountId(account.id)
+
+    try {
+      const result = await deleteAccount(account.id)
+      await Promise.all([refreshAccounts(), refreshSessions()])
+
+      if (result.createdImportSessionId) {
+        router.push("/import-sessions")
+      }
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Failed to delete account.")
+    } finally {
+      setDeletingAccountId(null)
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border bg-card p-3 shadow-sm">
+      <div className="flex flex-col gap-2 border-b pb-2 md:flex-row md:items-center md:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="rounded-lg bg-primary/8 p-2 text-primary">
+            <FolderTree className="size-4.5" />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold">Account hierarchy</h2>
+            <p className="text-xs text-muted-foreground">
+              Expand nodes and add accounts inline.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={collapseAll}>
+            Collapse All
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={expandAll}>
+            Expand All
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={activeParentId === "root" ? "secondary" : "outline"}
+            onClick={() => setActiveParentId((current) => (current === "root" ? null : "root"))}
+          >
+            <Plus />
+            New account
+          </Button>
+          <Button type="button" size="sm" variant={isImportOpen ? "secondary" : "outline"} onClick={() => setIsImportOpen(true)}>
+            <Upload />
+            Import hierarchy
+          </Button>
+        </div>
+      </div>
+
+      {activeParentId === "root" ? (
+        <div className="mt-3">
+          <AccountForm
+            parentAccountId={null}
+            parentLabel="top level"
+            onCancel={() => setActiveParentId(null)}
+            onCreated={handleCreated}
+          />
+        </div>
+      ) : null}
+
+      <Sheet open={isImportOpen} onOpenChange={setIsImportOpen}>
+        <SheetContent
+          side="top"
+          className="inset-x-0 top-[4vh] bottom-[4vh] mx-auto h-auto w-[min(96vw,86rem)] max-w-none overflow-hidden rounded-2xl border p-0 sm:max-w-none"
+        >
+          <SheetHeader className="border-b bg-card px-6 py-5">
+            <SheetTitle>Import Account Hierarchy</SheetTitle>
+            <SheetDescription>
+              Load a GnuCash-style account CSV, review the hierarchy first, edit it, then confirm the import.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="h-[calc(92vh-5.5rem)] overflow-y-auto px-6 py-5">
+            <AccountHierarchyImportPanel
+              accounts={accounts}
+              addAccount={addAccount}
+              refreshAccounts={refreshAccounts}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <div className="mt-3">
+        {balanceError ? (
+          <div className="mb-4 rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+            {balanceError}
+          </div>
+        ) : null}
+        <TreeList
+          nodes={nodes}
+          depth={0}
+          balanceLookup={rolledUpBalanceLookup}
+          collapsedIds={collapsedIds}
+          activeParentId={activeParentId}
+          onToggleCollapsed={toggleCollapsed}
+          onOpenLedger={(accountId) => router.push(`/accounts/${accountId}`)}
+          onActivateCreate={setActiveParentId}
+          deletingAccountId={deletingAccountId}
+          onDeleteAccount={(account) => void handleDeleteAccount(account)}
+          onCreated={handleCreated}
+          onCancelCreate={() => setActiveParentId(null)}
+        />
+      </div>
+    </div>
+  )
+}
+
+type AccountHierarchyImportPanelProps = {
+  accounts: Account[]
+  addAccount: (account: Account) => void
+  refreshAccounts: () => Promise<void>
+}
+
+function AccountHierarchyImportPanel({
+  accounts,
+  addAccount,
+  refreshAccounts,
+}: AccountHierarchyImportPanelProps) {
+  const [drafts, setDrafts] = useState<ImportedAccountDraft[]>([])
+  const [fileName, setFileName] = useState<string | null>(null)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [isImporting, setIsImporting] = useState(false)
+
+  const existingAccountPathLookup = useMemo(() => buildExistingAccountPathLookup(accounts), [accounts])
+  const normalizedDrafts = useMemo(
+    () =>
+      drafts.map((draft) => ({
+        ...draft,
+        fullPath: normalizeImportedFullPath(draft.fullPath),
+        isExisting: existingAccountPathLookup.has(normalizeImportedFullPath(draft.fullPath).toLowerCase()),
+      })),
+    [drafts, existingAccountPathLookup],
+  )
+  const previewNodes = useMemo(
+    () => buildImportedAccountTree(normalizedDrafts.filter((draft) => draft.include)),
+    [normalizedDrafts],
+  )
+  const includedDraftCount = normalizedDrafts.filter((draft) => draft.include).length
+
+  async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) {
+      return
+    }
+
+    const text = await file.text()
+
+    try {
+      const nextDrafts = parseGnuCashAccountCsv(text, existingAccountPathLookup)
+      setDrafts(nextDrafts)
+      setFileName(file.name)
+      setErrorMessage(null)
+    } catch (error) {
+      setDrafts([])
+      setFileName(file.name)
+      setErrorMessage(error instanceof Error ? error.message : "Failed to parse account hierarchy.")
+    }
+  }
+
+  function updateDraft(draftId: string, updater: (draft: ImportedAccountDraft) => ImportedAccountDraft) {
+    setDrafts((current) =>
+      current.map((draft) => (draft.id === draftId ? updater(draft) : draft)),
+    )
+  }
+
+  function removeDraft(draftId: string) {
+    setDrafts((current) => current.filter((draft) => draft.id !== draftId))
+  }
+
+  async function handleImport() {
+    const draftsToImport = normalizedDrafts.filter((draft) => draft.include)
+    if (draftsToImport.length === 0) {
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Import ${draftsToImport.length} account path${draftsToImport.length === 1 ? "" : "s"}? Existing paths will be skipped.`,
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    setIsImporting(true)
+    setErrorMessage(null)
+
+    try {
+      const accountByPath = new Map(existingAccountPathLookup)
+      const sortedDrafts = [...draftsToImport].sort(
+        (left, right) =>
+          getImportedPathSegments(left.fullPath).length - getImportedPathSegments(right.fullPath).length,
+      )
+
+      for (const draft of sortedDrafts) {
+        const segments = getImportedPathSegments(draft.fullPath)
+        let parentAccountId: string | null = null
+        let currentPath = ""
+
+        for (let index = 0; index < segments.length; index += 1) {
+          const segment = segments[index]
+          currentPath = currentPath ? `${currentPath}:${segment}` : segment
+          const normalizedPath = currentPath.toLowerCase()
+          const existingAccount = accountByPath.get(normalizedPath)
+
+          if (existingAccount) {
+            parentAccountId = existingAccount.id
+            continue
+          }
+
+          const accountType =
+            index === segments.length - 1
+              ? draft.accountType
+              : inferAccountTypeFromPath(currentPath, draft.accountType)
+
+          const createdAccount = await createAccount({
+            name: segment,
+            accountType,
+            parentAccountId,
+          })
+
+          addAccount(createdAccount)
+          accountByPath.set(normalizedPath, createdAccount)
+          parentAccountId = createdAccount.id
+        }
+      }
+
+      await refreshAccounts()
+      setDrafts([])
+      setFileName(null)
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to import account hierarchy.")
+    } finally {
+      setIsImporting(false)
+    }
+  }
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h3 className="text-base font-semibold">Source file</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Choose a GnuCash account export and review the parsed hierarchy before importing.
+          </p>
+        </div>
+        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border bg-background px-3 py-2 text-sm font-medium shadow-sm">
+          <Upload className="size-4" />
+          <span>Choose CSV</span>
+          <input type="file" accept=".csv,text/csv" className="sr-only" onChange={handleFileChange} />
+        </label>
+      </div>
+
+      <div className="rounded-xl border bg-card px-4 py-3 text-sm text-muted-foreground">
+        {fileName ? `Loaded file: ${fileName}` : "No hierarchy file loaded yet."}
+      </div>
+
+      {errorMessage ? (
+        <div className="mt-4 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          {errorMessage}
+        </div>
+      ) : null}
+
+      {normalizedDrafts.length > 0 ? (
+        <div className="grid gap-3 xl:grid-cols-[0.9fr_1.1fr]">
+          <div className="rounded-2xl border bg-card p-4 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="rounded-xl bg-primary/10 p-2 text-primary">
+                <FolderTree className="size-4" />
+              </div>
+              <div>
+                <h4 className="font-medium">Hierarchy preview</h4>
+                <p className="text-sm text-muted-foreground">
+                  Review the tree before anything is created.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-3 max-h-[32rem] overflow-y-auto pr-1">
+              {previewNodes.length > 0 ? (
+                <ImportedTreeList nodes={previewNodes} />
+              ) : (
+                <div className="rounded-xl border border-dashed bg-background/70 p-6 text-sm text-muted-foreground">
+                  No account paths are currently selected for import.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border bg-card p-4 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="rounded-xl bg-primary/10 p-2 text-primary">
+                <FileSpreadsheet className="size-4" />
+              </div>
+              <div>
+                <h4 className="font-medium">Editable entries</h4>
+                <p className="text-sm text-muted-foreground">
+                  Modify any path or type before import. Existing paths are marked and skipped.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-3 max-h-[32rem] space-y-2 overflow-y-auto pr-1">
+              {normalizedDrafts.map((draft) => (
+                <div
+                  key={draft.id}
+                  className="grid gap-2 rounded-xl border bg-background/70 p-2.5 md:grid-cols-[minmax(0,1.5fr)_0.8fr_auto_auto]"
+                >
+                  <label className="space-y-2 text-sm">
+                    <span className="font-medium">Full path</span>
+                    <Input
+                      value={draft.fullPath}
+                      onChange={(event) =>
+                        updateDraft(draft.id, (current) => ({ ...current, fullPath: event.target.value }))
+                      }
+                    />
+                  </label>
+
+                  <label className="space-y-2 text-sm">
+                    <span className="font-medium">Type</span>
+                    <Select
+                      value={String(draft.accountType)}
+                      onValueChange={(value) =>
+                        updateDraft(draft.id, (current) => ({
+                          ...current,
+                          accountType: Number(value) as AccountType,
+                        }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {accountTypeOptions.map((option) => (
+                          <SelectItem key={option.value} value={String(option.value)}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </label>
+
+                  <label className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm">
+                    <Checkbox
+                      checked={draft.include}
+                      onCheckedChange={(checked) =>
+                        updateDraft(draft.id, (current) => ({
+                          ...current,
+                          include: checked === true,
+                        }))
+                      }
+                    />
+                    <span>{draft.isExisting ? "Skip existing" : "Import"}</span>
+                  </label>
+
+                  <div className="flex items-end justify-end">
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      className="text-destructive"
+                      onClick={() => removeDraft(draft.id)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+
+                  {draft.isExisting ? (
+                    <p className="md:col-span-4 text-xs text-amber-700">
+                      This path already exists in the current account tree and will be skipped.
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t pt-3">
+              <p className="text-sm text-muted-foreground">
+                {includedDraftCount} path{includedDraftCount === 1 ? "" : "s"} selected for import
+              </p>
+              <Button type="button" onClick={() => void handleImport()} disabled={isImporting || includedDraftCount === 0}>
+                {isImporting ? "Importing..." : "Confirm import"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function ImportedTreeList({ nodes }: { nodes: ImportedAccountNode[] }) {
+  return (
+    <ul className="space-y-1.5">
+      {nodes.map((node) => (
+        <li key={node.id}>
+          <div className="rounded-lg border bg-background/70 px-3 py-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-medium">{node.name}</span>
+              <span className="rounded-full border bg-card px-2 py-0.5 text-[11px] text-muted-foreground">
+                {formatAccountType(node.accountType)}
+              </span>
+            </div>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">{node.fullPath}</p>
+          </div>
+          {node.children.length > 0 ? (
+            <div className="mt-1.5 border-l border-dashed pl-3">
+              <ImportedTreeList nodes={node.children} />
+            </div>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+type TreeListProps = {
+  nodes: AccountNode[]
+  depth: number
+  balanceLookup: Record<string, number>
+  collapsedIds: Set<string>
+  activeParentId: string | "root" | null
+  onToggleCollapsed: (accountId: string) => void
+  onOpenLedger: (accountId: string) => void
+  onActivateCreate: (parentId: string | "root" | null) => void
+  deletingAccountId: string | null
+  onDeleteAccount: (account: Account) => void
+  onCreated: (account: Account) => void
+  onCancelCreate: () => void
+}
+
+function TreeList({
+  nodes,
+  depth,
+  balanceLookup,
+  collapsedIds,
+  activeParentId,
+  onToggleCollapsed,
+  onOpenLedger,
+  onActivateCreate,
+  deletingAccountId,
+  onDeleteAccount,
+  onCreated,
+  onCancelCreate,
+}: TreeListProps) {
+  return (
+    <ul className="space-y-1.5">
+      {nodes.map((node) => {
+        const isCollapsed = collapsedIds.has(node.id)
+        const isCreateOpen = activeParentId === node.id
+        const presentation = getAccountTypePresentation(node.accountType)
+
+        return (
+          <li key={node.id}>
+            <div
+              className="rounded-lg border bg-background/70 px-3 py-2"
+              style={{ marginLeft: depth === 0 ? 0 : depth * 14 }}
+            >
+              <div className="flex flex-col gap-1.5 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-start gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onToggleCollapsed(node.id)}
+                    className="mt-0.5 rounded-md bg-muted p-1 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                    aria-label={isCollapsed ? `Expand ${node.name}` : `Collapse ${node.name}`}
+                  >
+                    <ChevronRight
+                      className={`size-3.5 transition ${isCollapsed ? "" : "rotate-90"}`}
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onOpenLedger(node.id)}
+                    className="min-w-0 text-left"
+                  >
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <p className="text-sm font-medium leading-tight transition hover:text-primary">{node.name}</p>
+                      <span className="inline-flex items-center gap-1 rounded-full border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                        <presentation.icon className={`size-3 ${presentation.iconClass}`} />
+                        <span>{presentation.label}</span>
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      {node.parentAccountId != null ? "Nested account" : "Top-level account"}
+                    </p>
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <div className="rounded-full border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground">
+                    <span className="text-muted-foreground">Balance:</span>{" "}
+                    <span className="tabular-nums">{formatBalance(balanceLookup[node.id] ?? 0)}</span>
+                  </div>
+                  <div className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    {node.children.length} subaccount{node.children.length === 1 ? "" : "s"}
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={isCreateOpen ? "secondary" : "outline"}
+                    className="h-7 px-2 text-[11px]"
+                    onClick={() => onActivateCreate(isCreateOpen ? null : node.id)}
+                  >
+                    <FolderPlus />
+                    Add
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-[11px] text-destructive"
+                    onClick={() => onDeleteAccount(node)}
+                    disabled={node.children.length > 0 || deletingAccountId === node.id}
+                  >
+                    <Trash2 />
+                    {deletingAccountId === node.id ? "Deleting..." : "Delete"}
+                  </Button>
+                </div>
+              </div>
+
+              {isCreateOpen ? (
+                <div className="mt-2 border-t pt-2">
+                  <AccountForm
+                    parentAccountId={node.id}
+                    parentLabel={node.name}
+                    onCancel={onCancelCreate}
+                    onCreated={onCreated}
+                  />
+                </div>
+              ) : null}
+            </div>
+
+            {!isCollapsed && node.children.length > 0 ? (
+              <div className="mt-1.5 border-l border-dashed pl-2.5">
+                <TreeList
+                  nodes={node.children}
+                  depth={depth + 1}
+                  balanceLookup={balanceLookup}
+                  collapsedIds={collapsedIds}
+                  activeParentId={activeParentId}
+                  onToggleCollapsed={onToggleCollapsed}
+                  onOpenLedger={onOpenLedger}
+                  onActivateCreate={onActivateCreate}
+                  deletingAccountId={deletingAccountId}
+                  onDeleteAccount={onDeleteAccount}
+                  onCreated={onCreated}
+                  onCancelCreate={onCancelCreate}
+                />
+              </div>
+            ) : null}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+function AccountForm({
+  parentAccountId,
+  parentLabel,
+  onCancel,
+  onCreated,
+}: AccountFormProps) {
+  const [name, setName] = useState("")
+  const [accountType, setAccountType] = useState<AccountType>(1)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setIsSubmitting(true)
+    setErrorMessage(null)
+
+    try {
+      const payload: CreateAccountInput = {
+        name,
+        accountType,
+        parentAccountId,
+      }
+
+      const account = await createAccount(payload)
+      setName("")
+      setAccountType(1)
+      onCreated(account)
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "Unknown error while creating account.",
+      )
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="rounded-xl border bg-card p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-medium">Create account</h3>
+          <p className="text-xs text-muted-foreground">
+            Under: {parentLabel}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2 md:grid-cols-[1.2fr_0.8fr_auto]">
+        <label className="space-y-1 text-sm">
+          <span className="font-medium">Name</span>
+          <Input
+            className="h-8"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Account name"
+            required
+          />
+        </label>
+
+        <label className="space-y-1 text-sm">
+          <span className="font-medium">Type</span>
+          <Select
+            value={String(accountType)}
+            onValueChange={(value) => setAccountType(Number(value) as AccountType)}
+          >
+            <SelectTrigger className="h-8">
+              <SelectValue placeholder="Select type" />
+            </SelectTrigger>
+            <SelectContent>
+              {accountTypeOptions.map((option) => (
+                <SelectItem key={option.value} value={String(option.value)}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </label>
+
+        <div className="flex items-end gap-2">
+          <Button type="submit" size="sm" disabled={isSubmitting}>
+            {isSubmitting ? "Creating..." : "Create"}
+          </Button>
+          <Button type="button" size="sm" variant="ghost" onClick={onCancel} disabled={isSubmitting}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+
+      {errorMessage ? <p className="mt-2 text-sm text-destructive">{errorMessage}</p> : null}
+    </form>
+  )
+}
+
+function getAccountTypePresentation(accountType: number | string | null) {
+  if (accountType === 5 || accountType === "Expense") {
+    return {
+      label: "Expense",
+      icon: ArrowDownCircle,
+      iconClass: "text-rose-600 dark:text-rose-400",
+    }
+  }
+
+  if (accountType === 4 || accountType === "Income") {
+    return {
+      label: "Income",
+      icon: ArrowUpCircle,
+      iconClass: "text-emerald-600 dark:text-emerald-400",
+    }
+  }
+
+  if (accountType === 1 || accountType === "Asset") {
+    return {
+      label: "Asset",
+      icon: Landmark,
+      iconClass: "text-sky-600 dark:text-sky-400",
+    }
+  }
+
+  if (accountType === 2 || accountType === "Liability") {
+    return {
+      label: "Liability",
+      icon: Briefcase,
+      iconClass: "text-amber-600 dark:text-amber-400",
+    }
+  }
+
+  return {
+    label: formatAccountType(accountType ?? "Unknown"),
+    icon: CircleDashed,
+    iconClass: "text-muted-foreground",
+  }
+}
+
+function formatBalance(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value)
+}
+
+function buildExistingAccountPathLookup(accounts: Account[]) {
+  const accountById = new Map(accounts.map((account) => [account.id, account]))
+  const pathLookup = new Map<string, Account>()
+
+  function buildPath(account: Account) {
+    const segments: string[] = [account.name]
+    let parentAccountId = account.parentAccountId
+
+    while (parentAccountId) {
+      const parent = accountById.get(parentAccountId)
+      if (!parent) {
+        break
+      }
+
+      segments.unshift(parent.name)
+      parentAccountId = parent.parentAccountId
+    }
+
+    return normalizeImportedFullPath(segments.join(":"))
+  }
+
+  for (const account of accounts) {
+    pathLookup.set(buildPath(account).toLowerCase(), account)
+  }
+
+  return pathLookup
+}
+
+function parseGnuCashAccountCsv(
+  source: string,
+  existingAccountPathLookup: Map<string, Account>,
+) {
+  const rows = parseCsvRows(source)
+  if (rows.length < 2) {
+    throw new Error("Account CSV did not contain any data rows.")
+  }
+
+  const headers = rows[0].map((value) => value.trim())
+  const typeIndex = headers.findIndex((value) => value.toLowerCase() === "type")
+  const fullPathIndex = headers.findIndex((value) => value.toLowerCase() === "full account name")
+  const hiddenIndex = headers.findIndex((value) => value.toLowerCase() === "hidden")
+
+  if (typeIndex < 0 || fullPathIndex < 0) {
+    throw new Error("Account CSV must contain Type and Full Account Name columns.")
+  }
+
+  const drafts: ImportedAccountDraft[] = []
+
+  rows.slice(1).forEach((row, index) => {
+    const fullPath = normalizeImportedFullPath(row[fullPathIndex] ?? "")
+    if (!fullPath) {
+      return
+    }
+
+    const isHidden = String(row[hiddenIndex] ?? "F").trim().toUpperCase() === "T"
+    if (isHidden) {
+      return
+    }
+
+    const accountType = mapImportedAccountType(row[typeIndex] ?? "")
+    drafts.push({
+      id: `imported-account-${index}`,
+      fullPath,
+      accountType,
+      include: true,
+      isExisting: existingAccountPathLookup.has(fullPath.toLowerCase()),
+    })
+  })
+
+  return drafts
+}
+
+function parseCsvRows(source: string) {
+  const rows: string[][] = []
+  let currentRow: string[] = []
+  let currentCell = ""
+  let insideQuotes = false
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]
+    const nextChar = source[index + 1]
+
+    if (char === '"') {
+      if (insideQuotes && nextChar === '"') {
+        currentCell += '"'
+        index += 1
+      } else {
+        insideQuotes = !insideQuotes
+      }
+
+      continue
+    }
+
+    if (!insideQuotes && char === ",") {
+      currentRow.push(currentCell.trim())
+      currentCell = ""
+      continue
+    }
+
+    if (!insideQuotes && (char === "\n" || char === "\r")) {
+      if (char === "\r" && nextChar === "\n") {
+        index += 1
+      }
+
+      currentRow.push(currentCell.trim())
+      currentCell = ""
+
+      if (currentRow.some((value) => value.length > 0)) {
+        rows.push(currentRow)
+      }
+
+      currentRow = []
+      continue
+    }
+
+    currentCell += char
+  }
+
+  if (currentCell.length > 0 || currentRow.length > 0) {
+    currentRow.push(currentCell.trim())
+    if (currentRow.some((value) => value.length > 0)) {
+      rows.push(currentRow)
+    }
+  }
+
+  return rows
+}
+
+function normalizeImportedFullPath(value: string) {
+  return value
+    .split(":")
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .join(":")
+}
+
+function getImportedPathSegments(fullPath: string) {
+  return normalizeImportedFullPath(fullPath)
+    .split(":")
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+}
+
+function mapImportedAccountType(value: string): AccountType {
+  switch (value.trim().toUpperCase()) {
+    case "ASSET":
+    case "BANK":
+    case "CASH":
+      return 1
+    case "LIABILITY":
+    case "CREDIT":
+      return 2
+    case "EQUITY":
+      return 3
+    case "INCOME":
+      return 4
+    case "EXPENSE":
+      return 5
+    default:
+      return 1
+  }
+}
+
+function inferAccountTypeFromPath(fullPath: string, fallback: AccountType) {
+  const rootSegment = getImportedPathSegments(fullPath)[0]?.toLowerCase()
+
+  if (rootSegment === "assets" || rootSegment === "asset") {
+    return 1
+  }
+
+  if (rootSegment === "liabilities" || rootSegment === "liability") {
+    return 2
+  }
+
+  if (rootSegment === "equity") {
+    return 3
+  }
+
+  if (rootSegment === "income") {
+    return 4
+  }
+
+  if (rootSegment === "expenses" || rootSegment === "expense") {
+    return 5
+  }
+
+  return fallback
+}
+
+function buildImportedAccountTree(drafts: ImportedAccountDraft[]) {
+  const nodeByPath = new Map<string, ImportedAccountNode>()
+  const roots: ImportedAccountNode[] = []
+
+  for (const draft of drafts) {
+    const segments = getImportedPathSegments(draft.fullPath)
+    let currentPath = ""
+    let parentNode: ImportedAccountNode | null = null
+
+    for (let index = 0; index < segments.length; index += 1) {
+      const segment = segments[index]
+      currentPath = currentPath ? `${currentPath}:${segment}` : segment
+      let node = nodeByPath.get(currentPath)
+
+      if (!node) {
+        node = {
+          id: currentPath,
+          name: segment,
+          fullPath: currentPath,
+          accountType: draft.accountType,
+          children: [],
+        }
+
+        nodeByPath.set(currentPath, node)
+
+        if (parentNode) {
+          parentNode.children.push(node)
+        } else {
+          roots.push(node)
+        }
+      }
+
+      if (index === segments.length - 1) {
+        node.accountType = draft.accountType
+      }
+
+      parentNode = node
+    }
+  }
+
+  return roots
+}
+
+function collectAccountIds(nodes: AccountNode[]) {
+  const ids: string[] = []
+
+  for (const node of nodes) {
+    ids.push(node.id)
+    ids.push(...collectAccountIds(node.children))
+  }
+
+  return ids
+}

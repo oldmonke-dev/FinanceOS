@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="readme.txt" />
+  </Folder>
+  <Project Path="Finance.BusinessLayer/Finance.BusinessLayer.csproj" Id="df7b03c3-23c9-437c-88b3-74440f629cd2" />
+  <Project Path="Finance.Domain/Finance.Domain.csproj" Id="3640ac49-7ce2-470d-9ab2-18a32fe19cb8" />
+  <Project Path="Finance.Infrastructure/Finance.Infrastructure.csproj" Id="44db8d2e-c0c7-485b-871a-35af34c24719" />
+  <Project Path="Finance.WebAPI/Finance.WebAPI.csproj" />
+</Solution>

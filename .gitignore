@@ -1,0 +1,26 @@
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# .NET build output
+**/bin/
+**/obj/
+TestResults/
+
+# Local SDK and tooling
+.dotnet/
+build.log
+
+# Node / frontend
+**/node_modules/
+**/.next/
+**/out/
+**/coverage/
+**/*.tsbuildinfo
+
+# OS / misc
+.DS_Store
+Thumbs.db
