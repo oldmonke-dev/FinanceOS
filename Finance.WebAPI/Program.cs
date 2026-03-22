@@ -22,22 +22,18 @@ builder.Services.AddControllers()
 builder.Services.AddOpenApi();
 builder.Services.AddCors(options =>
 {
-    var configuredOrigins = builder.Configuration
+    var allowedOrigins = builder.Configuration
         .GetSection("Cors:AllowedOrigins")
         .Get<string[]>()
         ?.Where(origin => !string.IsNullOrWhiteSpace(origin))
         .Select(origin => origin.Trim())
-        .ToArray();
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray() ?? [];
 
-    var allowedOrigins = configuredOrigins is { Length: > 0 }
-        ? configuredOrigins
-        : new[]
-        {
-            "http://localhost:3000",
-            "https://localhost:3000",
-            "http://127.0.0.1:3000",
-            "https://127.0.0.1:3000",
-        };
+    if (allowedOrigins.Length == 0)
+    {
+        throw new InvalidOperationException("Cors:AllowedOrigins must define at least one origin.");
+    }
 
     options.AddPolicy("Spa", policy =>
     {

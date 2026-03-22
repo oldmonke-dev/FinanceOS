@@ -55,7 +55,7 @@ services:
       - api
     environment:
       NODE_ENV: production
-      FINANCE_API_BASE_URL: http://api:8080
+      FINANCE_API_SERVER_BASE_URL: http://api:8080
       NEXT_PUBLIC_FINANCE_API_BASE_URL: /api-proxy
     ports:
       - "3056:3000"

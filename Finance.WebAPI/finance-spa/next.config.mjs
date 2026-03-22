@@ -1,7 +1,8 @@
-const apiProxyDestination =
-  process.env.FINANCE_API_BASE_URL ||
-  process.env.INTERNAL_FINANCE_API_BASE_URL ||
-  "http://api:8080"
+const apiServerBaseUrl = process.env.FINANCE_API_SERVER_BASE_URL
+
+if (!apiServerBaseUrl?.trim()) {
+  throw new Error("FINANCE_API_SERVER_BASE_URL must be defined.")
+}
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -9,7 +10,7 @@ const nextConfig = {
     return [
       {
         source: "/api-proxy/:path*",
-        destination: `${apiProxyDestination}/:path*`,
+        destination: `${apiServerBaseUrl.trim()}/:path*`,
       },
     ]
   },
