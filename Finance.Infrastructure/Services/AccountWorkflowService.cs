@@ -53,7 +53,7 @@ namespace Finance.Infrastructure.Services
                 _context.Transactions.RemoveRange(affectedTransactions);
             }
 
-            await ClearImportSessionReferencesAsync(accountId, cancellationToken);
+            await ClearImportReferencesAsync(accountId, cancellationToken);
 
             _context.Accounts.Remove(account);
             await _context.SaveChangesAsync(cancellationToken);
@@ -66,7 +66,7 @@ namespace Finance.Infrastructure.Services
             };
         }
 
-        private async Task ClearImportSessionReferencesAsync(Guid accountId, CancellationToken cancellationToken)
+        private async Task ClearImportReferencesAsync(Guid accountId, CancellationToken cancellationToken)
         {
             var sourceSessions = await _context.ImportSessions
                 .Where(session => session.SourceAccountId == accountId)
@@ -85,6 +85,24 @@ namespace Finance.Infrastructure.Services
             {
                 row.DestinationAccountId = null;
                 row.DestinationAccountError = "Account deleted. Please remap.";
+            }
+
+            var learningStats = await _context.ImportLearningStats
+                .Where(item => item.DestinationAccountId == accountId)
+                .ToListAsync(cancellationToken);
+
+            if (learningStats.Count > 0)
+            {
+                _context.ImportLearningStats.RemoveRange(learningStats);
+            }
+
+            var sessionLearningEntries = await _context.ImportSessionLearningEntries
+                .Where(item => item.DestinationAccountId == accountId)
+                .ToListAsync(cancellationToken);
+
+            if (sessionLearningEntries.Count > 0)
+            {
+                _context.ImportSessionLearningEntries.RemoveRange(sessionLearningEntries);
             }
         }
 
