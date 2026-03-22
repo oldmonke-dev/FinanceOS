@@ -49,6 +49,7 @@ services:
       sbom: false
       args:
         NEXT_PUBLIC_FINANCE_API_BASE_URL: /api-proxy
+        FINANCE_API_SERVER_BASE_URL: http://api:8080
     container_name: finance-spa
     restart: unless-stopped
     depends_on:
