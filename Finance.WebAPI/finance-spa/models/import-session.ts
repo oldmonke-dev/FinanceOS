@@ -5,7 +5,6 @@ export type ImportSessionRow = {
   destinationAccountId: string | null
   destinationAccountError: string | null
   mappingSource: string
-  includeInLedger: boolean
   addedToLedgerAt: string | null
   postedTransactionId: string | null
   projectBalance: number
@@ -22,7 +21,6 @@ export type ImportSession = {
   label: "user_imports" | "user_import_chunked" | "account_deletion_sessions" | string
   isDeletable: boolean
   strategy: string
-  hasExclusions: boolean
   isArchived: boolean
   status: string
   columnMappings: Record<number, string>
@@ -34,7 +32,6 @@ export type CreateImportSessionRowInput = {
   values: string[]
   destinationAccountId: string | null
   destinationAccountError: string | null
-  includeInLedger: boolean
   addedToLedgerAt?: string | null
   postedTransactionId?: string | null
 }
@@ -44,7 +41,6 @@ export type CreateImportSessionInput = {
   sourceAccountId: string | null
   label?: "user_imports" | "user_import_chunked" | "account_deletion_sessions" | string
   strategy?: string
-  hasExclusions?: boolean
   isArchived?: boolean
   status?: string
   columnMappings: Record<number, string>

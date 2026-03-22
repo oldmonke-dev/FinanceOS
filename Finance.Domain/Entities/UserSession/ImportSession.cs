@@ -22,8 +22,6 @@ namespace Finance.Domain.Entities.UserSession
 
         public string Strategy { get; set; } = "bayesian_statistics";
 
-        public bool HasExclusions { get; set; }
-
         public string ColumnMappingsJson { get; set; } = "{}";
 
         public bool IsArchived { get; set; }

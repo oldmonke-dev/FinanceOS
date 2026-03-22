@@ -25,7 +25,6 @@ function normalizeImportSessionRow(raw: Record<string, unknown>): ImportSessionR
         ? null
         : String(raw.destinationAccountError ?? raw.DestinationAccountError),
     mappingSource: String(raw.mappingSource ?? raw.MappingSource ?? "none"),
-    includeInLedger: Boolean(raw.includeInLedger ?? raw.IncludeInLedger ?? true),
     addedToLedgerAt:
       raw.addedToLedgerAt == null && raw.AddedToLedgerAt == null
         ? null
@@ -73,7 +72,6 @@ function normalizeImportSession(raw: Record<string, unknown>): ImportSession {
     label: String(raw.label ?? raw.Label ?? "user_imports"),
     isDeletable: Boolean(raw.isDeletable ?? raw.IsDeletable ?? true),
     strategy: String(raw.strategy ?? raw.Strategy ?? "bayesian_statistics"),
-    hasExclusions: Boolean(raw.hasExclusions ?? raw.HasExclusions ?? false),
     isArchived: Boolean(raw.isArchived ?? raw.IsArchived ?? false),
     status: String(raw.status ?? raw.Status ?? "Active"),
     columnMappings: normalizeColumnMappings(raw.columnMappings ?? raw.ColumnMappings),
@@ -257,36 +255,6 @@ export async function updateImportSessionTitle(
 
   const data = (await response.json()) as Record<string, unknown>
   return normalizeImportSession(data)
-}
-
-export async function updateImportSessionRowLedgerInclusion(
-  sessionId: string,
-  rowId: string,
-  includeInLedger: boolean,
-): Promise<ImportSessionRow> {
-  const response = await fetch(
-    `${API_BASE_URL}/ImportSessions/${sessionId}/rows/${rowId}/ledger-inclusion`,
-    {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({ includeInLedger }),
-    },
-  )
-
-  if (!response.ok) {
-    throw new Error(
-      await readErrorMessage(
-        response,
-        `Failed to update ledger inclusion: ${response.status} ${response.statusText}`,
-      ),
-    )
-  }
-
-  const data = (await response.json()) as Record<string, unknown>
-  return normalizeImportSessionRow(data)
 }
 
 export async function addImportSessionToLedger(

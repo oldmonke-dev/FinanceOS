@@ -20,8 +20,6 @@ namespace Finance.Domain.Entities.UserSession
 
         public string MappingSource { get; set; } = "none";
 
-        public bool IncludeInLedger { get; set; } = true;
-
         public DateTime? AddedToLedgerAt { get; set; }
 
         public Guid? PostedTransactionId { get; set; }

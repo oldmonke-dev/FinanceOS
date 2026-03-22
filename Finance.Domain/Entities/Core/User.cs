@@ -13,5 +13,7 @@ namespace Finance.Domain.Entities.Core
         public DateTime CreatedAt { get; set; }
 
         public DateTime? LastSeenAt { get; set; }
+
+        public UserPreference? Preference { get; set; }
     }
 }

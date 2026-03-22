@@ -22,8 +22,6 @@ namespace Finance.BusinessLayer.DTOs.ImportSessions
 
         public string Strategy { get; set; } = string.Empty;
 
-        public bool HasExclusions { get; set; }
-
         public bool IsArchived { get; set; }
 
         public string Status { get; set; } = "Active";

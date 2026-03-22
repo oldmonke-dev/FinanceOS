@@ -3,25 +3,40 @@
 import { Fragment } from "react"
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
-import { ArrowLeft, ChevronRight, Landmark, ReceiptText, Scale, Trash2 } from "lucide-react"
+import { ArrowLeft, ChevronRight, Landmark, ReceiptText, Redo2, Save, Scale, Trash2, Undo2 } from "lucide-react"
 import { notFound } from "next/navigation"
 
 import { AccountSearchSelect } from "@/components/account-search-select"
 import { AppShell } from "@/components/app-shell"
 import { useAccounts } from "@/components/providers/accounts-provider"
+import { useUserPreferences } from "@/components/providers/user-preferences-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { buildAccountTree, formatAccountType } from "@/lib/accounts"
 import { deleteTransaction, getTransactions, updateTransaction } from "@/lib/transactions"
 import type { Transaction } from "@/models/transaction"
 
 export function AccountLedgerPage({ accountId }: { accountId: string }) {
   const { accounts, isLoading, errorMessage } = useAccounts()
-  const [transactions, setTransactions] = useState<Transaction[]>([])
+  const { formatNumber } = useUserPreferences()
+  const [savedTransactions, setSavedTransactions] = useState<Transaction[]>([])
+  const [draftTransactions, setDraftTransactions] = useState<Transaction[]>([])
+  const [history, setHistory] = useState<Transaction[][]>([])
+  const [historyIndex, setHistoryIndex] = useState(-1)
   const [isLoadingTransactions, setIsLoadingTransactions] = useState(true)
   const [transactionsError, setTransactionsError] = useState<string | null>(null)
   const [expandedTransactionIds, setExpandedTransactionIds] = useState<Set<string>>(new Set())
-  const [deletingTransactionIds, setDeletingTransactionIds] = useState<Set<string>>(new Set())
+  const [isSavingChanges, setIsSavingChanges] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [showAllRows, setShowAllRows] = useState(false)
+  const [rowsPerPage, setRowsPerPage] = useState<10 | 25 | 50>(25)
   const account = accounts.find((item) => item.id === accountId) ?? null
   const resolvedAccountId = account?.id ?? null
   const tree = useMemo(() => buildAccountTree(accounts), [accounts])
@@ -69,17 +84,17 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
       return 0
     }
 
-    return transactions.reduce((sum, transaction) => {
+    return draftTransactions.reduce((sum, transaction) => {
       const split = transaction.splits.find((item) => item.accountId === resolvedAccountId)
       return sum + (split?.amount ?? 0)
     }, 0)
-  }, [transactions, resolvedAccountId])
+  }, [draftTransactions, resolvedAccountId])
   const transactionRows = useMemo(() => {
     if (!resolvedAccountId) {
       return []
     }
 
-    const baseRows = transactions.map((transaction) => {
+    const baseRows = draftTransactions.map((transaction) => {
       const accountSplit =
         transaction.splits.find((item) => item.accountId === resolvedAccountId) ?? null
       const counterpartNames = transaction.splits
@@ -108,7 +123,21 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
       ...row,
       trailingBalance: trailingBalanceByTransactionId.get(row.transaction.id) ?? 0,
     }))
-  }, [transactions, resolvedAccountId, accounts])
+  }, [draftTransactions, resolvedAccountId, accounts])
+  const totalPages = Math.max(1, Math.ceil(transactionRows.length / rowsPerPage))
+  const pagedTransactionRows = useMemo(
+    () =>
+      showAllRows
+        ? transactionRows
+        : transactionRows.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage),
+    [currentPage, rowsPerPage, showAllRows, transactionRows],
+  )
+  const hasUnsavedChanges = useMemo(
+    () => serializeTransactions(savedTransactions) !== serializeTransactions(draftTransactions),
+    [draftTransactions, savedTransactions],
+  )
+  const canUndo = historyIndex > 0
+  const canRedo = historyIndex >= 0 && historyIndex < history.length - 1
 
   useEffect(() => {
     let isCancelled = false
@@ -123,14 +152,20 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
           return
         }
 
-        setTransactions(nextTransactions)
+        setSavedTransactions(nextTransactions)
+        setDraftTransactions(nextTransactions)
+        setHistory([cloneTransactions(nextTransactions)])
+        setHistoryIndex(0)
         setTransactionsError(null)
       } catch (error) {
         if (isCancelled) {
           return
         }
 
-        setTransactions([])
+        setSavedTransactions([])
+        setDraftTransactions([])
+        setHistory([])
+        setHistoryIndex(-1)
         setTransactionsError(
           error instanceof Error ? error.message : "Failed to load ledger transactions.",
         )
@@ -147,6 +182,14 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
       isCancelled = true
     }
   }, [accountId])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [accountId, rowsPerPage])
+
+  useEffect(() => {
+    setCurrentPage((current) => Math.min(current, totalPages))
+  }, [totalPages])
 
   if (isLoading) {
     return (
@@ -175,32 +218,36 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
   const resolvedAccount = account
 
   const accountPath = buildAccountPath(resolvedAccount.id, tree) ?? resolvedAccount.name
+  const inlineTextInputClassName =
+    "h-8 rounded-none border-x-0 border-t-0 border-b bg-transparent px-0 py-1 text-xs leading-4.5 shadow-none focus-visible:ring-0"
+  const inlineNumberInputClassName = `${inlineTextInputClassName} text-right tabular-nums`
+  const inlineTextareaClassName =
+    "w-full resize-none overflow-hidden border-0 border-b bg-transparent px-0 py-1 text-xs leading-4.5 shadow-none outline-none focus-visible:ring-0"
 
-  async function persistTransaction(nextTransaction: Transaction) {
-    try {
-      const savedTransaction = await updateTransaction(nextTransaction.id, {
-        description: nextTransaction.description,
-        referenceNumber: nextTransaction.referenceNumber,
-        splits: nextTransaction.splits.map((split) => ({
-          id: split.id,
-          accountId: split.accountId,
-          amount: split.amount,
-          memo: split.memo,
-        })),
+  function resizeDescription(element: HTMLTextAreaElement) {
+    element.style.height = "0px"
+    element.style.height = `${element.scrollHeight}px`
+  }
+
+  function commitDraft(
+    updater: (current: Transaction[]) => Transaction[],
+    options?: { clearExpandedTransactionId?: string },
+  ) {
+    setDraftTransactions((current) => {
+      const next = updater(current)
+      const nextHistory = history.slice(0, historyIndex + 1)
+      nextHistory.push(cloneTransactions(next))
+      setHistory(nextHistory)
+      setHistoryIndex(nextHistory.length - 1)
+      return next
+    })
+
+    if (options?.clearExpandedTransactionId) {
+      setExpandedTransactionIds((current) => {
+        const next = new Set(current)
+        next.delete(options.clearExpandedTransactionId!)
+        return next
       })
-
-      setTransactions((current) =>
-        savedTransaction.splits.some((split) => split.accountId === resolvedAccount.id)
-          ? current.map((transaction) =>
-              transaction.id !== savedTransaction.id ? transaction : savedTransaction,
-            )
-          : current.filter((transaction) => transaction.id !== savedTransaction.id),
-      )
-      setTransactionsError(null)
-    } catch (error) {
-      setTransactionsError(
-        error instanceof Error ? error.message : "Failed to save ledger changes.",
-      )
     }
   }
 
@@ -209,7 +256,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
     field: "description" | "referenceNumber",
     value: string,
   ) {
-    setTransactions((current) =>
+    commitDraft((current) =>
       current.map((transaction) =>
         transaction.id !== transactionId
           ? transaction
@@ -235,12 +282,8 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
     })
   }
 
-  function getTransactionSnapshot(transactionId: string) {
-    return transactions.find((transaction) => transaction.id === transactionId) ?? null
-  }
-
   function updateTransactionMemo(transactionId: string, memo: string) {
-    setTransactions((current) =>
+    commitDraft((current) =>
       current.map((transaction) =>
         transaction.id !== transactionId
           ? transaction
@@ -265,7 +308,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
     field: "memo",
     value: string | null,
   ) {
-    setTransactions((current) =>
+    commitDraft((current) =>
       current.map((transaction) =>
         transaction.id !== transactionId
           ? transaction
@@ -285,15 +328,13 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
   }
 
   function updateSplitAccount(transactionId: string, splitId: string, accountId: string) {
-    let nextTransaction: Transaction | null = null
-
-    setTransactions((current) =>
+    commitDraft((current) =>
       current.map((transaction) => {
         if (transaction.id !== transactionId) {
           return transaction
         }
 
-        nextTransaction = {
+        return {
           ...transaction,
           splits: transaction.splits.map((split) =>
             split.id !== splitId
@@ -304,14 +345,8 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                 },
           ),
         }
-
-        return nextTransaction
       }),
     )
-
-    if (nextTransaction) {
-      void persistTransaction(nextTransaction)
-    }
   }
 
   function updateSplitAmount(transactionId: string, splitId: string, amountValue: string) {
@@ -321,7 +356,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
       return
     }
 
-    setTransactions((current) =>
+    commitDraft((current) =>
       current.map((transaction) =>
         transaction.id !== transactionId
           ? transaction
@@ -340,25 +375,14 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
     )
   }
 
-  async function saveCurrentTransaction(transactionId: string) {
-    const currentTransaction = getTransactionSnapshot(transactionId)
-    if (!currentTransaction) {
-      return
-    }
-
-    await persistTransaction(currentTransaction)
-  }
-
   function updateDestinationAccount(transactionId: string, destinationAccountId: string) {
-    let nextTransaction: Transaction | null = null
-
-    setTransactions((current) =>
+    commitDraft((current) =>
       current.map((transaction) => {
         if (transaction.id !== transactionId) {
           return transaction
         }
 
-        nextTransaction = {
+        return {
           ...transaction,
           splits: transaction.splits.map((split, splitIndex) => {
             const isDestinationSplit =
@@ -374,46 +398,86 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
               : split
           }),
         }
-
-        return nextTransaction
       }),
     )
-
-    if (nextTransaction) {
-      void persistTransaction(nextTransaction)
-    }
   }
 
-  async function handleDeleteTransaction(transactionId: string) {
+  function handleDeleteTransaction(transactionId: string) {
     const confirmed = window.confirm(
-      "Delete this transaction from the general ledger? Both splits will be removed.",
+      "Remove this transaction from the draft ledger? It will only be deleted after you save changes.",
     )
 
     if (!confirmed) {
       return
     }
 
-    setDeletingTransactionIds((current) => new Set(current).add(transactionId))
+    commitDraft(
+      (current) => current.filter((transaction) => transaction.id !== transactionId),
+      { clearExpandedTransactionId: transactionId },
+    )
+  }
+
+  function handleUndo() {
+    if (!canUndo) {
+      return
+    }
+
+    const nextIndex = historyIndex - 1
+    setHistoryIndex(nextIndex)
+    setDraftTransactions(cloneTransactions(history[nextIndex]))
+  }
+
+  function handleRedo() {
+    if (!canRedo) {
+      return
+    }
+
+    const nextIndex = historyIndex + 1
+    setHistoryIndex(nextIndex)
+    setDraftTransactions(cloneTransactions(history[nextIndex]))
+  }
+
+  async function handleSaveChanges() {
+    setIsSavingChanges(true)
 
     try {
-      await deleteTransaction(transactionId)
-      setTransactions((current) => current.filter((transaction) => transaction.id !== transactionId))
-      setExpandedTransactionIds((current) => {
-        const next = new Set(current)
-        next.delete(transactionId)
-        return next
-      })
+      const savedById = new Map(savedTransactions.map((transaction) => [transaction.id, transaction]))
+      const draftById = new Map(draftTransactions.map((transaction) => [transaction.id, transaction]))
+
+      for (const transaction of draftTransactions) {
+        const savedSnapshot = savedById.get(transaction.id)
+        if (savedSnapshot && serializeTransaction(savedSnapshot) === serializeTransaction(transaction)) {
+          continue
+        }
+
+        await updateTransaction(transaction.id, {
+          description: transaction.description,
+          referenceNumber: transaction.referenceNumber,
+          splits: transaction.splits.map((split) => ({
+            id: split.id,
+            accountId: split.accountId,
+            amount: split.amount,
+            memo: split.memo,
+          })),
+        })
+      }
+
+      for (const transaction of savedTransactions) {
+        if (!draftById.has(transaction.id)) {
+          await deleteTransaction(transaction.id)
+        }
+      }
+
+      setSavedTransactions(cloneTransactions(draftTransactions))
+      setHistory([cloneTransactions(draftTransactions)])
+      setHistoryIndex(0)
       setTransactionsError(null)
     } catch (error) {
       setTransactionsError(
-        error instanceof Error ? error.message : "Failed to delete ledger transaction.",
+        error instanceof Error ? error.message : "Failed to save ledger changes.",
       )
     } finally {
-      setDeletingTransactionIds((current) => {
-        const next = new Set(current)
-        next.delete(transactionId)
-        return next
-      })
+      setIsSavingChanges(false)
     }
   }
 
@@ -433,42 +497,42 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
           </Button>
         </div>
 
-        <section className="rounded-3xl border bg-card p-6 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <section className="rounded-3xl border bg-card p-5 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <div className="flex items-center gap-3">
-                <div className="rounded-2xl bg-primary/10 p-3 text-primary">
-                  <Landmark className="size-5" />
+                <div className="rounded-xl bg-primary/10 p-2.5 text-primary">
+                  <Landmark className="size-4.5" />
                 </div>
                 <div>
-                  <h2 className="text-2xl font-semibold">{resolvedAccount.name}</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">{accountPath}</p>
+                  <h2 className="text-xl font-semibold leading-tight">{resolvedAccount.name}</h2>
+                  <p className="mt-0.5 text-sm text-muted-foreground">{accountPath}</p>
                 </div>
               </div>
             </div>
-            <div className="rounded-2xl border bg-background/70 px-4 py-3 text-sm text-muted-foreground">
+            <div className="rounded-xl border bg-background/70 px-3 py-2 text-xs text-muted-foreground">
               Account type: {formatAccountType(resolvedAccount.accountType)}
             </div>
           </div>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-3">
-            <div className="rounded-2xl border bg-background/70 p-4">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <ReceiptText className="size-4" />
-                <span className="text-sm">Entries</span>
+          <div className="mt-4 grid gap-2 md:grid-cols-3">
+            <div className="rounded-xl border bg-background/70 px-3 py-2">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <ReceiptText className="size-3.5" />
+                <span>Entries</span>
               </div>
-              <p className="mt-3 text-2xl font-semibold">{transactions.length}</p>
+              <p className="mt-1 text-base font-semibold leading-tight">{transactionRows.length}</p>
             </div>
-            <div className="rounded-2xl border bg-background/70 p-4">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Scale className="size-4" />
-                <span className="text-sm">Current balance</span>
+            <div className="rounded-xl border bg-background/70 px-3 py-2">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Scale className="size-3.5" />
+                <span>Current balance</span>
               </div>
-              <p className="mt-3 text-2xl font-semibold">{formatCurrency(currentBalance)}</p>
+              <p className="mt-1 text-base font-semibold leading-tight">{formatNumber(currentBalance)}</p>
             </div>
-            <div className="rounded-2xl border bg-background/70 p-4">
-              <p className="text-sm text-muted-foreground">Under account</p>
-              <p className="mt-3 text-lg font-semibold">
+            <div className="rounded-xl border bg-background/70 px-3 py-2">
+              <p className="text-xs text-muted-foreground">Under account</p>
+              <p className="mt-1 text-sm font-semibold leading-tight">
                 {getParentAccountName(resolvedAccount.parentAccountId, accounts) ?? "Top level"}
               </p>
             </div>
@@ -476,11 +540,73 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
         </section>
 
         <section className="rounded-3xl border bg-card p-6 shadow-sm">
-          <h3 className="text-lg font-semibold">Ledger activity</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Transactions are filtered to this account and show the matching split amount with
-            counterpart accounts.
-          </p>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold">Ledger activity</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Transactions are filtered to this account and show the matching split amount with
+                counterpart accounts.
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Edits, split changes, and deletions stay in draft until you press Save changes.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleUndo}
+                disabled={!canUndo || isSavingChanges}
+              >
+                <Undo2 />
+                Undo
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleRedo}
+                disabled={!canRedo || isSavingChanges}
+              >
+                <Redo2 />
+                Redo
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => void handleSaveChanges()}
+                disabled={!hasUnsavedChanges || isSavingChanges}
+              >
+                <Save />
+                {isSavingChanges ? "Saving..." : "Save changes"}
+              </Button>
+              <div className="text-sm text-muted-foreground">
+                {transactionRows.length} entr{transactionRows.length === 1 ? "y" : "ies"}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Rows</span>
+                <Select value={String(rowsPerPage)} onValueChange={(value) => setRowsPerPage(Number(value) as 10 | 25 | 50)}>
+                  <SelectTrigger className="h-9 w-[5.5rem]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="10">10</SelectItem>
+                    <SelectItem value="25">25</SelectItem>
+                    <SelectItem value="50">50</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowAllRows((current) => !current)}
+              >
+                {showAllRows ? "Use pages" : "Show all"}
+              </Button>
+            </div>
+          </div>
 
           {transactionsError ? (
             <div className="mt-6 rounded-2xl border border-destructive/30 bg-destructive/5 p-6 text-sm text-destructive">
@@ -495,60 +621,69 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
               No ledger entries to show yet.
             </div>
           ) : (
-            <div className="mt-6 overflow-x-auto rounded-2xl border">
-              <table className="w-full min-w-[56rem] border-collapse text-sm">
+            <>
+              <div className="mt-6 overflow-x-hidden rounded-2xl border">
+                <table className="w-full table-fixed border-collapse text-xs">
                 <thead className="bg-muted/60">
                   <tr>
-                    <th className="border-b px-4 py-3 text-left font-medium">Splits</th>
-                    <th className="border-b px-4 py-3 text-left font-medium">Date</th>
-                    <th className="border-b px-4 py-3 text-left font-medium">Description</th>
-                    <th className="border-b px-4 py-3 text-left font-medium">Reference</th>
-                    <th className="border-b px-4 py-3 text-left font-medium">Destination</th>
-                    <th className="border-b px-4 py-3 text-left font-medium">Memo</th>
-                    <th className="border-b px-4 py-3 text-right font-medium">Amount</th>
-                    <th className="border-b px-4 py-3 text-right font-medium">Trailing Balance</th>
-                    <th className="border-b px-4 py-3 text-right font-medium">Actions</th>
+                    <th className="w-28 border-b pl-12 pr-3 py-2 text-left font-medium">Date</th>
+                    <th className="w-[16rem] border-b px-2 py-2 text-left font-medium">Description</th>
+                    <th className="w-28 border-b px-2 py-2 text-left font-medium">Reference</th>
+                    <th className="w-[24rem] border-b px-2 py-2 text-left font-medium">Destination</th>
+                    <th className="w-32 border-b px-2 py-2 text-left font-medium">Memo</th>
+                    <th className="w-24 border-b px-3 py-2 text-right font-medium">Amount</th>
+                    <th className="w-32 border-b px-3 py-2 text-right font-medium">Trailing Balance</th>
+                    <th className="w-16 border-b px-3 py-2 text-right font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {transactionRows.map(({ transaction, accountSplit, destinationSplit, counterpartNames, trailingBalance }, rowIndex) => (
+                  {pagedTransactionRows.map(({ transaction, accountSplit, destinationSplit, counterpartNames, trailingBalance }, rowIndex) => (
                     <Fragment key={transaction.id}>
                       <tr className={rowIndex % 2 === 0 ? "bg-muted/10" : "bg-muted/35"}>
-                        <td className="border-t px-4 py-3 align-top">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="size-8"
-                            onClick={() => toggleExpanded(transaction.id)}
-                            aria-label={
-                              expandedTransactionIds.has(transaction.id)
-                                ? "Hide transaction splits"
-                                : "Show transaction splits"
-                            }
-                          >
-                            <ChevronRight
-                              className={`size-4 transition ${
-                                expandedTransactionIds.has(transaction.id) ? "rotate-90" : ""
-                              }`}
-                            />
-                          </Button>
+                        <td className="border-t px-3 py-2 align-top whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 shrink-0"
+                              onClick={() => toggleExpanded(transaction.id)}
+                              aria-label={
+                                expandedTransactionIds.has(transaction.id)
+                                  ? "Hide transaction splits"
+                                  : "Show transaction splits"
+                              }
+                            >
+                              <ChevronRight
+                                className={`size-3.5 transition ${
+                                  expandedTransactionIds.has(transaction.id) ? "rotate-90" : ""
+                                }`}
+                              />
+                            </Button>
+                            <span>{formatDate(transaction.transactionDate)}</span>
+                          </div>
                         </td>
-                        <td className="border-t px-4 py-3 align-top whitespace-nowrap">
-                          {formatDate(transaction.transactionDate)}
-                        </td>
-                        <td className="border-t px-4 py-3 align-top">
-                          <Input
+                        <td className="border-t px-2 py-2 align-top">
+                          <textarea
                             value={transaction.description}
                             onChange={(event) =>
-                              updateTransactionField(transaction.id, "description", event.target.value)
+                              {
+                                updateTransactionField(transaction.id, "description", event.target.value)
+                                resizeDescription(event.currentTarget)
+                              }
                             }
-                            onBlur={() => void saveCurrentTransaction(transaction.id)}
                             placeholder="Transaction description"
+                            className={`${inlineTextareaClassName} break-words whitespace-pre-wrap`}
+                            rows={1}
+                            ref={(element) => {
+                              if (element) {
+                                resizeDescription(element)
+                              }
+                            }}
                           />
                         </td>
-                        <td className="border-t px-4 py-3 align-top">
-                          <Input
+                        <td className="border-t px-2 py-2 align-top">
+                          <textarea
                             value={transaction.referenceNumber ?? ""}
                             onChange={(event) =>
                               updateTransactionField(
@@ -557,11 +692,12 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                                 event.target.value,
                               )
                             }
-                            onBlur={() => void saveCurrentTransaction(transaction.id)}
                             placeholder="Reference"
+                            className={`${inlineTextareaClassName} min-h-[2.25rem]`}
+                            rows={1}
                           />
                         </td>
-                        <td className="border-t px-4 py-3 align-top">
+                        <td className="border-t px-2 py-2 align-top min-w-0">
                           {destinationSplit ? (
                             <AccountSearchSelect
                               accounts={availableDestinationAccounts}
@@ -570,7 +706,8 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                                 value ? updateDestinationAccount(transaction.id, value) : undefined
                               }
                               placeholder="Select destination account"
-                              className="min-w-64"
+                              className="w-full min-w-0"
+                              triggerClassName="h-8 px-1.5 text-xs"
                               getAccountLabel={(account) =>
                                 accountPathLookup.get(account.id) ?? account.name
                               }
@@ -581,28 +718,29 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                             "-"
                           )}
                         </td>
-                        <td className="border-t px-4 py-3 align-top">
-                          <Input
+                        <td className="border-t px-2 py-2 align-top">
+                          <textarea
                             value={accountSplit?.memo ?? ""}
                             onChange={(event) => updateTransactionMemo(transaction.id, event.target.value)}
-                            onBlur={() => void saveCurrentTransaction(transaction.id)}
                             placeholder="Memo"
+                            className={`${inlineTextareaClassName} min-h-[2.25rem]`}
+                            rows={1}
                           />
                         </td>
-                        <td className="border-t px-4 py-3 text-right align-top font-medium tabular-nums">
-                          {formatCurrency(accountSplit?.amount ?? 0)}
+                        <td className={`border-t px-3 py-2 text-right align-top font-medium tabular-nums ${getAmountToneClass(accountSplit?.amount ?? 0)}`}>
+                          {formatSignedNumber(accountSplit?.amount ?? 0, formatNumber)}
                         </td>
-                        <td className="border-t px-4 py-3 text-right align-top font-medium tabular-nums text-muted-foreground">
-                          {formatCurrency(trailingBalance)}
+                        <td className="border-t px-3 py-2 text-right align-top font-medium tabular-nums text-muted-foreground">
+                          {formatNumber(trailingBalance)}
                         </td>
-                        <td className="border-t px-4 py-3 text-right align-top">
+                        <td className="border-t px-3 py-2 text-right align-top">
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="size-8 text-destructive"
-                            onClick={() => void handleDeleteTransaction(transaction.id)}
-                            disabled={deletingTransactionIds.has(transaction.id)}
+                            className="size-7 text-destructive"
+                            onClick={() => handleDeleteTransaction(transaction.id)}
+                            disabled={isSavingChanges}
                             aria-label="Delete transaction"
                           >
                             <Trash2 className="size-4" />
@@ -610,90 +748,126 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                         </td>
                       </tr>
                       {expandedTransactionIds.has(transaction.id) ? (
-                        <tr className={rowIndex % 2 === 0 ? "bg-muted/45" : "bg-muted/60"}>
-                          <td className="border-t px-4 py-3" colSpan={9}>
-                            <div className="rounded-xl border bg-background/85 p-3">
-                              <div className="mb-2 flex items-center justify-between gap-3">
-                                <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                                  Split breakdown
-                                </h4>
-                                <span className="text-[11px] text-muted-foreground">
-                                  {transaction.splits.length} split{transaction.splits.length === 1 ? "" : "s"}
-                                </span>
-                              </div>
-                              <div className="overflow-x-auto rounded-lg border">
-                                <table className="w-full min-w-[42rem] border-collapse text-sm">
-                                  <thead className="bg-muted/50">
-                                    <tr>
-                                      <th className="border-b px-3 py-2 text-left font-medium">Account</th>
-                                      <th className="border-b px-3 py-2 text-left font-medium">Memo</th>
-                                      <th className="border-b px-3 py-2 text-right font-medium">Amount</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {transaction.splits.map((split, splitIndex) => (
-                                      <tr key={split.id} className={splitIndex % 2 === 0 ? "bg-card/70" : "bg-card/95"}>
-                                        <td className="border-t px-3 py-2 align-top">
-                                          <AccountSearchSelect
-                                            accounts={accounts}
-                                            value={split.accountId}
-                                            onValueChange={(value) => {
-                                              if (!value) {
-                                                return
-                                              }
+                        <>
+                          <tr className={rowIndex % 2 === 0 ? "bg-muted/45" : "bg-muted/60"}>
+                            <td className="border-t px-3 py-3" colSpan={8}>
+                              <div className="rounded-xl border border-border/70 bg-background/55 shadow-sm">
+                                <div className="flex items-center justify-between gap-3 border-b px-3 py-2">
+                                  <h4 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                                    Split breakdown
+                                  </h4>
+                                  <span className="text-[11px] text-muted-foreground">
+                                    {transaction.splits.length} split{transaction.splits.length === 1 ? "" : "s"}
+                                  </span>
+                                </div>
+                                <div className="overflow-hidden">
+                                  {orderSplitsForDisplay(transaction.splits, resolvedAccount.id).map((split, splitIndex) => (
+                                    <div
+                                      key={split.id}
+                                      className={`grid grid-cols-[auto_minmax(0,1.8fr)_minmax(0,1.1fr)_auto_9rem] items-center gap-x-2 border-t px-3 py-2 first:border-t-0 ${
+                                        splitIndex % 2 === 0 ? "bg-background/35" : "bg-background/20"
+                                      }`}
+                                    >
+                                      <div className="pr-1 text-[11px] text-muted-foreground">Account</div>
+                                      <div>
+                                        <AccountSearchSelect
+                                          accounts={accounts}
+                                          value={split.accountId}
+                                          onValueChange={(value) => {
+                                            if (!value) {
+                                              return
+                                            }
 
-                                              updateSplitAccount(transaction.id, split.id, value)
-                                            }}
-                                            getAccountLabel={(account) =>
-                                              accountPathLookup.get(account.id) ?? account.name
-                                            }
-                                          />
-                                        </td>
-                                        <td className="border-t px-3 py-2 align-top">
-                                          <Input
-                                            value={split.memo ?? ""}
-                                            onChange={(event) =>
-                                              updateSplitField(
-                                                transaction.id,
-                                                split.id,
-                                                "memo",
-                                                event.target.value,
-                                              )
-                                            }
-                                            onBlur={() => void saveCurrentTransaction(transaction.id)}
-                                            placeholder="Memo"
-                                          />
-                                        </td>
-                                        <td className="border-t px-3 py-2 align-top">
-                                          <Input
-                                            type="number"
-                                            step="0.01"
-                                            value={String(split.amount)}
-                                            onChange={(event) =>
-                                              updateSplitAmount(
-                                                transaction.id,
-                                                split.id,
-                                                event.target.value,
-                                              )
-                                            }
-                                            onBlur={() => void saveCurrentTransaction(transaction.id)}
-                                            className="text-right tabular-nums"
-                                          />
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
+                                            updateSplitAccount(transaction.id, split.id, value)
+                                          }}
+                                          className="w-full min-w-0"
+                                          triggerClassName="h-8 px-1.5 text-xs"
+                                          getAccountLabel={(account) =>
+                                            accountPathLookup.get(account.id) ?? account.name
+                                          }
+                                        />
+                                      </div>
+                                      <div>
+                                        <textarea
+                                          value={split.memo ?? ""}
+                                          onChange={(event) =>
+                                            updateSplitField(
+                                              transaction.id,
+                                              split.id,
+                                              "memo",
+                                              event.target.value,
+                                            )
+                                          }
+                                          placeholder="Memo"
+                                          className={`${inlineTextareaClassName} min-h-[2.25rem]`}
+                                          rows={1}
+                                        />
+                                      </div>
+                                      <div className="pr-1 text-[11px] text-muted-foreground">Amount</div>
+                                      <div className={getAmountToneClass(split.amount)}>
+                                        <Input
+                                          type="number"
+                                          step="0.01"
+                                          value={String(split.amount)}
+                                          onChange={(event) =>
+                                            updateSplitAmount(
+                                              transaction.id,
+                                              split.id,
+                                              event.target.value,
+                                            )
+                                          }
+                                          className={`${inlineNumberInputClassName} ${getAmountToneClass(split.amount)}`}
+                                        />
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
-                            </div>
-                          </td>
-                        </tr>
+                            </td>
+                          </tr>
+                        </>
                       ) : null}
                     </Fragment>
                   ))}
                 </tbody>
               </table>
-            </div>
+              </div>
+              <div className="mt-4 rounded-2xl border bg-background/70 p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-foreground">Ledger pages</p>
+                    <p className="text-xs text-muted-foreground">
+                      {showAllRows
+                        ? `Showing all ${transactionRows.length} entries`
+                        : `Showing ${transactionRows.length === 0 ? 0 : (currentPage - 1) * rowsPerPage + 1}-${Math.min(currentPage * rowsPerPage, transactionRows.length)} of ${transactionRows.length} entries`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="rounded-lg border bg-card px-3 py-2 text-sm text-muted-foreground">
+                      {showAllRows ? "All rows" : `Page ${currentPage} / ${totalPages}`}
+                    </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage((current) => Math.max(1, current - 1))}
+                    disabled={showAllRows || currentPage === 1}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage((current) => Math.min(totalPages, current + 1))}
+                    disabled={showAllRows || currentPage === totalPages}
+                  >
+                    Next
+                  </Button>
+                  </div>
+                </div>
+              </div>
+            </>
           )}
         </section>
       </div>
@@ -710,11 +884,58 @@ function formatDate(value: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString()
 }
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value)
+function cloneTransactions(transactions: Transaction[]) {
+  return transactions.map((transaction) => ({
+    ...transaction,
+    splits: transaction.splits.map((split) => ({ ...split })),
+  }))
+}
+
+function serializeTransaction(transaction: Transaction) {
+  return JSON.stringify(transaction)
+}
+
+function serializeTransactions(transactions: Transaction[]) {
+  return JSON.stringify(transactions)
+}
+
+function getAmountToneClass(amount: number) {
+  if (amount > 0) {
+    return "text-emerald-600 dark:text-emerald-400"
+  }
+
+  if (amount < 0) {
+    return "text-rose-600 dark:text-rose-400"
+  }
+
+  return "text-muted-foreground"
+}
+
+function formatSignedNumber(
+  value: number,
+  formatNumber: (value: number, fractionDigits?: number) => string,
+) {
+  if (value > 0) {
+    return `+${formatNumber(value)}`
+  }
+
+  return formatNumber(value)
+}
+
+function orderSplitsForDisplay(
+  splits: Transaction["splits"],
+  selectedAccountId: string,
+) {
+  return [...splits].sort((left, right) => {
+    const leftRank = left.accountId === selectedAccountId ? 0 : 1
+    const rightRank = right.accountId === selectedAccountId ? 0 : 1
+
+    if (leftRank !== rightRank) {
+      return leftRank - rightRank
+    }
+
+    return 0
+  })
 }
 
 function getParentAccountName(

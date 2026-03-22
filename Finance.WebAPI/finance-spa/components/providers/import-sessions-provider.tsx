@@ -12,7 +12,6 @@ import {
   updateImportSessionTitle,
   updateImportSessionSourceAccount,
   updateImportSessionRowDestinationAccount,
-  updateImportSessionRowLedgerInclusion,
 } from "@/lib/import-sessions"
 import { type AddImportSessionToLedgerResult } from "@/models/import-session-ledger"
 import {
@@ -39,11 +38,6 @@ type ImportSessionsContextValue = {
     rowId: string,
     destinationAccountId: string | null,
   ) => Promise<void>
-  updateRowLedgerInclusion: (
-    sessionId: string,
-    rowId: string,
-    includeInLedger: boolean,
-  ) => Promise<void>
   addSessionToLedger: (sessionId: string) => Promise<AddImportSessionToLedgerResult>
   reapplyLearning: (sessionId: string) => Promise<ImportSession>
   revertLearning: (sessionId: string) => Promise<ImportSession>
@@ -57,7 +51,6 @@ type SessionDraft = {
   fileName: string | null | undefined
   sourceAccountId: string | null | undefined
   destinationAccountIdByRowId: Record<string, string | null>
-  includeInLedgerByRowId: Record<string, boolean>
 }
 
 export function ImportSessionsProvider({ children }: { children: React.ReactNode }) {
@@ -136,7 +129,6 @@ export function ImportSessionsProvider({ children }: { children: React.ReactNode
           fileName: undefined,
           sourceAccountId: undefined,
           destinationAccountIdByRowId: {},
-          includeInLedgerByRowId: {},
         },
       )
 
@@ -178,20 +170,6 @@ export function ImportSessionsProvider({ children }: { children: React.ReactNode
     }))
   }
 
-  async function updateRowLedgerInclusion(
-    sessionId: string,
-    rowId: string,
-    includeInLedger: boolean,
-  ) {
-    setDraftForSession(sessionId, (current) => ({
-      ...current,
-      includeInLedgerByRowId: {
-        ...current.includeInLedgerByRowId,
-        [rowId]: includeInLedger,
-      },
-    }))
-  }
-
   async function saveSession(sessionId: string) {
     const draft = draftsRef.current[sessionId]
     if (!draft) {
@@ -205,34 +183,12 @@ export function ImportSessionsProvider({ children }: { children: React.ReactNode
 
     for (const row of session.rows) {
       const draftedDestinationAccountId = draft.destinationAccountIdByRowId[row.id]
-      const draftedIncludeInLedger = draft.includeInLedgerByRowId[row.id]
 
       if (draftedDestinationAccountId !== undefined && draftedDestinationAccountId !== row.destinationAccountId) {
         const updatedRow = await updateImportSessionRowDestinationAccount(
           sessionId,
           row.id,
           draftedDestinationAccountId,
-        )
-
-        setSessions((current) =>
-          current.map((currentSession) =>
-            currentSession.id !== sessionId
-              ? currentSession
-              : {
-                  ...currentSession,
-                  rows: currentSession.rows.map((currentRow) =>
-                    currentRow.id !== row.id ? currentRow : { ...currentRow, ...updatedRow },
-                  ),
-                },
-          ),
-        )
-      }
-
-      if (draftedIncludeInLedger !== undefined && draftedIncludeInLedger !== row.includeInLedger) {
-        const updatedRow = await updateImportSessionRowLedgerInclusion(
-          sessionId,
-          row.id,
-          draftedIncludeInLedger,
         )
 
         setSessions((current) =>
@@ -322,12 +278,10 @@ export function ImportSessionsProvider({ children }: { children: React.ReactNode
         fileName: draft.fileName,
         sourceAccountId: draft.sourceAccountId,
         destinationAccountIdByRowId: { ...draft.destinationAccountIdByRowId },
-        includeInLedgerByRowId: { ...draft.includeInLedgerByRowId },
       }
 
       for (const rowId of rowIds) {
         delete nextDraft.destinationAccountIdByRowId[rowId]
-        delete nextDraft.includeInLedgerByRowId[rowId]
       }
 
       const next = {
@@ -351,8 +305,7 @@ export function ImportSessionsProvider({ children }: { children: React.ReactNode
     return (
       draft.fileName !== undefined ||
       draft.sourceAccountId !== undefined ||
-      Object.keys(draft.destinationAccountIdByRowId).length > 0 ||
-      Object.keys(draft.includeInLedgerByRowId).length > 0
+      Object.keys(draft.destinationAccountIdByRowId).length > 0
     )
   }
 
@@ -377,10 +330,6 @@ export function ImportSessionsProvider({ children }: { children: React.ReactNode
               draft.destinationAccountIdByRowId[row.id] !== undefined
                 ? draft.destinationAccountIdByRowId[row.id]
                 : row.destinationAccountId,
-            includeInLedger:
-              draft.includeInLedgerByRowId[row.id] !== undefined
-                ? draft.includeInLedgerByRowId[row.id]
-                : row.includeInLedger,
             destinationAccountError:
               draft.destinationAccountIdByRowId[row.id] !== undefined ? null : row.destinationAccountError,
           })),
@@ -396,7 +345,6 @@ export function ImportSessionsProvider({ children }: { children: React.ReactNode
       updateTitle,
       updateSourceAccount,
       updateRowDestinationAccount,
-      updateRowLedgerInclusion,
       addSessionToLedger,
       reapplyLearning,
       revertLearning,
@@ -414,7 +362,6 @@ export function ImportSessionsProvider({ children }: { children: React.ReactNode
       refreshSessions,
       saveSession,
       updateRowDestinationAccount,
-      updateRowLedgerInclusion,
       updateSourceAccount,
       updateTitle,
     ],

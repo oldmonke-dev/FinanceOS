@@ -74,6 +74,25 @@ namespace Finance.Infrastructure.Repositories
             await _context.SaveChangesAsync(cancellationToken);
         }
 
+        public async Task<int> DeleteGlobalStatsByDestinationAccountAsync(
+            Guid userId,
+            Guid destinationAccountId,
+            CancellationToken cancellationToken = default)
+        {
+            var stats = await _context.ImportLearningStats
+                .Where(item => item.UserId == userId && item.DestinationAccountId == destinationAccountId)
+                .ToListAsync(cancellationToken);
+
+            if (stats.Count == 0)
+            {
+                return 0;
+            }
+
+            _context.ImportLearningStats.RemoveRange(stats);
+            await _context.SaveChangesAsync(cancellationToken);
+            return stats.Count;
+        }
+
         public async Task<List<ImportSessionLearningEntry>> GetSessionEntriesAsync(
             Guid sessionId,
             Guid userId,

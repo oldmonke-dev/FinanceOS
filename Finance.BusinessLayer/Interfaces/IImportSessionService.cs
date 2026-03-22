@@ -28,12 +28,6 @@ namespace Finance.BusinessLayer.Interfaces
             Guid? destinationAccountId,
             CancellationToken cancellationToken = default);
 
-        Task<ImportSessionRowDTO> UpdateRowLedgerInclusionAsync(
-            Guid sessionId,
-            Guid rowId,
-            bool includeInLedger,
-            CancellationToken cancellationToken = default);
-
         Task<AddImportSessionToLedgerResultDTO> AddSessionToLedgerAsync(
             Guid sessionId,
             CancellationToken cancellationToken = default);

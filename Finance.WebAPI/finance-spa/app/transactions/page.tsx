@@ -1,25 +1,43 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { Info } from "lucide-react"
 
 import { AccountSearchSelect } from "@/components/account-search-select"
 import { AppShell } from "@/components/app-shell"
 import { useAccounts } from "@/components/providers/accounts-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { createTransaction } from "@/lib/transactions"
 import { type CreateTransactionInput, type Transaction } from "@/models/transaction"
+
+type SplitSign = "cr" | "dr"
 
 type SplitDraft = {
   accountId: string
   amount: string
   memo: string
+  sign: SplitSign
 }
 
-const emptySplit = (): SplitDraft => ({
+const emptySplit = (sign: SplitSign = "dr"): SplitDraft => ({
   accountId: "",
   amount: "",
   memo: "",
+  sign,
 })
 
 export default function TransactionsPage() {
@@ -32,7 +50,7 @@ export default function TransactionsPage() {
   )
   const [description, setDescription] = useState("")
   const [referenceNumber, setReferenceNumber] = useState("")
-  const [splits, setSplits] = useState<SplitDraft[]>([emptySplit(), emptySplit()])
+  const [splits, setSplits] = useState<SplitDraft[]>([emptySplit("dr"), emptySplit("cr")])
   const hasTwoSplitMirrorMode = splits.length === 2
   const accountPathLookup = useMemo(() => {
     const accountById = new Map(accounts.map((account) => [account.id, account]))
@@ -68,30 +86,48 @@ export default function TransactionsPage() {
   }, [accounts])
 
   const splitTotal = splits.reduce(
-    (total, split, index) => total + getEffectiveSplitAmount(split.amount, index, hasTwoSplitMirrorMode),
+    (total, split) => total + getEffectiveSplitAmount(split),
     0,
   )
+  const signTooltip =
+    hasTwoSplitMirrorMode
+      ? "Choose Dr or Cr for the first split. The paired split automatically uses the opposite sign."
+      : "Dr saves the split as a negative amount. Cr saves it as a positive amount."
+  const amountTooltip =
+    hasTwoSplitMirrorMode
+      ? "Enter one amount. The second split mirrors it automatically."
+      : "Enter the absolute amount. The Sign field determines whether it is saved as negative or positive."
 
   function updateSplit(index: number, field: keyof SplitDraft, value: string) {
     setSplits((current) => {
-      if (field !== "amount" || current.length !== 2) {
+      if (current.length !== 2) {
         return current.map((split, splitIndex) =>
           splitIndex === index ? { ...split, [field]: value } : split,
         )
       }
 
-      const normalizedAmount = normalizeUnsignedAmount(value)
+      if (field === "amount") {
+        const normalizedAmount = normalizeUnsignedAmount(value)
 
-      return current.map((split, splitIndex) => {
-        if (splitIndex === 0) {
-          return { ...split, amount: normalizedAmount }
-        }
-
-        return {
+        return current.map((split) => ({
           ...split,
-          amount: normalizedAmount ? formatMirroredAmount(normalizedAmount) : "",
-        }
-      })
+          amount: normalizedAmount,
+        }))
+      }
+
+      if (field === "sign") {
+        const nextSign = value as SplitSign
+        const mirroredSign = getOppositeSign(nextSign)
+
+        return current.map((split, splitIndex) => ({
+          ...split,
+          sign: splitIndex === index ? nextSign : mirroredSign,
+        }))
+      }
+
+      return current.map((split, splitIndex) =>
+        splitIndex === index ? { ...split, [field]: value } : split,
+      )
     })
   }
 
@@ -114,16 +150,16 @@ export default function TransactionsPage() {
         transactionDate: new Date(transactionDate).toISOString(),
         description,
         referenceNumber,
-        splits: splits.map((split, index) => ({
+        splits: splits.map((split) => ({
           accountId: split.accountId,
-          amount: getEffectiveSplitAmount(split.amount, index, hasTwoSplitMirrorMode),
+          amount: getEffectiveSplitAmount(split),
           memo: split.memo,
         })),
       }
 
       const created = await createTransaction(payload)
       setCreatedTransaction(created)
-      setSplits([emptySplit(), emptySplit()])
+      setSplits([emptySplit("dr"), emptySplit("cr")])
       setDescription("")
       setReferenceNumber("")
     } catch (error) {
@@ -189,10 +225,10 @@ export default function TransactionsPage() {
               {splits.map((split, index) => (
                 <div
                   key={index}
-                  className="grid gap-3 rounded-2xl border bg-background/70 p-4 md:grid-cols-[1.2fr_0.8fr_1fr_auto]"
+                  className="grid gap-3 rounded-2xl border bg-background/70 p-4 md:grid-cols-[1.2fr_8rem_0.8fr_1fr_auto]"
                 >
                   <label className="space-y-2 text-sm">
-                    <span className="font-medium">
+                    <span className="flex h-5 items-center font-medium leading-none">
                       {hasTwoSplitMirrorMode ? (index === 0 ? "From account" : "To account") : "Account"}
                     </span>
                     <AccountSearchSelect
@@ -204,8 +240,27 @@ export default function TransactionsPage() {
                     />
                   </label>
                   <label className="space-y-2 text-sm">
-                    <span className="font-medium">
-                      {hasTwoSplitMirrorMode ? (index === 0 ? "Amount out (-)" : "Amount in (+)") : "Amount"}
+                    <span className="flex h-5 items-center gap-1.5 font-medium leading-none">
+                      <span>Sign</span>
+                      <FieldInfoTooltip content={signTooltip} />
+                    </span>
+                    <Select
+                      value={split.sign}
+                      onValueChange={(value) => updateSplit(index, "sign", value)}
+                    >
+                      <SelectTrigger className="h-9">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cr">Cr</SelectItem>
+                        <SelectItem value="dr">Dr</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </label>
+                  <label className="space-y-2 text-sm">
+                    <span className="flex h-5 items-center gap-1.5 font-medium leading-none">
+                      <span>Amount</span>
+                      <FieldInfoTooltip content={amountTooltip} />
                     </span>
                     <Input
                       type="number"
@@ -214,33 +269,20 @@ export default function TransactionsPage() {
                       onChange={(event) => updateSplit(index, "amount", event.target.value)}
                       placeholder="0.00"
                       readOnly={hasTwoSplitMirrorMode && index === 1}
+                      className="h-9"
                       required
                     />
-                    {hasTwoSplitMirrorMode && index === 0 ? (
-                      <p className="text-xs text-muted-foreground">
-                        Enter one positive amount. This side is saved as the negative "from" split.
-                      </p>
-                    ) : null}
-                    {hasTwoSplitMirrorMode && index === 1 ? (
-                      <p className="text-xs text-muted-foreground">
-                        Auto-balanced positive "to" split.
-                      </p>
-                    ) : null}
-                    {!hasTwoSplitMirrorMode ? (
-                      <p className="text-xs text-muted-foreground">
-                        Use negative values for the from account and positive values for the to account.
-                      </p>
-                    ) : null}
                   </label>
                   <label className="space-y-2 text-sm">
-                    <span className="font-medium">Memo</span>
+                    <span className="flex h-5 items-center font-medium leading-none">Memo</span>
                     <Input
                       value={split.memo}
                       onChange={(event) => updateSplit(index, "memo", event.target.value)}
                       placeholder="Optional memo"
+                      className="h-9"
                     />
                   </label>
-                  <div className="flex items-end">
+                  <div className="flex self-center items-center justify-center">
                     <Button
                       type="button"
                       variant="ghost"
@@ -322,16 +364,32 @@ function normalizeUnsignedAmount(value: string) {
   return value.replace(/^[+-]/, "")
 }
 
-function formatMirroredAmount(value: string) {
-  return value
+function getOppositeSign(sign: SplitSign): SplitSign {
+  return sign === "cr" ? "dr" : "cr"
 }
 
-function getEffectiveSplitAmount(value: string, index: number, hasTwoSplitMirrorMode: boolean) {
-  const numericValue = Number(value || 0)
+function getEffectiveSplitAmount(split: SplitDraft) {
+  const numericValue = Math.abs(Number(split.amount || 0))
+  return split.sign === "dr" ? -numericValue : numericValue
+}
 
-  if (!hasTwoSplitMirrorMode) {
-    return numericValue
-  }
-
-  return index === 0 ? -Math.abs(numericValue) : Math.abs(numericValue)
+function FieldInfoTooltip({ content }: { content: string }) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
+            aria-label="Field information"
+          >
+            <Info className="size-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-64 text-center">
+          {content}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
 }

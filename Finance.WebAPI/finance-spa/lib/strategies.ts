@@ -84,3 +84,26 @@ export async function importBayesianTrainingData(
       : [],
   }
 }
+
+export async function deleteBayesianLearningForAccount(destinationAccountId: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/Strategies/bayesian/accounts/${destinationAccountId}/learning`,
+    {
+      method: "DELETE",
+      headers: {
+        Accept: "application/json",
+      },
+    },
+  )
+
+  if (!response.ok) {
+    let message = `Failed to delete account learning: ${response.status} ${response.statusText}`
+
+    try {
+      const raw = (await response.json()) as { message?: string }
+      message = raw.message ?? message
+    } catch {}
+
+    throw new Error(message)
+  }
+}

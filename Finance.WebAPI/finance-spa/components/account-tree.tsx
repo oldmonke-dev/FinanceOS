@@ -19,6 +19,7 @@ import {
 
 import { useAccounts } from "@/components/providers/accounts-provider"
 import { useImportSessions } from "@/components/providers/import-sessions-provider"
+import { useUserPreferences } from "@/components/providers/user-preferences-provider"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
@@ -81,6 +82,7 @@ export function AccountTree() {
   const router = useRouter()
   const { accounts, addAccount, errorMessage, isLoading, refreshAccounts } = useAccounts()
   const { refreshSessions } = useImportSessions()
+  const { formatNumber } = useUserPreferences()
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set())
   const [activeParentId, setActiveParentId] = useState<string | "root" | null>(null)
   const [balanceLookup, setBalanceLookup] = useState<Record<string, number>>({})
@@ -308,6 +310,7 @@ export function AccountTree() {
         <TreeList
           nodes={nodes}
           depth={0}
+          formatNumber={formatNumber}
           balanceLookup={rolledUpBalanceLookup}
           collapsedIds={collapsedIds}
           activeParentId={activeParentId}
@@ -635,6 +638,7 @@ function ImportedTreeList({ nodes }: { nodes: ImportedAccountNode[] }) {
 type TreeListProps = {
   nodes: AccountNode[]
   depth: number
+  formatNumber: (value: number, fractionDigits?: number) => string
   balanceLookup: Record<string, number>
   collapsedIds: Set<string>
   activeParentId: string | "root" | null
@@ -650,6 +654,7 @@ type TreeListProps = {
 function TreeList({
   nodes,
   depth,
+  formatNumber,
   balanceLookup,
   collapsedIds,
   activeParentId,
@@ -707,7 +712,7 @@ function TreeList({
                 <div className="flex flex-wrap items-center gap-1.5">
                   <div className="rounded-full border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground">
                     <span className="text-muted-foreground">Balance:</span>{" "}
-                    <span className="tabular-nums">{formatBalance(balanceLookup[node.id] ?? 0)}</span>
+                    <span className="tabular-nums">{formatNumber(balanceLookup[node.id] ?? 0)}</span>
                   </div>
                   <div className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                     {node.children.length} subaccount{node.children.length === 1 ? "" : "s"}
@@ -753,6 +758,7 @@ function TreeList({
                 <TreeList
                   nodes={node.children}
                   depth={depth + 1}
+                  formatNumber={formatNumber}
                   balanceLookup={balanceLookup}
                   collapsedIds={collapsedIds}
                   activeParentId={activeParentId}
@@ -904,13 +910,6 @@ function getAccountTypePresentation(accountType: number | string | null) {
     icon: CircleDashed,
     iconClass: "text-muted-foreground",
   }
-}
-
-function formatBalance(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value)
 }
 
 function buildExistingAccountPathLookup(accounts: Account[]) {

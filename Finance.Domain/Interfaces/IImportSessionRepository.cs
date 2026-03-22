@@ -31,13 +31,6 @@ namespace Finance.Domain.Interfaces
             Guid? destinationAccountId,
             CancellationToken cancellationToken = default);
 
-        Task<bool> UpdateRowLedgerInclusionAsync(
-            Guid sessionId,
-            Guid rowId,
-            Guid userId,
-            bool includeInLedger,
-            CancellationToken cancellationToken = default);
-
         Task<int> DeleteRowsAsync(
             Guid sessionId,
             Guid userId,

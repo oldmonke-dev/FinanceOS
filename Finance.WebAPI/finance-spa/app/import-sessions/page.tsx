@@ -18,6 +18,7 @@ import { AccountSearchSelect } from "@/components/account-search-select"
 import { AppShell } from "@/components/app-shell"
 import { useAccounts } from "@/components/providers/accounts-provider"
 import { useImportSessions } from "@/components/providers/import-sessions-provider"
+import { useUserPreferences } from "@/components/providers/user-preferences-provider"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
@@ -72,6 +73,7 @@ type StrategyMode =
 
 export default function ImportSessionsPage() {
   const { accounts } = useAccounts()
+  const { formatNumber } = useUserPreferences()
   const {
     sessions,
     isLoading,
@@ -82,7 +84,6 @@ export default function ImportSessionsPage() {
     updateTitle,
     updateSourceAccount,
     updateRowDestinationAccount,
-    updateRowLedgerInclusion,
     addSessionToLedger,
     reapplyLearning,
     revertLearning,
@@ -98,7 +99,6 @@ export default function ImportSessionsPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [showAllRows, setShowAllRows] = useState(false)
   const [rowsPerPage, setRowsPerPage] = useState<10 | 50 | 100>(10)
-  const [listHasExclusions, setListHasExclusions] = useState(false)
   const [sortMode, setSortMode] = useState<"original" | "description_uniqueness">("original")
   const [strategyMode, setStrategyMode] = useState<StrategyMode>("unassigned")
   const [strategyCheckMessage, setStrategyCheckMessage] = useState<string | null>(null)
@@ -133,7 +133,6 @@ export default function ImportSessionsPage() {
 
     setCurrentPage(1)
     setShowAllRows(false)
-    setListHasExclusions(false)
     setSortMode("original")
     setStrategyMode(resolveStrategyMode(nextActiveSession))
     setStrategyCheckMessage(null)
@@ -216,7 +215,7 @@ export default function ImportSessionsPage() {
     : 0
   const hasPostableRows =
     activeSession?.sourceAccountId != null &&
-    activeRows.some((row) => row.includeInLedger && row.destinationAccountId != null)
+    activeRows.some((row) => row.destinationAccountId != null)
   const descriptionColumnIndex = useMemo(() => {
     if (!activeSession) {
       return -1
@@ -257,11 +256,7 @@ export default function ImportSessionsPage() {
       return left.rowIndex - right.rowIndex
     })
   }, [activeRows, activeSession, descriptionColumnIndex, sortMode])
-  const visibleRows = useMemo(
-    () =>
-      listHasExclusions ? sortedRows.filter((row) => row.includeInLedger) : sortedRows,
-    [listHasExclusions, sortedRows],
-  )
+  const visibleRows = sortedRows
   const totalPages = activeSession
     ? Math.max(1, Math.ceil(visibleRows.length / rowsPerPage))
     : 1
@@ -418,39 +413,6 @@ export default function ImportSessionsPage() {
       }),
     )
   }, [activeRows, activeSession, resolvedCurrentRowById, resolvedLedgerTransactions])
-  const accountBalanceById = useMemo(() => {
-    const balances = new Map<string, number>()
-
-    for (const transaction of ledgerTransactions) {
-      for (const split of transaction.splits) {
-        balances.set(split.accountId, (balances.get(split.accountId) ?? 0) + split.amount)
-      }
-    }
-
-    return balances
-  }, [ledgerTransactions])
-  const projectedBalanceByRowId = useMemo(() => {
-    const runningProjectedByAccountId = new Map<string, number>(accountBalanceById)
-    const nextProjectedByRowId = new Map<string, number>()
-
-    for (const row of sortedRows) {
-      if (!row.destinationAccountId) {
-        nextProjectedByRowId.set(row.id, 0)
-        continue
-      }
-
-      const currentProjectedBalance = runningProjectedByAccountId.get(row.destinationAccountId) ?? 0
-      const resolvedCurrentRow = resolvedCurrentRowById.get(row.id) ?? null
-      const projectedSplitAmount =
-        row.includeInLedger ? (resolvedCurrentRow?.amount ?? 0) : 0
-      const nextProjectedBalance = currentProjectedBalance + projectedSplitAmount
-
-      nextProjectedByRowId.set(row.id, nextProjectedBalance)
-      runningProjectedByAccountId.set(row.destinationAccountId, nextProjectedBalance)
-    }
-
-    return nextProjectedByRowId
-  }, [accountBalanceById, resolvedCurrentRowById, sortedRows])
   const accountById = useMemo(
     () => new Map(accounts.map((account) => [account.id, account])),
     [accounts],
@@ -510,6 +472,11 @@ export default function ImportSessionsPage() {
         accountPathLookup.get(sourceAccount.id) ?? sourceAccount.name,
       )
     : "Unassigned"
+  const canApplyLearning =
+    !isReadOnlySession &&
+    strategyMode !== "unassigned" &&
+    isUserImportSession(activeSession?.label ?? null)
+  const usesMockLearningAction = strategyMode !== "bayesian_statistics"
 
   async function handleDeleteSession() {
     if (!activeSession) {
@@ -549,7 +516,15 @@ export default function ImportSessionsPage() {
   }
 
   async function handleReapplyLearning() {
-    if (!activeSession) {
+    if (!activeSession || !canApplyLearning) {
+      return
+    }
+
+    if (usesMockLearningAction) {
+      setStrategyCheckTone("warning")
+      setStrategyCheckMessage(
+        `${formatStrategyLabel(strategyMode)} is not wired yet. This button is a placeholder for now.`,
+      )
       return
     }
 
@@ -603,8 +578,8 @@ export default function ImportSessionsPage() {
       issues.push("load rows into the active review list")
     }
 
-    if (!activeRows.some((row) => row.destinationAccountId == null && row.includeInLedger)) {
-      issues.push("keep at least one included row unmapped so Bayesian has work to do")
+    if (!activeRows.some((row) => row.destinationAccountId == null)) {
+      issues.push("keep at least one row unmapped so Bayesian has work to do")
     }
 
     if (issues.length > 0) {
@@ -723,7 +698,7 @@ export default function ImportSessionsPage() {
                 const completedRows = session.rows.filter(
                   (row) =>
                     session.isArchived
-                      ? row.addedToLedgerAt != null || !row.includeInLedger
+                      ? row.addedToLedgerAt != null
                       : row.destinationAccountId != null && row.addedToLedgerAt == null,
                 ).length
 
@@ -947,7 +922,7 @@ export default function ImportSessionsPage() {
                   <div className="space-y-1">
                     <p className="text-sm font-medium text-foreground">Review mode</p>
                     <p className="text-xs text-muted-foreground">
-                      Reapply uses global learning plus manual mappings from this active session.
+                      Apply learning uses global learning plus manual mappings from this active session.
                     </p>
                   </div>
                   <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
@@ -972,9 +947,9 @@ export default function ImportSessionsPage() {
                       type="button"
                       variant="outline"
                       onClick={() => void handleReapplyLearning()}
-                      disabled={isReadOnlySession || isReapplyingLearning}
+                      disabled={!canApplyLearning || isReapplyingLearning}
                     >
-                      {isReapplyingLearning ? "Reapplying..." : "Reapply Learning"}
+                      {isReapplyingLearning ? "Applying..." : "Apply Learning"}
                     </Button>
                     <Button
                       type="button"
@@ -1013,14 +988,6 @@ export default function ImportSessionsPage() {
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <label className="inline-flex h-9 items-center gap-2 rounded-lg border border-input bg-background px-3 text-sm text-foreground shadow-sm">
-                      <Checkbox
-                        checked={listHasExclusions}
-                        onCheckedChange={(checked) => setListHasExclusions(checked === true)}
-                        disabled={isReadOnlySession}
-                      />
-                      <span>Hide excluded</span>
-                    </label>
                     <Select
                       value={sortMode}
                       onValueChange={(value) =>
@@ -1094,7 +1061,7 @@ export default function ImportSessionsPage() {
                   <thead className="bg-muted/60">
                     <tr>
                       {!isReadOnlySession ? (
-                        <th className="border-b px-4 py-3 text-center font-medium whitespace-nowrap">
+                        <th className="w-10 border-b px-2 py-3 text-center font-medium whitespace-nowrap">
                           <label className="inline-flex items-center justify-center">
                             <Checkbox
                               checked={allVisibleRowsSelected}
@@ -1104,12 +1071,7 @@ export default function ImportSessionsPage() {
                           </label>
                         </th>
                       ) : null}
-                      {listHasExclusions ? (
-                        <th className="border-b px-4 py-3 text-center font-medium whitespace-nowrap">
-                          Exclude
-                        </th>
-                      ) : null}
-                      <th className="border-b px-4 py-3 text-left font-medium whitespace-nowrap">
+                      <th className="w-12 border-b px-2 py-3 text-left font-medium whitespace-nowrap">
                         Row
                       </th>
                       {mappedColumnIndexes.map((valueIndex) => (
@@ -1126,9 +1088,6 @@ export default function ImportSessionsPage() {
                       <th className="border-b px-4 py-3 text-left font-medium whitespace-nowrap">
                         Similarity Index
                       </th>
-                      <th className="border-b px-4 py-3 text-left font-medium whitespace-nowrap">
-                        Project Balance
-                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1144,13 +1103,6 @@ export default function ImportSessionsPage() {
                       const activeSessionMatch = bestActiveSessionMatchByRowId.get(row.id) ?? null
                       const ledgerMatch = bestLedgerMatchByRowId.get(row.id) ?? null
                       const resolvedCurrentRow = resolvedCurrentRowById.get(row.id) ?? null
-                      const projectedBalance =
-                        projectedBalanceByRowId.get(row.id) ??
-                        calculateProjectedBalance(
-                          row.destinationAccountId,
-                          resolvedCurrentRow?.amount ?? null,
-                          accountBalanceById,
-                        )
 
                       return (
                         <tr
@@ -1158,15 +1110,13 @@ export default function ImportSessionsPage() {
                           className={`${
                             isReadOnlySession
                               ? "bg-slate-200/80 text-slate-600"
-                              : row.includeInLedger || !listHasExclusions
-                              ? presentation.rowClass
+                              : presentation.rowClass
                                 ? `${presentation.rowClass} odd:bg-opacity-100 even:bg-opacity-100`
                                 : "odd:bg-muted/10 even:bg-muted/35"
-                              : "bg-slate-200/80 text-slate-600 dark:bg-slate-900/80 dark:text-slate-400"
                           }`}
                         >
                           {!isReadOnlySession ? (
-                            <td className="border-t px-3 py-2 text-center align-top">
+                            <td className="border-t px-2 py-2 text-center align-top">
                               <label className="inline-flex items-center justify-center">
                                 <Checkbox
                                   checked={selectedRowIds.has(row.id)}
@@ -1176,37 +1126,25 @@ export default function ImportSessionsPage() {
                               </label>
                             </td>
                           ) : null}
-                          {listHasExclusions ? (
-                            <td className="border-t px-3 py-2 text-center align-top">
-                              <label className="inline-flex items-center justify-center">
-                                <Checkbox
-                                  checked={!row.includeInLedger}
-                                  onCheckedChange={(checked) =>
-                                    void updateRowLedgerInclusion(
-                                      activeSession.id,
-                                      row.id,
-                                      checked !== true,
-                                    )
-                                  }
-                                  disabled={isReadOnlySession}
-                                  aria-label={
-                                    row.includeInLedger
-                                      ? "Exclude row from ledger"
-                                      : "Row excluded from ledger"
-                                  }
-                                />
-                              </label>
-                            </td>
-                          ) : null}
-                          <td className="border-t px-4 py-3 align-top whitespace-nowrap">
+                          <td className="border-t px-2 py-2 align-top whitespace-nowrap">
                             {row.rowIndex + 1}
                           </td>
                           {mappedColumnIndexes.map((valueIndex) => (
                           <td
                             key={`${activeSession.id}-${row.rowIndex}-${valueIndex}`}
-                            className="border-t px-3 py-2 align-top"
+                            className={`border-t px-3 py-2 align-top ${
+                              activeSession.columnMappings[valueIndex] === "date"
+                                ? "min-w-[8.5rem] whitespace-nowrap"
+                                : ""
+                            }`}
                           >
-                            <div className="max-w-56 break-words">
+                            <div
+                              className={
+                                activeSession.columnMappings[valueIndex] === "date"
+                                  ? "whitespace-nowrap"
+                                  : "max-w-56 break-words"
+                              }
+                            >
                               {row.values[valueIndex] || "-"}
                             </div>
                           </td>
@@ -1278,7 +1216,7 @@ export default function ImportSessionsPage() {
                                         }
                                         amount={
                                           activeSessionMatch.amount != null
-                                            ? formatProjectBalance(activeSessionMatch.amount)
+                                            ? formatNumber(activeSessionMatch.amount)
                                             : "Unknown"
                                         }
                                         date={activeSessionMatch.dateKey ?? "Unknown"}
@@ -1325,7 +1263,7 @@ export default function ImportSessionsPage() {
                                         }
                                         amount={
                                           ledgerMatch.amount != null
-                                            ? formatProjectBalance(ledgerMatch.amount)
+                                            ? formatNumber(ledgerMatch.amount)
                                             : "Unknown"
                                         }
                                         date={ledgerMatch.dateKey ?? "Unknown"}
@@ -1342,29 +1280,6 @@ export default function ImportSessionsPage() {
                                 </Tooltip>
                               </div>
                             </TooltipProvider>
-                          </td>
-                          <td className="border-t px-3 py-2 align-top">
-                            <div
-                              className={`min-w-36 space-y-2 rounded-xl border p-3 ${
-                                projectedBalance < 0
-                                  ? "border-destructive/40 bg-destructive/5"
-                                  : "bg-background/70"
-                              }`}
-                            >
-                              <p className="text-sm font-medium tabular-nums">
-                                {formatProjectBalance(projectedBalance)}
-                              </p>
-                              {row.addedToLedgerAt ? (
-                                <p className="text-xs text-muted-foreground">
-                                  Posted {new Date(row.addedToLedgerAt).toLocaleString()}
-                                </p>
-                              ) : null}
-                              {projectedBalance < 0 ? (
-                                <p className="text-xs font-medium text-destructive">
-                                  Warning: projected balance is negative.
-                                </p>
-                              ) : null}
-                            </div>
                           </td>
                         </tr>
                       )
@@ -1457,6 +1372,23 @@ function resolveStrategyMode(session: ImportSession | null): StrategyMode {
   }
 
   return normalizeStrategyMode(session.strategy)
+}
+
+function formatStrategyLabel(strategy: StrategyMode) {
+  switch (strategy) {
+    case "bayesian_statistics":
+      return "Bayesian Statistics"
+    case "nearest_neighbor":
+      return "Nearest Neighbor"
+    case "text_similarity":
+      return "Text Similarity"
+    case "frequency_pattern":
+      return "Frequency Pattern"
+    case "hybrid_ensemble":
+      return "Hybrid Ensemble"
+    default:
+      return "Unassigned"
+  }
 }
 
 function getSessionCardTitle(fileName: string | null) {
@@ -1570,6 +1502,10 @@ function resolveMappedAmount(values: string[], columnMappings: Record<number, st
     return null
   }
 
+  if (deposit != null && withdrawal != null) {
+    return deposit - Math.abs(withdrawal)
+  }
+
   return deposit != null ? deposit : -Math.abs(withdrawal ?? 0)
 }
 
@@ -1648,20 +1584,6 @@ function scoreAmountSimilarity(left: number | null, right: number | null) {
   return Math.max(0, 1 - delta / scale)
 }
 
-function calculateProjectedBalance(
-  destinationAccountId: string | null,
-  destinationAmount: number | null,
-  accountBalanceById: Map<string, number>,
-) {
-  if (!destinationAccountId) {
-    return 0
-  }
-
-  const currentBalance = accountBalanceById.get(destinationAccountId) ?? 0
-  const projectedSplitAmount = destinationAmount ?? 0
-  return currentBalance + projectedSplitAmount
-}
-
 type MatchTooltipCardProps = {
   title: string
   currentDateKey: string | null
@@ -1734,13 +1656,6 @@ function NoMatchTooltipCard({ title, message }: NoMatchTooltipCardProps) {
       </div>
     </div>
   )
-}
-
-function formatProjectBalance(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value)
 }
 
 type SimilarityBarProps = {

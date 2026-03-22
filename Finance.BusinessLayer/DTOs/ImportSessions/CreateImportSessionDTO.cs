@@ -10,8 +10,6 @@ namespace Finance.BusinessLayer.DTOs.ImportSessions
 
         public string Strategy { get; set; } = "bayesian_statistics";
 
-        public bool HasExclusions { get; set; }
-
         public bool IsArchived { get; set; }
 
         public string Status { get; set; } = "Active";

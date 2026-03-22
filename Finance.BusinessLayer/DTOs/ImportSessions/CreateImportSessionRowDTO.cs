@@ -10,8 +10,6 @@ namespace Finance.BusinessLayer.DTOs.ImportSessions
 
         public string? DestinationAccountError { get; set; }
 
-        public bool IncludeInLedger { get; set; } = true;
-
         public DateTime? AddedToLedgerAt { get; set; }
 
         public Guid? PostedTransactionId { get; set; }

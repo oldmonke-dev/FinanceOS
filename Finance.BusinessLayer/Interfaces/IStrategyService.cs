@@ -9,5 +9,9 @@ namespace Finance.BusinessLayer.Interfaces
         Task<ImportBayesianTrainingResultDTO> ImportBayesianTrainingDataAsync(
             ImportBayesianTrainingDataDTO request,
             CancellationToken cancellationToken = default);
+
+        Task DeleteBayesianLearningForAccountAsync(
+            Guid destinationAccountId,
+            CancellationToken cancellationToken = default);
     }
 }

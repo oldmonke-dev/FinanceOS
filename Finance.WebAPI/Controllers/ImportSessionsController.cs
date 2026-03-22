@@ -147,29 +147,6 @@ namespace Finance.WebAPI.Controllers
             }
         }
 
-        [HttpPatch("{sessionId:guid}/rows/{rowId:guid}/ledger-inclusion")]
-        public async Task<ActionResult<ImportSessionRowDTO>> UpdateRowLedgerInclusion(
-            Guid sessionId,
-            Guid rowId,
-            [FromBody] UpdateImportSessionRowLedgerInclusionDTO request,
-            CancellationToken cancellationToken)
-        {
-            try
-            {
-                var row = await _importSessionService.UpdateRowLedgerInclusionAsync(
-                    sessionId,
-                    rowId,
-                    request.IncludeInLedger,
-                    cancellationToken);
-
-                return Ok(row);
-            }
-            catch (KeyNotFoundException exception)
-            {
-                return NotFound(new { message = exception.Message });
-            }
-        }
-
         [HttpPost("{sessionId:guid}/add-to-ledger")]
         public async Task<ActionResult<AddImportSessionToLedgerResultDTO>> AddSessionToLedger(
             Guid sessionId,

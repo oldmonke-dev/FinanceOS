@@ -11,6 +11,11 @@ namespace Finance.Domain.Interfaces
             IReadOnlyDictionary<(Guid DestinationAccountId, string FeatureKey), int> increments,
             CancellationToken cancellationToken = default);
 
+        Task<int> DeleteGlobalStatsByDestinationAccountAsync(
+            Guid userId,
+            Guid destinationAccountId,
+            CancellationToken cancellationToken = default);
+
         Task<List<ImportSessionLearningEntry>> GetSessionEntriesAsync(
             Guid sessionId,
             Guid userId,

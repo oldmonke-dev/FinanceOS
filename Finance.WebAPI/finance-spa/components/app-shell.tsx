@@ -93,16 +93,18 @@ export function AppShell({ title, subtitle, badge, children }: AppShellProps) {
         <SidebarFooter className="p-3">
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton tooltip="Settings">
-                <Settings />
-                <span>Settings</span>
+              <SidebarMenuButton asChild isActive={pathname === "/settings"} tooltip="Settings">
+                <Link href="/settings">
+                  <Settings />
+                  <span>Settings</span>
+                </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarFooter>
       </Sidebar>
 
-      <SidebarInset className="min-h-svh min-w-0 overflow-x-hidden bg-muted/30">
+      <SidebarInset className="min-h-0 min-w-0 overflow-x-hidden bg-muted/30">
         <header className="flex min-w-0 items-center justify-between gap-4 border-b bg-background/80 px-4 py-3 backdrop-blur md:px-6">
           <div className="flex min-w-0 items-center gap-3">
             <SidebarTrigger />

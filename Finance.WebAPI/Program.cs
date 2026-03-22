@@ -58,6 +58,7 @@ builder.Services.AddScoped<IImportSessionService, ImportSessionService>();
 builder.Services.AddScoped<IStrategyService, StrategyService>();
 builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
 builder.Services.AddScoped<ITransactionService, TransactionService>();
+builder.Services.AddScoped<IUserPreferenceRepository, UserPreferenceRepository>();
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())

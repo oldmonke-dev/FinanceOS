@@ -300,12 +300,10 @@ export default function ImportPage() {
       sourceAccountId: selectedSourceAccount?.id ?? null,
       label: "user_imports",
       strategy: "unassigned",
-      hasExclusions: false,
       columnMappings,
       rows: rowsForImport.map(({ row, sourceIndex }) => ({
         rowIndex: sourceIndex,
         values: row,
-        includeInLedger: true,
         ...resolveDestinationAccount(row, accountColumnIndex, accountLookup),
       })),
     })

@@ -116,7 +116,6 @@ namespace Finance.Infrastructure.Services
                     }),
                     DestinationAccountId = destinationAccountId,
                     DestinationAccountError = null,
-                    IncludeInLedger = true,
                 });
             }
 
@@ -130,7 +129,6 @@ namespace Finance.Infrastructure.Services
                 Label = "account_deletion_sessions",
                 IsDeletable = false,
                 Strategy = "bayesian_statistics",
-                HasExclusions = false,
                 IsArchived = false,
                 Status = "Active",
                 ColumnMappingsJson = JsonSerializer.Serialize(new Dictionary<int, string>

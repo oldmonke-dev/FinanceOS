@@ -16,6 +16,7 @@ namespace Finance.Infrastructure.Data
         public DbSet<Split> Splits => Set<Split>();
         public DbSet<Transaction> Transactions => Set<Transaction>();
         public DbSet<User> Users => Set<User>();
+        public DbSet<UserPreference> UserPreferences => Set<UserPreference>();
         public DbSet<ImportSession> ImportSessions => Set<ImportSession>();
         public DbSet<ImportSessionRow> ImportSessionRows => Set<ImportSessionRow>();
         public DbSet<ImportLearningStat> ImportLearningStats => Set<ImportLearningStat>();
@@ -66,6 +67,24 @@ namespace Finance.Infrastructure.Data
                     .IsUnique();
             });
 
+            modelBuilder.Entity<UserPreference>(entity =>
+            {
+                entity.HasKey(preference => preference.UserId);
+
+                entity.Property(preference => preference.NumberGroupingStyle)
+                    .IsRequired()
+                    .HasMaxLength(40)
+                    .HasDefaultValue("international");
+
+                entity.Property(preference => preference.UpdatedAt)
+                    .HasColumnType("timestamp with time zone");
+
+                entity.HasOne(preference => preference.User)
+                    .WithOne(user => user.Preference)
+                    .HasForeignKey<UserPreference>(preference => preference.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
             modelBuilder.Entity<ImportSession>(entity =>
             {
                 entity.HasKey(session => session.Id);
@@ -84,7 +103,7 @@ namespace Finance.Infrastructure.Data
                     .IsRequired()
                     .HasMaxLength(100);
 
-                entity.Property(session => session.HasExclusions)
+                entity.Property<bool>("HasExclusions")
                     .HasDefaultValue(false);
 
                 entity.Property(session => session.IsArchived)
@@ -131,7 +150,7 @@ namespace Finance.Infrastructure.Data
                     .HasMaxLength(40)
                     .HasDefaultValue("none");
 
-                entity.Property(row => row.IncludeInLedger)
+                entity.Property<bool>("IncludeInLedger")
                     .HasDefaultValue(true);
 
                 entity.Property(row => row.AddedToLedgerAt)
@@ -221,6 +240,15 @@ namespace Finance.Infrastructure.Data
                 }
             );
 
+            modelBuilder.Entity<UserPreference>().HasData(
+                new UserPreference
+                {
+                    UserId = rootUserId,
+                    NumberGroupingStyle = "international",
+                    UpdatedAt = new DateTime(2026, 3, 22, 0, 0, 0, DateTimeKind.Utc),
+                }
+            );
+
             modelBuilder.Entity<Account>().HasData(
                 new Account
                 {
@@ -232,7 +260,7 @@ namespace Finance.Infrastructure.Data
                 new Account
                 {
                     Id = liabilitiesId,
-                    Name = "Liabilities",
+                    Name = "Liability",
                     AccountType = AccountType.Liability,
                     ParentAccountId = null,
                 },

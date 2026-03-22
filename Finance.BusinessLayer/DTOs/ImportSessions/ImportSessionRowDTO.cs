@@ -14,8 +14,6 @@ namespace Finance.BusinessLayer.DTOs.ImportSessions
 
         public string MappingSource { get; set; } = "none";
 
-        public bool IncludeInLedger { get; set; }
-
         public DateTime? AddedToLedgerAt { get; set; }
 
         public Guid? PostedTransactionId { get; set; }

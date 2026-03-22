@@ -71,7 +71,6 @@ namespace Finance.BusinessLayer.Services
                 Strategy = string.IsNullOrWhiteSpace(sessionDto.Strategy)
                     ? "bayesian_statistics"
                     : sessionDto.Strategy.Trim(),
-                HasExclusions = sessionDto.HasExclusions,
                 IsArchived = sessionDto.IsArchived,
                 Status = string.IsNullOrWhiteSpace(sessionDto.Status) ? "Active" : sessionDto.Status.Trim(),
                 ColumnMappingsJson = SerializeColumnMappings(sessionDto.ColumnMappings),
@@ -84,7 +83,6 @@ namespace Finance.BusinessLayer.Services
                     DestinationAccountError = string.IsNullOrWhiteSpace(row.DestinationAccountError)
                         ? null
                         : row.DestinationAccountError.Trim(),
-                    IncludeInLedger = row.IncludeInLedger,
                     AddedToLedgerAt = row.AddedToLedgerAt,
                     PostedTransactionId = row.PostedTransactionId,
                     MappingSource = row.DestinationAccountId.HasValue ? "seeded" : "none",
@@ -262,36 +260,6 @@ namespace Finance.BusinessLayer.Services
             return MapRow(row);
         }
 
-        public async Task<ImportSessionRowDTO> UpdateRowLedgerInclusionAsync(
-            Guid sessionId,
-            Guid rowId,
-            bool includeInLedger,
-            CancellationToken cancellationToken = default)
-        {
-            var updated = await _importSessionRepository.UpdateRowLedgerInclusionAsync(
-                sessionId,
-                rowId,
-                RootUserId,
-                includeInLedger,
-                cancellationToken);
-
-            if (!updated)
-            {
-                throw new KeyNotFoundException("Import session row was not found.");
-            }
-
-            var session = await _importSessionRepository.GetByIdAsync(sessionId, RootUserId, cancellationToken)
-                ?? throw new KeyNotFoundException("Import session was not found.");
-
-            var row = session.Rows.FirstOrDefault(item => item.Id == rowId)
-                ?? throw new KeyNotFoundException("Import session row was not found.");
-
-            UpdateSessionLifecycleState(session);
-            await _importSessionRepository.SaveChangesAsync(cancellationToken);
-
-            return MapRow(row);
-        }
-
         public async Task<AddImportSessionToLedgerResultDTO> AddSessionToLedgerAsync(
             Guid sessionId,
             CancellationToken cancellationToken = default)
@@ -306,8 +274,7 @@ namespace Finance.BusinessLayer.Services
 
             var includedRows = session.Rows
                 .Where(row =>
-                    row.IncludeInLedger
-                    && row.AddedToLedgerAt is null
+                    row.AddedToLedgerAt is null
                     && row.DestinationAccountId.HasValue
                     && row.DestinationAccountId.Value != Guid.Empty)
                 .OrderBy(row => row.RowIndex)
@@ -572,7 +539,6 @@ namespace Finance.BusinessLayer.Services
                 Label = session.Label,
                 IsDeletable = session.IsDeletable,
                 Strategy = session.Strategy,
-                HasExclusions = session.HasExclusions,
                 IsArchived = session.IsArchived,
                 Status = session.Status,
                 ColumnMappings = DeserializeColumnMappings(session.ColumnMappingsJson),
@@ -593,7 +559,6 @@ namespace Finance.BusinessLayer.Services
                 DestinationAccountId = row.DestinationAccountId,
                 DestinationAccountError = row.DestinationAccountError,
                 MappingSource = row.MappingSource,
-                IncludeInLedger = row.IncludeInLedger,
                 AddedToLedgerAt = row.AddedToLedgerAt,
                 PostedTransactionId = row.PostedTransactionId,
             };
@@ -608,7 +573,7 @@ namespace Finance.BusinessLayer.Services
                 return;
             }
 
-            var hasPendingLedgerRows = session.Rows.Any(row => row.IncludeInLedger && row.AddedToLedgerAt is null);
+            var hasPendingLedgerRows = session.Rows.Any(row => row.AddedToLedgerAt is null);
             if (!hasPendingLedgerRows)
             {
                 session.IsArchived = true;
@@ -707,7 +672,11 @@ namespace Finance.BusinessLayer.Services
                 throw new InvalidOperationException($"Imported row {rowIndex + 1} is missing a mapped amount value.");
             }
 
-            var amount = hasDepositValue ? depositAmount : -Math.Abs(withdrawalAmount);
+            var amount = hasDepositValue && hasWithdrawalValue
+                ? depositAmount - Math.Abs(withdrawalAmount)
+                : hasDepositValue
+                    ? depositAmount
+                    : -Math.Abs(withdrawalAmount);
 
             if (amount == 0)
             {
@@ -741,7 +710,11 @@ namespace Finance.BusinessLayer.Services
                 return false;
             }
 
-            amount = hasDepositValue ? depositAmount : -Math.Abs(withdrawalAmount);
+            amount = hasDepositValue && hasWithdrawalValue
+                ? depositAmount - Math.Abs(withdrawalAmount)
+                : hasDepositValue
+                    ? depositAmount
+                    : -Math.Abs(withdrawalAmount);
             return amount != 0;
         }
 
@@ -945,10 +918,7 @@ namespace Finance.BusinessLayer.Services
             Dictionary<int, string> columnMappings)
         {
             var values = DeserializeValues(row.ValuesJson);
-            var featureKeys = new HashSet<string>(StringComparer.Ordinal)
-            {
-                row.IncludeInLedger ? "include:true" : "include:false",
-            };
+            var featureKeys = new HashSet<string>(StringComparer.Ordinal);
 
             if (session.SourceAccountId.HasValue && session.SourceAccountId.Value != Guid.Empty)
             {

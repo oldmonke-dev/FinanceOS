@@ -133,32 +133,6 @@ namespace Finance.Infrastructure.Repositories
             return true;
         }
 
-        public async Task<bool> UpdateRowLedgerInclusionAsync(
-            Guid sessionId,
-            Guid rowId,
-            Guid userId,
-            bool includeInLedger,
-            CancellationToken cancellationToken = default)
-        {
-            var row = await _context.ImportSessionRows
-                .Include(item => item.ImportSession)
-                .FirstOrDefaultAsync(
-                    item => item.Id == rowId
-                        && item.ImportSessionId == sessionId
-                        && item.ImportSession.UserId == userId,
-                    cancellationToken);
-
-            if (row is null)
-            {
-                return false;
-            }
-
-            row.IncludeInLedger = includeInLedger;
-
-            await _context.SaveChangesAsync(cancellationToken);
-            return true;
-        }
-
         public async Task<int> DeleteRowsAsync(
             Guid sessionId,
             Guid userId,

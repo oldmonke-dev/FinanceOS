@@ -30,5 +30,28 @@ namespace Finance.WebAPI.Controllers
             var result = await _strategyService.ImportBayesianTrainingDataAsync(request, cancellationToken);
             return Ok(result);
         }
+
+        [HttpDelete("bayesian/accounts/{destinationAccountId:guid}/learning")]
+        public async Task<IActionResult> DeleteBayesianLearningForAccount(
+            Guid destinationAccountId,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                await _strategyService.DeleteBayesianLearningForAccountAsync(
+                    destinationAccountId,
+                    cancellationToken);
+
+                return NoContent();
+            }
+            catch (InvalidOperationException exception)
+            {
+                return BadRequest(new { message = exception.Message });
+            }
+            catch (KeyNotFoundException exception)
+            {
+                return NotFound(new { message = exception.Message });
+            }
+        }
     }
 }

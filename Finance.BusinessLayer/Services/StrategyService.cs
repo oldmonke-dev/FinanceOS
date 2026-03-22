@@ -167,6 +167,26 @@ namespace Finance.BusinessLayer.Services
             };
         }
 
+        public async Task DeleteBayesianLearningForAccountAsync(
+            Guid destinationAccountId,
+            CancellationToken cancellationToken = default)
+        {
+            if (destinationAccountId == Guid.Empty)
+            {
+                throw new InvalidOperationException("Destination account is required.");
+            }
+
+            var deletedCount = await _importLearningRepository.DeleteGlobalStatsByDestinationAccountAsync(
+                RootUserId,
+                destinationAccountId,
+                cancellationToken);
+
+            if (deletedCount == 0)
+            {
+                throw new KeyNotFoundException("No Bayesian learning was found for that account.");
+            }
+        }
+
         private static string BuildPath(Finance.Domain.Entities.Core.Account account, IReadOnlyCollection<Finance.Domain.Entities.Core.Account> accounts)
         {
             var accountById = accounts.ToDictionary(item => item.Id);
