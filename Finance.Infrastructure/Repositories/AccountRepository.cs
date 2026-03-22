@@ -32,12 +32,32 @@ namespace Finance.Infrastructure.Repositories
 
         public async Task<Account> CreateNewAccountAsync(AccountDTO accountDto)
         {
+            var normalizedName = (accountDto.Name ?? string.Empty).Trim();
+            var accountType = accountDto.AccountType ?? Domain.Enums.AccountType.Asset;
+            var parentAccountId = accountDto.ParentAccountId;
+
+            if (string.IsNullOrWhiteSpace(normalizedName))
+            {
+                throw new InvalidOperationException("Account name is required.");
+            }
+
+            var duplicateExists = await _context.Accounts.AnyAsync(account =>
+                account.ParentAccountId == parentAccountId
+                && account.AccountType == accountType
+                && account.Name.ToLower() == normalizedName.ToLower());
+
+            if (duplicateExists)
+            {
+                throw new InvalidOperationException(
+                    "An account with the same name, account type, and level already exists.");
+            }
+
             var account = new Account
             {
                 Id = accountDto.Id == Guid.Empty ? Guid.NewGuid() : accountDto.Id,
-                Name = accountDto.Name ?? string.Empty,
-                AccountType = accountDto.AccountType ?? Domain.Enums.AccountType.Asset,
-                ParentAccountId = accountDto.ParentAccountId
+                Name = normalizedName,
+                AccountType = accountType,
+                ParentAccountId = parentAccountId
             };
 
             _context.Accounts.Add(account);

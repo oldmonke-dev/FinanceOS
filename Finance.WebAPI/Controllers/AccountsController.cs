@@ -32,12 +32,19 @@ namespace Finance.WebAPI.Controllers
         [HttpPost]
         public async Task<ActionResult<Account>> CreateAccount([FromBody] AccountDTO account)
         {
-            var createdAccount = await _accountRepository.CreateNewAccountAsync(account);
+            try
+            {
+                var createdAccount = await _accountRepository.CreateNewAccountAsync(account);
 
-            return CreatedAtAction(
-                nameof(GetAccounts),
-                new { id = createdAccount.Id },
-                createdAccount);
+                return CreatedAtAction(
+                    nameof(GetAccounts),
+                    new { id = createdAccount.Id },
+                    createdAccount);
+            }
+            catch (InvalidOperationException exception)
+            {
+                return BadRequest(new { message = exception.Message });
+            }
         }
 
         [HttpDelete("{id:guid}")]
