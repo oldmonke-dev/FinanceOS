@@ -1,7 +1,6 @@
 "use client"
 
 import {
-  type ChangeEvent,
   memo,
   startTransition,
   useDeferredValue,
@@ -10,8 +9,7 @@ import {
   useRef,
   useState,
 } from "react"
-import { Dialog as DialogPrimitive } from "radix-ui"
-import { Check, FileLock, Filter, LoaderCircle, Upload } from "lucide-react"
+import { Check, Filter, LoaderCircle, Upload } from "lucide-react"
 import { useRouter } from "next/navigation"
 
 import { AccountSearchSelect } from "@/components/account-search-select"
@@ -29,7 +27,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { extractPdfImport } from "@/lib/import-extraction"
 import { type Account } from "@/models/account"
 
 type ParsedCsv = {
@@ -47,11 +44,6 @@ type ImportField =
   | "account"
   | "reference"
   | "memo"
-
-type ImportMessage = {
-  tone: "success" | "error"
-  text: string
-}
 
 const delimiterOptions: { label: string; value: Delimiter }[] = [
   { label: "Comma", value: "," },
@@ -88,7 +80,6 @@ export default function ImportPage() {
   const [trimWhitespace, setTrimWhitespace] = useState(true)
   const [skipEmptyRows, setSkipEmptyRows] = useState(true)
   const [rowsToSkip, setRowsToSkip] = useState(0)
-  const [mergeDescriptionContinuationRows, setMergeDescriptionContinuationRows] = useState(false)
   const [previewMode, setPreviewMode] = useState<"limited" | "all" | "range">("limited")
   const [previewLimit, setPreviewLimit] = useState(12)
   const [previewRangeStart, setPreviewRangeStart] = useState(1)
@@ -99,12 +90,6 @@ export default function ImportPage() {
   const [search, setSearch] = useState("")
   const [columnMappings, setColumnMappings] = useState<Record<number, ImportField>>({})
   const [fileName, setFileName] = useState<string | null>(null)
-  const [importMessage, setImportMessage] = useState<ImportMessage | null>(null)
-  const [pendingPdfFile, setPendingPdfFile] = useState<File | null>(null)
-  const [isPdfPasswordDialogOpen, setIsPdfPasswordDialogOpen] = useState(false)
-  const [pdfPassword, setPdfPassword] = useState("")
-  const [pdfPasswordError, setPdfPasswordError] = useState<string | null>(null)
-  const [isExtractingPdf, setIsExtractingPdf] = useState(false)
   const [isLoadingSourceFile, setIsLoadingSourceFile] = useState(false)
   const [splitPartCount, setSplitPartCount] = useState<2 | 3 | 4 | 5>(2)
   const [isSplitDialogOpen, setIsSplitDialogOpen] = useState(false)
@@ -136,13 +121,6 @@ export default function ImportPage() {
     () => parsed.rows.filter((_, index) => !skippedRowIndexes.has(index)),
     [parsed.rows, skippedRowIndexes],
   )
-  const rowsAfterInclude = useMemo(
-    () =>
-      mergeDescriptionContinuationRows
-        ? mergeContinuationDescriptionRows(rowsAfterSkip, hasHeaderRow)
-        : rowsAfterSkip,
-    [hasHeaderRow, mergeDescriptionContinuationRows, rowsAfterSkip],
-  )
   const maxColumns = parsed.maxColumns
   const defaultHeaders = useMemo(
     () => Array.from({ length: maxColumns }, (_, index) => `Column ${index + 1}`),
@@ -150,15 +128,15 @@ export default function ImportPage() {
   )
   const headers = useMemo(
     () =>
-      hasHeaderRow && rowsAfterInclude.length > 0
-        ? rowsAfterInclude[0].map((value, index) => value || `Column ${index + 1}`)
+      hasHeaderRow && rowsAfterSkip.length > 0
+        ? rowsAfterSkip[0].map((value, index) => value || `Column ${index + 1}`)
         : defaultHeaders,
-    [defaultHeaders, hasHeaderRow, rowsAfterInclude],
+    [defaultHeaders, hasHeaderRow, rowsAfterSkip],
   )
 
   const dataRows = useMemo(
-    () => (hasHeaderRow ? rowsAfterInclude.slice(1) : rowsAfterInclude),
-    [hasHeaderRow, rowsAfterInclude],
+    () => (hasHeaderRow ? rowsAfterSkip.slice(1) : rowsAfterSkip),
+    [hasHeaderRow, rowsAfterSkip],
   )
 
   useEffect(() => {
@@ -184,7 +162,6 @@ export default function ImportPage() {
   }, [headers])
 
   const visibleColumnIndexes = headers.map((_, index) => index)
-
   const filteredRows = useMemo(
     () =>
       dataRows
@@ -194,8 +171,7 @@ export default function ImportPage() {
             return true
           }
 
-          const haystack = row.join(" ").toLowerCase()
-          return haystack.includes(search.trim().toLowerCase())
+          return row.join(" ").toLowerCase().includes(search.trim().toLowerCase())
         }),
     [dataRows, search],
   )
@@ -213,17 +189,19 @@ export default function ImportPage() {
 
     return filteredRows.slice(0, previewLimit)
   }, [filteredRows, previewLimit, previewMode, previewRangeEnd, previewRangeStart])
+
   const allPreviewRowsSelected =
     previewRows.length > 0 &&
     previewRows.every(({ sourceIndex }) => selectedImportRows.has(sourceIndex))
-  const allProcessedRows = filteredRows
+
   const rowsForImport = useMemo(() => {
     if (usePreviewAsImportSelection) {
       return previewRows.filter(({ sourceIndex }) => selectedImportRows.has(sourceIndex))
     }
 
-    return allProcessedRows
-  }, [allProcessedRows, previewRows, selectedImportRows, usePreviewAsImportSelection])
+    return filteredRows
+  }, [filteredRows, previewRows, selectedImportRows, usePreviewAsImportSelection])
+
   const splitPreviewGroups = useMemo(
     () => splitRowsEvenly(rowsForImport, splitPartCount),
     [rowsForImport, splitPartCount],
@@ -240,10 +218,7 @@ export default function ImportPage() {
     [columnMappings],
   )
   const accountLookup = useMemo(
-    () =>
-      new Map(
-        accounts.map((account) => [normalizeAccountName(account.name), account]),
-      ),
+    () => new Map(accounts.map((account) => [normalizeAccountName(account.name), account])),
     [accounts],
   )
 
@@ -267,25 +242,13 @@ export default function ImportPage() {
     setSelectedImportRows((current) => (current.size === 0 ? current : new Set()))
   }, [previewRows, usePreviewAsImportSelection])
 
-  async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+  async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     if (!file) {
       return
     }
 
     setIsLoadingSourceFile(true)
-    setImportMessage(null)
-
-    const lowerCaseName = file.name.toLowerCase()
-    if (lowerCaseName.endsWith(".pdf") || file.type === "application/pdf") {
-      setPendingPdfFile(file)
-      setPdfPassword("")
-      setPdfPasswordError(null)
-      setIsPdfPasswordDialogOpen(true)
-      setIsLoadingSourceFile(false)
-      event.target.value = ""
-      return
-    }
 
     try {
       const text = await file.text()
@@ -293,70 +256,10 @@ export default function ImportPage() {
         setRawCsv(text)
       })
       setFileName(file.name)
-      setImportMessage({
-        tone: "success",
-        text: `Loaded CSV file ${file.name}.`,
-      })
     } finally {
       setIsLoadingSourceFile(false)
       event.target.value = ""
     }
-  }
-
-  async function submitPdfForExtraction() {
-    if (!pendingPdfFile) {
-      return
-    }
-
-    setIsExtractingPdf(true)
-    setIsLoadingSourceFile(true)
-    setPdfPasswordError(null)
-
-    try {
-      const result = await extractPdfImport(pendingPdfFile, pdfPassword || null)
-      const nextDelimiter = normalizeDelimiter(result.delimiter)
-
-      startTransition(() => {
-        setRawCsv(result.csvText)
-      })
-      setDelimiter(nextDelimiter)
-      setFileName(result.fileName)
-      setImportMessage({
-        tone: "success",
-        text: result.message,
-      })
-      setIsPdfPasswordDialogOpen(false)
-      setPendingPdfFile(null)
-      setPdfPassword("")
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to extract PDF import data."
-      setImportMessage({
-        tone: "error",
-        text: message,
-      })
-
-      if (message.toLowerCase().includes("password")) {
-        setPdfPasswordError(message)
-      } else {
-        setIsPdfPasswordDialogOpen(false)
-        setPendingPdfFile(null)
-      }
-    } finally {
-      setIsExtractingPdf(false)
-      setIsLoadingSourceFile(false)
-    }
-  }
-
-  function closePdfPasswordDialog() {
-    if (isExtractingPdf) {
-      return
-    }
-
-    setIsPdfPasswordDialogOpen(false)
-    setPendingPdfFile(null)
-    setPdfPassword("")
-    setPdfPasswordError(null)
   }
 
   function resetColumns() {
@@ -466,13 +369,11 @@ export default function ImportPage() {
   function toggleExpandedDescription(rowKey: string) {
     setExpandedDescriptionRows((current) => {
       const next = new Set(current)
-
       if (next.has(rowKey)) {
         next.delete(rowKey)
       } else {
         next.add(rowKey)
       }
-
       return next
     })
   }
@@ -480,7 +381,7 @@ export default function ImportPage() {
   return (
     <AppShell
       title="Importer"
-      subtitle="Load CSV or PDF files, preview mapped rows, then create an import session"
+      subtitle="CSV-only importer for previewing, mapping, and creating import sessions"
       badge={isLoading ? "Loading accounts" : `${previewRows.length} preview rows`}
     >
       <section className="grid min-w-0 gap-4 xl:grid-cols-[1.15fr_0.85fr]">
@@ -492,62 +393,41 @@ export default function ImportPage() {
             <div>
               <h2 className="text-lg font-semibold">Source</h2>
               <p className="text-sm text-muted-foreground">
-                Choose CSV or PDF files, or paste CSV text directly for preview and mapping.
+                Paste CSV text or load a local CSV file.
               </p>
             </div>
           </div>
 
-          <div className="mt-5">
-            <div className="space-y-2 text-sm">
-              <span className="font-medium">Choose CSV or PDF files</span>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv,text/csv,.pdf,application/pdf"
-                onChange={handleFileChange}
-                className="sr-only"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                className="h-10 w-full justify-start"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isLoadingSourceFile}
-              >
-                {isLoadingSourceFile ? (
-                  <>
-                    <LoaderCircle className="size-4 animate-spin" />
-                    {isExtractingPdf ? "Importing PDF with Tabula..." : "Loading CSV file..."}
-                  </>
-                ) : (
-                  "Choose CSV or PDF files"
-                )}
-              </Button>
-            </div>
+          <div className="mt-5 space-y-2 text-sm">
+            <span className="font-medium">CSV file</span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              onChange={handleFileChange}
+              className="sr-only"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 w-full justify-start"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isLoadingSourceFile}
+            >
+              {isLoadingSourceFile ? (
+                <>
+                  <LoaderCircle className="size-4 animate-spin" />
+                  Loading CSV file...
+                </>
+              ) : (
+                "Choose CSV file"
+              )}
+            </Button>
           </div>
 
           <div className="mt-3 rounded-2xl border bg-background/70 px-4 py-3 text-sm text-muted-foreground">
             {fileName ? `Loaded file: ${fileName}` : "No file selected. Using pasted/sample text."}
           </div>
-
-          {isLoadingSourceFile ? (
-            <div className="mt-3 flex items-center gap-2 rounded-2xl border bg-background/70 px-4 py-3 text-sm text-muted-foreground">
-              <LoaderCircle className="size-4 animate-spin" />
-              <span>{isExtractingPdf ? "Tabula is extracting rows from the PDF..." : "Reading CSV file..."}</span>
-            </div>
-          ) : null}
-
-          {importMessage ? (
-            <div
-              className={`mt-3 rounded-2xl border px-4 py-3 text-sm ${
-                importMessage.tone === "success"
-                  ? "border-emerald-300 bg-emerald-50 text-emerald-800"
-                  : "border-destructive/30 bg-destructive/5 text-destructive"
-              }`}
-            >
-              {importMessage.text}
-            </div>
-          ) : null}
 
           <label className="mt-4 block space-y-2 text-sm">
             <span className="font-medium">Raw CSV</span>
@@ -573,147 +453,124 @@ export default function ImportPage() {
             <div>
               <h2 className="text-lg font-semibold">Import options</h2>
               <p className="text-sm text-muted-foreground">
-                Shape the preview before a future backend import step.
+                Shape the preview before import.
               </p>
             </div>
           </div>
 
           <div className="mt-5 space-y-5">
-            <div>
-              <p className="text-sm font-semibold">Import options</p>
-              <div className="mt-3 grid gap-4 md:grid-cols-2">
-                <label className="space-y-2 text-sm">
-                  <span className="font-medium">Delimiter</span>
-                  <Select
-                    value={delimiter}
-                    onValueChange={(value) => setDelimiter(value as Delimiter)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {delimiterOptions.map((option) => (
-                        <SelectItem key={option.label} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </label>
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="space-y-2 text-sm">
+                <span className="font-medium">Delimiter</span>
+                <Select value={delimiter} onValueChange={(value) => setDelimiter(value as Delimiter)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {delimiterOptions.map((option) => (
+                      <SelectItem key={option.label} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </label>
 
-                <label className="space-y-2 text-sm">
-                  <span className="font-medium">Skip first rows</span>
-                  <Input
-                    type="number"
-                    min="0"
-                    value={rowsToSkip}
-                    onChange={(event) => setRowsToSkip(Number(event.target.value || 0))}
-                  />
-                </label>
+              <label className="space-y-2 text-sm">
+                <span className="font-medium">Skip first rows</span>
+                <Input
+                  type="number"
+                  min="0"
+                  value={rowsToSkip}
+                  onChange={(event) => setRowsToSkip(Number(event.target.value || 0))}
+                />
+              </label>
 
-                <label className="flex items-center gap-3 rounded-2xl border bg-background/70 px-4 py-3 text-sm">
-                  <Checkbox checked={hasHeaderRow} onCheckedChange={(checked) => setHasHeaderRow(checked === true)} />
-                  <span>First remaining row is header</span>
-                </label>
+              <label className="flex items-center gap-3 rounded-2xl border bg-background/70 px-4 py-3 text-sm">
+                <Checkbox
+                  checked={hasHeaderRow}
+                  onCheckedChange={(checked) => setHasHeaderRow(checked === true)}
+                />
+                <span>First remaining row is header</span>
+              </label>
 
-                <label className="flex items-center gap-3 rounded-2xl border bg-background/70 px-4 py-3 text-sm">
-                  <Checkbox checked={trimWhitespace} onCheckedChange={(checked) => setTrimWhitespace(checked === true)} />
-                  <span>Trim whitespace per cell</span>
-                </label>
+              <label className="flex items-center gap-3 rounded-2xl border bg-background/70 px-4 py-3 text-sm">
+                <Checkbox
+                  checked={trimWhitespace}
+                  onCheckedChange={(checked) => setTrimWhitespace(checked === true)}
+                />
+                <span>Trim whitespace per cell</span>
+              </label>
 
-                <label className="flex items-center gap-3 rounded-2xl border bg-background/70 px-4 py-3 text-sm md:col-span-2">
-                  <Checkbox checked={skipEmptyRows} onCheckedChange={(checked) => setSkipEmptyRows(checked === true)} />
-                  <span>Remove empty rows</span>
-                </label>
-
-                <label className="flex items-center gap-3 rounded-2xl border bg-background/70 px-4 py-3 text-sm md:col-span-2">
-                  <Checkbox
-                    checked={mergeDescriptionContinuationRows}
-                    onCheckedChange={(checked) =>
-                      setMergeDescriptionContinuationRows(checked === true)
-                    }
-                  />
-                  <div>
-                    <p className="font-medium">Merge PDF description continuation rows</p>
-                    <p className="text-muted-foreground">
-                      Joins rows where only the description column has text and the rest of the row is blank or "-".
-                    </p>
-                  </div>
-                </label>
-              </div>
+              <label className="flex items-center gap-3 rounded-2xl border bg-background/70 px-4 py-3 text-sm md:col-span-2">
+                <Checkbox
+                  checked={skipEmptyRows}
+                  onCheckedChange={(checked) => setSkipEmptyRows(checked === true)}
+                />
+                <span>Remove empty rows</span>
+              </label>
             </div>
 
             <div className="border-t" />
 
-            <div>
-              <p className="text-sm font-semibold">Preview options</p>
-              <div className="mt-3 grid gap-4 md:grid-cols-2">
-                <label className="space-y-2 text-sm">
-                  <span className="font-medium">Preview row limit</span>
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="space-y-2 text-sm">
+                <span className="font-medium">Preview row limit</span>
+                <Input
+                  type="number"
+                  min="1"
+                  value={previewLimit}
+                  onChange={(event) => setPreviewLimit(Number(event.target.value || 1))}
+                  disabled={previewMode !== "limited"}
+                />
+              </label>
+
+              <label className="space-y-2 text-sm">
+                <span className="font-medium">Preview mode</span>
+                <Select
+                  value={previewMode}
+                  onValueChange={(value) => setPreviewMode(value as "limited" | "all" | "range")}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="limited">Limited</SelectItem>
+                    <SelectItem value="all">Preview all</SelectItem>
+                    <SelectItem value="range">Custom range</SelectItem>
+                  </SelectContent>
+                </Select>
+              </label>
+
+              <div className="space-y-2 text-sm md:col-span-2">
+                <span className="font-medium">Custom row range</span>
+                <div className="grid grid-cols-2 gap-2">
                   <Input
                     type="number"
                     min="1"
-                    value={previewLimit}
-                    onChange={(event) => setPreviewLimit(Number(event.target.value || 1))}
-                    disabled={previewMode !== "limited"}
+                    value={previewRangeStart}
+                    onChange={(event) => setPreviewRangeStart(Number(event.target.value || 1))}
+                    disabled={previewMode !== "range"}
+                    placeholder="Start"
                   />
-                </label>
-
-                <label className="space-y-2 text-sm">
-                  <span className="font-medium">Preview mode</span>
-                  <Select
-                    value={previewMode}
-                    onValueChange={(value) =>
-                      setPreviewMode(value as "limited" | "all" | "range")
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="limited">Limited</SelectItem>
-                      <SelectItem value="all">Preview all</SelectItem>
-                      <SelectItem value="range">Custom range</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </label>
-
-                <div className="space-y-2 text-sm md:col-span-2">
-                  <span className="font-medium">Custom row range</span>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input
-                      type="number"
-                      min="1"
-                      value={previewRangeStart}
-                      onChange={(event) =>
-                        setPreviewRangeStart(Number(event.target.value || 1))
-                      }
-                      disabled={previewMode !== "range"}
-                      placeholder="Start"
-                    />
-                    <Input
-                      type="number"
-                      min="1"
-                      value={previewRangeEnd}
-                      onChange={(event) =>
-                        setPreviewRangeEnd(Number(event.target.value || 1))
-                      }
-                      disabled={previewMode !== "range"}
-                      placeholder="End"
-                    />
-                  </div>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={previewRangeEnd}
+                    onChange={(event) => setPreviewRangeEnd(Number(event.target.value || 1))}
+                    disabled={previewMode !== "range"}
+                    placeholder="End"
+                  />
                 </div>
-
-                <label className="flex items-center gap-3 rounded-2xl border bg-background/70 px-4 py-3 text-sm md:col-span-2">
-                  <Checkbox
-                    checked={usePreviewAsImportSelection}
-                    onCheckedChange={(checked) => setUsePreviewAsImportSelection(checked === true)}
-                  />
-                  <div>
-                    <p className="font-medium">Include only preview plus selected</p>
-                  </div>
-                </label>
               </div>
+
+              <label className="flex items-center gap-3 rounded-2xl border bg-background/70 px-4 py-3 text-sm md:col-span-2">
+                <Checkbox
+                  checked={usePreviewAsImportSelection}
+                  onCheckedChange={(checked) => setUsePreviewAsImportSelection(checked === true)}
+                />
+                <span>Include only preview plus selected</span>
+              </label>
             </div>
           </div>
 
@@ -979,71 +836,6 @@ export default function ImportPage() {
           </div>
         </div>
       ) : null}
-
-      <DialogPrimitive.Root
-        open={isPdfPasswordDialogOpen}
-        onOpenChange={(open) => {
-          if (!open) {
-            closePdfPasswordDialog()
-          }
-        }}
-      >
-        <DialogPrimitive.Portal>
-          <DialogPrimitive.Overlay className="fixed inset-0 z-[200] bg-black/45" />
-          <DialogPrimitive.Content className="fixed top-1/2 left-1/2 z-[201] w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-3xl border bg-card p-6 shadow-xl">
-            <div className="flex items-start gap-3">
-              <div className="rounded-2xl bg-primary/10 p-3 text-primary">
-                <FileLock className="size-5" />
-              </div>
-              <div className="space-y-2">
-                <DialogPrimitive.Title className="text-lg font-semibold">
-                  PDF password
-                </DialogPrimitive.Title>
-                <DialogPrimitive.Description className="text-sm text-muted-foreground">
-                  Enter the PDF password if the file is protected. Leave it blank if the PDF is not password protected.
-                </DialogPrimitive.Description>
-              </div>
-            </div>
-
-            {pendingPdfFile ? (
-              <div className="mt-4 rounded-2xl border bg-background/70 px-4 py-3 text-sm text-muted-foreground">
-                Selected PDF: {pendingPdfFile.name}
-              </div>
-            ) : null}
-
-            <label className="mt-4 block space-y-2 text-sm">
-              <span className="font-medium">Password</span>
-              <Input
-                type="password"
-                value={pdfPassword}
-                onChange={(event) => {
-                  setPdfPassword(event.target.value)
-                  if (pdfPasswordError) {
-                    setPdfPasswordError(null)
-                  }
-                }}
-                placeholder="Optional"
-                autoFocus
-              />
-            </label>
-
-            {pdfPasswordError ? (
-              <div className="mt-3 rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                {pdfPasswordError}
-              </div>
-            ) : null}
-
-            <div className="mt-6 flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={closePdfPasswordDialog} disabled={isExtractingPdf}>
-                Cancel
-              </Button>
-              <Button type="button" onClick={() => void submitPdfForExtraction()} disabled={!pendingPdfFile || isExtractingPdf}>
-                {isExtractingPdf ? "Extracting..." : "Extract PDF"}
-              </Button>
-            </div>
-          </DialogPrimitive.Content>
-        </DialogPrimitive.Portal>
-      </DialogPrimitive.Root>
     </AppShell>
   )
 }
@@ -1106,7 +898,6 @@ function parseCsv(
   }
 
   const maxColumns = rows.reduce((max, row) => Math.max(max, row.length), 0)
-
   return { rows, maxColumns }
 }
 
@@ -1114,108 +905,8 @@ function normalizeCell(value: string, trimWhitespace: boolean) {
   return trimWhitespace ? value.trim() : value
 }
 
-function mergeContinuationDescriptionRows(rows: string[][], hasHeaderRow: boolean) {
-  if (rows.length === 0) {
-    return rows
-  }
-
-  const headerRow = hasHeaderRow ? rows[0] : null
-  const dataRows = hasHeaderRow ? rows.slice(1) : rows
-
-  const descriptionColumnIndex = resolveDescriptionColumnIndex(headerRow)
-  if (descriptionColumnIndex < 0) {
-    return rows
-  }
-
-  const mergedDataRows: string[][] = []
-
-  for (const row of dataRows) {
-    const normalizedRow = [...row]
-
-    if (
-      mergedDataRows.length > 0 &&
-      isDescriptionContinuationRow(normalizedRow, descriptionColumnIndex)
-    ) {
-      const previousRow = mergedDataRows[mergedDataRows.length - 1]
-      const previousDescription = previousRow[descriptionColumnIndex] ?? ""
-      const continuationDescription = normalizedRow[descriptionColumnIndex] ?? ""
-
-      previousRow[descriptionColumnIndex] = joinDescriptionLines(
-        previousDescription,
-        continuationDescription,
-      )
-
-      continue
-    }
-
-    mergedDataRows.push(normalizedRow)
-  }
-
-  return headerRow ? [headerRow, ...mergedDataRows] : mergedDataRows
-}
-
-function normalizeDelimiter(value: string): Delimiter {
-  if (value === ";" || value === "\t" || value === "|") {
-    return value
-  }
-
-  return ","
-}
-
 function normalizeHeader(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, "_")
-}
-
-function resolveDescriptionColumnIndex(headerRow: string[] | null) {
-  if (!headerRow || headerRow.length === 0) {
-    return 1
-  }
-
-  for (let index = 0; index < headerRow.length; index += 1) {
-    const normalized = normalizeHeader(headerRow[index] ?? "")
-    if (normalized.includes("description") || normalized.includes("particular")) {
-      return index
-    }
-  }
-
-  return 1
-}
-
-function isDescriptionContinuationRow(row: string[], descriptionColumnIndex: number) {
-  let hasDescription = false
-
-  for (let index = 0; index < row.length; index += 1) {
-    const cell = row[index] ?? ""
-    const normalizedCell = cell.trim()
-
-    if (index === descriptionColumnIndex) {
-      if (normalizedCell.length > 0 && normalizedCell !== "-") {
-        hasDescription = true
-      }
-      continue
-    }
-
-    if (normalizedCell.length > 0 && normalizedCell !== "-") {
-      return false
-    }
-  }
-
-  return hasDescription
-}
-
-function joinDescriptionLines(currentValue: string, continuationValue: string) {
-  const base = currentValue.trim()
-  const continuation = continuationValue.trim()
-
-  if (!base) {
-    return continuation
-  }
-
-  if (!continuation) {
-    return base
-  }
-
-  return `${base} ${continuation}`.replace(/\s+/g, " ").trim()
 }
 
 function inferImportField(header: string): ImportField {
@@ -1289,40 +980,6 @@ function resolveDestinationAccount(
     destinationAccountId: matchedAccount.id,
     destinationAccountError: null,
   }
-}
-
-function parseRowRangeExpression(expression: string, rowCount: number) {
-  const indexes = new Set<number>()
-  const segments = expression
-    .split(/[;,]/)
-    .map((segment) => segment.trim())
-    .filter(Boolean)
-
-  for (const segment of segments) {
-    const rangeMatch = /^(\d+)\s*-\s*(\d+)$/.exec(segment)
-
-    if (rangeMatch) {
-      const start = Number(rangeMatch[1])
-      const end = Number(rangeMatch[2])
-      const lower = Math.max(Math.min(start, end), 1)
-      const upper = Math.min(Math.max(start, end), rowCount)
-
-      for (let value = lower; value <= upper; value += 1) {
-        indexes.add(value - 1)
-      }
-
-      continue
-    }
-
-    const single = Number(segment)
-    if (Number.isNaN(single) || single < 1 || single > rowCount) {
-      continue
-    }
-
-    indexes.add(single - 1)
-  }
-
-  return indexes
 }
 
 function splitRowsEvenly<T>(items: T[], partCount: number) {
