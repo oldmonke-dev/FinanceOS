@@ -63,16 +63,13 @@ export function AppShell({ title, subtitle, badge, children }: AppShellProps) {
     if (!containerElement) {
       return
     }
+    const container = containerElement
 
     let frameId = 0
 
-    function getContainerElement() {
-      return containerElement
-    }
-
     function checkHorizontalOverflow() {
       const scrollRegions = Array.from(
-        getContainerElement().querySelectorAll<HTMLElement>("[data-horizontal-scroll-region]"),
+        container.querySelectorAll<HTMLElement>("[data-horizontal-scroll-region]"),
       )
       let nextHasHorizontalOverflow = false
 
@@ -99,20 +96,20 @@ export function AppShell({ title, subtitle, badge, children }: AppShellProps) {
       scheduleCheck()
     })
 
-    resizeObserver.observe(getContainerElement())
-    for (const element of Array.from(getContainerElement().querySelectorAll<HTMLElement>("*"))) {
+    resizeObserver.observe(container)
+    for (const element of Array.from(container.querySelectorAll<HTMLElement>("*"))) {
       resizeObserver.observe(element)
     }
 
     const mutationObserver = new MutationObserver(() => {
       scheduleCheck()
 
-      for (const element of Array.from(getContainerElement().querySelectorAll<HTMLElement>("*"))) {
+      for (const element of Array.from(container.querySelectorAll<HTMLElement>("*"))) {
         resizeObserver.observe(element)
       }
     })
 
-    mutationObserver.observe(getContainerElement(), {
+    mutationObserver.observe(container, {
       attributes: true,
       childList: true,
       subtree: true,
