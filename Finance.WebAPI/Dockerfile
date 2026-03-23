@@ -16,10 +16,12 @@ RUN dotnet publish "Finance.WebAPI.csproj" -c Release -o /app/publish /p:UseAppH
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 
+ARG TABULA_VERSION=1.0.5
+
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 python3-venv ghostscript libglib2.0-0 libsm6 libxext6 libxrender1 \
-    && python3 -m venv /opt/camelot \
-    && /opt/camelot/bin/pip install --no-cache-dir camelot-py pypdf pandas \
+    && apt-get install -y --no-install-recommends openjdk-21-jre-headless curl ca-certificates \
+    && mkdir -p /opt/tabula \
+    && curl -fsSL "https://github.com/tabulapdf/tabula-java/releases/download/v${TABULA_VERSION}/tabula-${TABULA_VERSION}-jar-with-dependencies.jar" -o /opt/tabula/tabula.jar \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

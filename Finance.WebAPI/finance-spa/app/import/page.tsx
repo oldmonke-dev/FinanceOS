@@ -83,6 +83,7 @@ export default function ImportPage() {
   const [trimWhitespace, setTrimWhitespace] = useState(true)
   const [skipEmptyRows, setSkipEmptyRows] = useState(true)
   const [rowsToSkip, setRowsToSkip] = useState(0)
+  const [mergeDescriptionContinuationRows, setMergeDescriptionContinuationRows] = useState(false)
   const [previewMode, setPreviewMode] = useState<"limited" | "all" | "range">("limited")
   const [previewLimit, setPreviewLimit] = useState(12)
   const [previewRangeStart, setPreviewRangeStart] = useState(1)
@@ -133,6 +134,13 @@ export default function ImportPage() {
     () => parsed.rows.filter((_, index) => !skippedRowIndexes.has(index)),
     [parsed.rows, skippedRowIndexes],
   )
+  const rowsAfterInclude = useMemo(
+    () =>
+      mergeDescriptionContinuationRows
+        ? mergeContinuationDescriptionRows(rowsAfterSkip, hasHeaderRow)
+        : rowsAfterSkip,
+    [hasHeaderRow, mergeDescriptionContinuationRows, rowsAfterSkip],
+  )
   const maxColumns = parsed.maxColumns
   const defaultHeaders = useMemo(
     () => Array.from({ length: maxColumns }, (_, index) => `Column ${index + 1}`),
@@ -140,15 +148,15 @@ export default function ImportPage() {
   )
   const headers = useMemo(
     () =>
-      hasHeaderRow && rowsAfterSkip.length > 0
-        ? rowsAfterSkip[0].map((value, index) => value || `Column ${index + 1}`)
+      hasHeaderRow && rowsAfterInclude.length > 0
+        ? rowsAfterInclude[0].map((value, index) => value || `Column ${index + 1}`)
         : defaultHeaders,
-    [defaultHeaders, hasHeaderRow, rowsAfterSkip],
+    [defaultHeaders, hasHeaderRow, rowsAfterInclude],
   )
 
   const dataRows = useMemo(
-    () => (hasHeaderRow ? rowsAfterSkip.slice(1) : rowsAfterSkip),
-    [hasHeaderRow, rowsAfterSkip],
+    () => (hasHeaderRow ? rowsAfterInclude.slice(1) : rowsAfterInclude),
+    [hasHeaderRow, rowsAfterInclude],
   )
 
   useEffect(() => {
@@ -344,6 +352,34 @@ export default function ImportPage() {
     setPdfPasswordError(null)
   }
 
+  function downloadPreviewAsCsv() {
+    if (previewRows.length === 0) {
+      return
+    }
+
+    const csvRows: string[] = []
+    csvRows.push(headers.map(escapeCsvCell).join(","))
+    csvRows.push(
+      headers
+        .map((_, index) => escapeCsvCell(columnMappings[index] ?? "unmapped"))
+        .join(","),
+    )
+
+    for (const { row } of previewRows) {
+      const normalizedRow = headers.map((_, index) => escapeCsvCell(row[index] ?? ""))
+      csvRows.push(normalizedRow.join(","))
+    }
+
+    const blob = new Blob([csvRows.join("\r\n")], { type: "text/csv;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement("a")
+    const baseName = (fileName ?? "import-preview").replace(/\.[^.]+$/, "")
+    anchor.href = url
+    anchor.download = `${baseName}-preview.csv`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
   function resetColumns() {
     setColumnMappings(
       Object.fromEntries(headers.map((header, index) => [index, inferImportField(header)])),
@@ -477,6 +513,9 @@ export default function ImportPage() {
               <p className="text-sm text-muted-foreground">
                 Choose CSV or PDF files, or paste CSV text directly for preview and mapping.
               </p>
+              <p className="mt-1 text-xs text-amber-700">
+                PDF import via Tabula is experimental.
+              </p>
             </div>
           </div>
 
@@ -499,7 +538,7 @@ export default function ImportPage() {
               {isLoadingSourceFile ? (
                 <>
                   <LoaderCircle className="size-4 animate-spin" />
-                  {isExtractingPdf ? "Importing PDF with Camelot..." : "Loading CSV file..."}
+                  {isExtractingPdf ? "Importing PDF with Tabula..." : "Loading CSV file..."}
                 </>
               ) : (
                 "Choose CSV or PDF files"
@@ -514,7 +553,7 @@ export default function ImportPage() {
           {isLoadingSourceFile ? (
             <div className="mt-3 flex items-center gap-2 rounded-2xl border bg-background/70 px-4 py-3 text-sm text-muted-foreground">
               <LoaderCircle className="size-4 animate-spin" />
-              <span>{isExtractingPdf ? "Camelot is extracting rows from the PDF..." : "Reading CSV file..."}</span>
+              <span>{isExtractingPdf ? "Tabula is extracting rows from the PDF..." : "Reading CSV file..."}</span>
             </div>
           ) : null}
 
@@ -609,6 +648,21 @@ export default function ImportPage() {
                   onCheckedChange={(checked) => setSkipEmptyRows(checked === true)}
                 />
                 <span>Remove empty rows</span>
+              </label>
+
+              <label className="flex items-center gap-3 rounded-2xl border bg-background/70 px-4 py-3 text-sm md:col-span-2">
+                <Checkbox
+                  checked={mergeDescriptionContinuationRows}
+                  onCheckedChange={(checked) =>
+                    setMergeDescriptionContinuationRows(checked === true)
+                  }
+                />
+                <div>
+                  <p className="font-medium">Merge PDF description continuation rows</p>
+                  <p className="text-muted-foreground">
+                    Joins rows where only the description column has text and the rest of the row is blank or "-".
+                  </p>
+                </div>
               </label>
             </div>
 
@@ -705,6 +759,14 @@ export default function ImportPage() {
                 <div className="flex gap-2">
                   <Button type="button" variant="outline" onClick={resetColumns}>
                     Reset preview
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={downloadPreviewAsCsv}
+                    disabled={previewRows.length === 0}
+                  >
+                    Download preview as CSV
                   </Button>
                   <Button
                     type="button"
@@ -1071,8 +1133,108 @@ function normalizeCell(value: string, trimWhitespace: boolean) {
   return trimWhitespace ? value.trim() : value
 }
 
+function mergeContinuationDescriptionRows(rows: string[][], hasHeaderRow: boolean) {
+  if (rows.length === 0) {
+    return rows
+  }
+
+  const headerRow = hasHeaderRow ? rows[0] : null
+  const dataRows = hasHeaderRow ? rows.slice(1) : rows
+
+  const descriptionColumnIndex = resolveDescriptionColumnIndex(headerRow)
+  if (descriptionColumnIndex < 0) {
+    return rows
+  }
+
+  const mergedDataRows: string[][] = []
+
+  for (const row of dataRows) {
+    const normalizedRow = [...row]
+
+    if (
+      mergedDataRows.length > 0 &&
+      isDescriptionContinuationRow(normalizedRow, descriptionColumnIndex)
+    ) {
+      const previousRow = mergedDataRows[mergedDataRows.length - 1]
+      const previousDescription = previousRow[descriptionColumnIndex] ?? ""
+      const continuationDescription = normalizedRow[descriptionColumnIndex] ?? ""
+
+      previousRow[descriptionColumnIndex] = joinDescriptionLines(
+        previousDescription,
+        continuationDescription,
+      )
+
+      continue
+    }
+
+    mergedDataRows.push(normalizedRow)
+  }
+
+  return headerRow ? [headerRow, ...mergedDataRows] : mergedDataRows
+}
+
 function normalizeHeader(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, "_")
+}
+
+function resolveDescriptionColumnIndex(headerRow: string[] | null) {
+  if (!headerRow || headerRow.length === 0) {
+    return 1
+  }
+
+  for (let index = 0; index < headerRow.length; index += 1) {
+    const normalized = normalizeHeader(headerRow[index] ?? "")
+    if (normalized.includes("description") || normalized.includes("particular")) {
+      return index
+    }
+  }
+
+  return 1
+}
+
+function isDescriptionContinuationRow(row: string[], descriptionColumnIndex: number) {
+  let hasDescription = false
+
+  for (let index = 0; index < row.length; index += 1) {
+    const cell = row[index] ?? ""
+    const normalizedCell = cell.trim()
+
+    if (index === descriptionColumnIndex) {
+      if (normalizedCell.length > 0 && normalizedCell !== "-") {
+        hasDescription = true
+      }
+      continue
+    }
+
+    if (normalizedCell.length > 0 && normalizedCell !== "-") {
+      return false
+    }
+  }
+
+  return hasDescription
+}
+
+function joinDescriptionLines(currentValue: string, continuationValue: string) {
+  const base = currentValue.trim()
+  const continuation = continuationValue.trim()
+
+  if (!base) {
+    return continuation
+  }
+
+  if (!continuation) {
+    return base
+  }
+
+  return `${base} ${continuation}`.replace(/\s+/g, " ").trim()
+}
+
+function escapeCsvCell(value: string) {
+  if (value.includes('"') || value.includes(",") || value.includes("\n") || value.includes("\r")) {
+    return `"${value.replace(/"/g, '""')}"`
+  }
+
+  return value
 }
 
 function inferImportField(header: string): ImportField {
