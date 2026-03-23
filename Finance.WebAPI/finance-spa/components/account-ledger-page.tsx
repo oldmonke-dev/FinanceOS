@@ -627,31 +627,31 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
             </div>
           ) : (
             <>
-              <div className="mt-6 overflow-x-hidden rounded-2xl border">
-                <table className="w-full table-fixed border-collapse text-xs">
+              <div className="mt-6 overflow-x-auto rounded-2xl border">
+                <table className="min-w-[68rem] w-full border-collapse text-[11px] sm:text-xs lg:table-fixed">
                 <thead className="bg-muted/60">
                   <tr>
-                    <th className="w-28 border-b pl-12 pr-3 py-2 text-left font-medium">Date</th>
-                    <th className="w-[16rem] border-b px-2 py-2 text-left font-medium">Description</th>
-                    <th className="w-28 border-b px-2 py-2 text-left font-medium">Reference</th>
-                    <th className="w-[24rem] border-b px-2 py-2 text-left font-medium">Destination</th>
-                    <th className="w-32 border-b px-2 py-2 text-left font-medium">Memo</th>
-                    <th className="w-24 border-b px-3 py-2 text-right font-medium">Amount</th>
-                    <th className="w-32 border-b px-3 py-2 text-right font-medium">Trailing Balance</th>
-                    <th className="w-16 border-b px-3 py-2 text-right font-medium">Actions</th>
+                    <th className="w-24 border-b pl-9 pr-2 py-2 text-left font-medium sm:w-28 sm:pl-12 sm:pr-3">Date</th>
+                    <th className="w-[13rem] border-b px-2 py-2 text-left font-medium sm:w-[15rem]">Description</th>
+                    <th className="w-24 border-b px-2 py-2 text-left font-medium sm:w-28">Reference</th>
+                    <th className="w-[16rem] border-b px-2 py-2 text-left font-medium sm:w-[20rem] lg:w-[22rem]">Destination</th>
+                    <th className="w-28 border-b px-2 py-2 text-left font-medium sm:w-32">Memo</th>
+                    <th className="w-28 border-b px-2 py-2 text-right font-medium sm:w-32 sm:px-3">Amount</th>
+                    <th className="w-32 border-b px-2 py-2 text-right font-medium sm:w-36 sm:px-3">Trailing Balance</th>
+                    <th className="w-14 border-b px-2 py-2 text-right font-medium sm:w-16 sm:px-3">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pagedTransactionRows.map(({ transaction, accountSplit, destinationSplit, counterpartNames, trailingBalance }, rowIndex) => (
                     <Fragment key={transaction.id}>
                       <tr className={rowIndex % 2 === 0 ? "bg-muted/10" : "bg-muted/35"}>
-                        <td className="border-t px-3 py-2 align-top whitespace-nowrap">
-                          <div className="flex items-center gap-2">
+                        <td className="border-t px-2 py-2 align-top whitespace-nowrap sm:px-3">
+                          <div className="flex items-center gap-1.5 sm:gap-2">
                             <Button
                               type="button"
                               variant="ghost"
                               size="icon"
-                              className="size-7 shrink-0"
+                              className="size-6 shrink-0 sm:size-7"
                               onClick={() => toggleExpanded(transaction.id)}
                               aria-label={
                                 expandedTransactionIds.has(transaction.id)
@@ -732,18 +732,18 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                             rows={1}
                           />
                         </td>
-                        <td className={`border-t px-3 py-2 text-right align-top font-medium tabular-nums ${getAmountToneClass(accountSplit?.amount ?? 0)}`}>
+                        <td className={`border-t px-2 py-2 text-right align-top font-medium tabular-nums whitespace-nowrap sm:px-3 ${getAmountToneClass(accountSplit?.amount ?? 0)}`}>
                           {formatSignedNumber(accountSplit?.amount ?? 0, formatNumber)}
                         </td>
-                        <td className="border-t px-3 py-2 text-right align-top font-medium tabular-nums text-muted-foreground">
+                        <td className="border-t px-2 py-2 text-right align-top font-medium tabular-nums whitespace-nowrap text-muted-foreground sm:px-3">
                           {formatNumber(trailingBalance)}
                         </td>
-                        <td className="border-t px-3 py-2 text-right align-top">
+                        <td className="border-t px-2 py-2 text-right align-top sm:px-3">
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="size-7 text-destructive"
+                            className="size-6 text-destructive sm:size-7"
                             onClick={() => void handleDeleteTransaction(transaction.id)}
                             disabled={isSavingChanges}
                             aria-label="Delete transaction"
@@ -769,7 +769,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                                   {orderSplitsForDisplay(transaction.splits, resolvedAccount.id).map((split, splitIndex) => (
                                     <div
                                       key={split.id}
-                                      className={`grid min-w-[46rem] grid-cols-[auto_minmax(12rem,1.4fr)_minmax(10rem,1.1fr)_auto_8rem] items-center gap-x-2 border-t px-3 py-2 first:border-t-0 ${
+                                      className={`grid min-w-[40rem] grid-cols-[auto_minmax(10rem,1.3fr)_minmax(8rem,1fr)_auto_7.5rem] items-center gap-x-2 border-t px-2 py-2 text-[11px] first:border-t-0 sm:min-w-[46rem] sm:grid-cols-[auto_minmax(12rem,1.4fr)_minmax(10rem,1.1fr)_auto_8rem] sm:px-3 sm:text-xs ${
                                         splitIndex % 2 === 0 ? "bg-background/35" : "bg-background/20"
                                       }`}
                                     >
