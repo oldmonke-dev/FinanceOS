@@ -520,7 +520,6 @@ export default function ImportPage() {
           </div>
 
           <div className="mt-5 space-y-2 text-sm">
-            <span className="font-medium">Choose CSV or PDF files</span>
             <input
               ref={fileInputRef}
               type="file"
