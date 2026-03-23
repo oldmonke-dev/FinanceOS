@@ -116,6 +116,29 @@ export async function deleteAccount(accountId: string): Promise<{
   }
 }
 
+export async function renameAccount(accountId: string, name: string): Promise<Account> {
+  const response = await authFetch(`${API_BASE_URL}/Accounts/${accountId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ name }),
+  })
+
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to rename account: ${response.status} ${response.statusText}`,
+      ),
+    )
+  }
+
+  const data = (await response.json()) as Record<string, unknown>
+  return normalizeAccount(data)
+}
+
 export function buildAccountTree(accounts: Account[]): AccountNode[] {
   const nodes = new Map<string, AccountNode>()
 

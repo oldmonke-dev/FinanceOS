@@ -72,5 +72,23 @@ namespace Finance.WebAPI.Controllers
                 return NotFound(new { message = exception.Message });
             }
         }
+
+        [HttpPut("{id:guid}")]
+        public async Task<ActionResult<Account>> RenameAccount(Guid id, [FromBody] UpdateAccountNameDTO request)
+        {
+            try
+            {
+                var updatedAccount = await _accountRepository.RenameAccountAsync(id, request);
+                return Ok(updatedAccount);
+            }
+            catch (InvalidOperationException exception)
+            {
+                return BadRequest(new { message = exception.Message });
+            }
+            catch (KeyNotFoundException exception)
+            {
+                return NotFound(new { message = exception.Message });
+            }
+        }
     }
 }

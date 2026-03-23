@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   ArrowDownCircle,
@@ -8,10 +8,12 @@ import {
   Briefcase,
   ChevronRight,
   CircleDashed,
+  EllipsisVertical,
   FileSpreadsheet,
   FolderPlus,
   FolderTree,
   Landmark,
+  Pencil,
   Plus,
   Trash2,
   Upload,
@@ -38,7 +40,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { buildAccountTree, createAccount, deleteAccount, formatAccountType } from "@/lib/accounts"
+import {
+  buildAccountTree,
+  createAccount,
+  deleteAccount,
+  formatAccountType,
+  renameAccount,
+} from "@/lib/accounts"
 import { getTransactions } from "@/lib/transactions"
 import {
   type Account,
@@ -52,6 +60,12 @@ type AccountFormProps = {
   parentLabel: string
   onCancel: () => void
   onCreated: (account: Account) => void
+}
+
+type RenameAccountFormProps = {
+  account: Account
+  onCancel: () => void
+  onRenamed: (account: Account) => void
 }
 
 type ImportedAccountDraft = {
@@ -80,17 +94,27 @@ const accountTypeOptions: { value: AccountType; label: string }[] = [
 
 export function AccountTree() {
   const router = useRouter()
-  const { accounts, addAccount, errorMessage, isLoading, refreshAccounts } = useAccounts()
+  const { accounts, addAccount, updateAccount, errorMessage, isLoading, refreshAccounts } =
+    useAccounts()
   const { refreshSessions } = useImportSessions()
   const { formatNumber } = useUserPreferences()
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set())
   const [activeParentId, setActiveParentId] = useState<string | "root" | null>(null)
+  const [renamingAccountId, setRenamingAccountId] = useState<string | null>(null)
+  const [openActionsAccountId, setOpenActionsAccountId] = useState<string | null>(null)
+  const [searchTerm, setSearchTerm] = useState("")
   const [balanceLookup, setBalanceLookup] = useState<Record<string, number>>({})
   const [balanceError, setBalanceError] = useState<string | null>(null)
   const [isImportOpen, setIsImportOpen] = useState(false)
   const [deletingAccountId, setDeletingAccountId] = useState<string | null>(null)
 
   const nodes = buildAccountTree(accounts)
+  const normalizedSearchTerm = searchTerm.trim().toLowerCase()
+  const searchResult = useMemo(
+    () => filterAccountTree(nodes, normalizedSearchTerm),
+    [nodes, normalizedSearchTerm],
+  )
+  const visibleNodes = normalizedSearchTerm ? searchResult.nodes : nodes
   const rolledUpBalanceLookup = useMemo(() => {
     const nextLookup = { ...balanceLookup }
 
@@ -204,6 +228,14 @@ export function AccountTree() {
   function handleCreated(account: Account) {
     addAccount(account)
     setActiveParentId(null)
+    setRenamingAccountId(null)
+    setOpenActionsAccountId(null)
+  }
+
+  function handleRenamed(account: Account) {
+    updateAccount(account)
+    setRenamingAccountId(null)
+    setOpenActionsAccountId(null)
   }
 
   async function handleDeleteAccount(account: Account) {
@@ -216,6 +248,7 @@ export function AccountTree() {
     }
 
     setDeletingAccountId(account.id)
+    setOpenActionsAccountId(null)
 
     try {
       const result = await deleteAccount(account.id)
@@ -246,7 +279,13 @@ export function AccountTree() {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Search accounts"
+            className="h-8 w-full min-w-52 md:w-56"
+          />
           <Button type="button" size="sm" variant="outline" onClick={collapseAll}>
             Collapse All
           </Button>
@@ -307,20 +346,43 @@ export function AccountTree() {
             {balanceError}
           </div>
         ) : null}
+        {normalizedSearchTerm && visibleNodes.length === 0 ? (
+          <div className="mb-4 rounded-2xl border border-dashed bg-background/70 p-4 text-sm text-muted-foreground">
+            No accounts matched "{searchTerm.trim()}".
+          </div>
+        ) : null}
         <TreeList
-          nodes={nodes}
+          nodes={visibleNodes}
           depth={0}
           formatNumber={formatNumber}
           balanceLookup={rolledUpBalanceLookup}
           collapsedIds={collapsedIds}
+          forcedExpandedIds={searchResult.forcedExpandedIds}
           activeParentId={activeParentId}
           onToggleCollapsed={toggleCollapsed}
           onOpenLedger={(accountId) => router.push(`/accounts/${accountId}`)}
-          onActivateCreate={setActiveParentId}
+          onActivateCreate={(parentId) => {
+            setRenamingAccountId(null)
+            setOpenActionsAccountId(null)
+            setActiveParentId(parentId)
+          }}
+          renamingAccountId={renamingAccountId}
+          openActionsAccountId={openActionsAccountId}
+          onToggleActionsMenu={(accountId) =>
+            setOpenActionsAccountId((current) => (current === accountId ? null : accountId))
+          }
+          onCloseActionsMenu={() => setOpenActionsAccountId(null)}
+          onActivateRename={(accountId) => {
+            setActiveParentId(null)
+            setOpenActionsAccountId(null)
+            setRenamingAccountId(accountId)
+          }}
           deletingAccountId={deletingAccountId}
           onDeleteAccount={(account) => void handleDeleteAccount(account)}
           onCreated={handleCreated}
+          onRenamed={handleRenamed}
           onCancelCreate={() => setActiveParentId(null)}
+          onCancelRename={() => setRenamingAccountId(null)}
         />
       </div>
     </div>
@@ -641,14 +703,22 @@ type TreeListProps = {
   formatNumber: (value: number, fractionDigits?: number) => string
   balanceLookup: Record<string, number>
   collapsedIds: Set<string>
+  forcedExpandedIds: Set<string>
   activeParentId: string | "root" | null
   onToggleCollapsed: (accountId: string) => void
   onOpenLedger: (accountId: string) => void
   onActivateCreate: (parentId: string | "root" | null) => void
+  renamingAccountId: string | null
+  openActionsAccountId: string | null
+  onToggleActionsMenu: (accountId: string) => void
+  onCloseActionsMenu: () => void
+  onActivateRename: (accountId: string | null) => void
   deletingAccountId: string | null
   onDeleteAccount: (account: Account) => void
   onCreated: (account: Account) => void
+  onRenamed: (account: Account) => void
   onCancelCreate: () => void
+  onCancelRename: () => void
 }
 
 function TreeList({
@@ -657,20 +727,29 @@ function TreeList({
   formatNumber,
   balanceLookup,
   collapsedIds,
+  forcedExpandedIds,
   activeParentId,
   onToggleCollapsed,
   onOpenLedger,
   onActivateCreate,
+  renamingAccountId,
+  openActionsAccountId,
+  onToggleActionsMenu,
+  onCloseActionsMenu,
+  onActivateRename,
   deletingAccountId,
   onDeleteAccount,
   onCreated,
+  onRenamed,
   onCancelCreate,
+  onCancelRename,
 }: TreeListProps) {
   return (
     <ul className="space-y-1.5">
       {nodes.map((node) => {
-        const isCollapsed = collapsedIds.has(node.id)
+        const isCollapsed = forcedExpandedIds.has(node.id) ? false : collapsedIds.has(node.id)
         const isCreateOpen = activeParentId === node.id
+        const isRenameOpen = renamingAccountId === node.id
         const presentation = getAccountTypePresentation(node.accountType)
 
         return (
@@ -717,27 +796,16 @@ function TreeList({
                   <div className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                     {node.children.length} subaccount{node.children.length === 1 ? "" : "s"}
                   </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={isCreateOpen ? "secondary" : "outline"}
-                    className="h-7 px-2 text-[11px]"
-                    onClick={() => onActivateCreate(isCreateOpen ? null : node.id)}
-                  >
-                    <FolderPlus />
-                    Add
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="h-7 px-2 text-[11px] text-destructive"
-                    onClick={() => onDeleteAccount(node)}
-                    disabled={node.children.length > 0 || deletingAccountId === node.id}
-                  >
-                    <Trash2 />
-                    {deletingAccountId === node.id ? "Deleting..." : "Delete"}
-                  </Button>
+                  <AccountActionsMenu
+                    account={node}
+                    isOpen={openActionsAccountId === node.id}
+                    isDeleting={deletingAccountId === node.id}
+                    onToggle={() => onToggleActionsMenu(node.id)}
+                    onClose={onCloseActionsMenu}
+                    onAddSubAccount={() => onActivateCreate(isCreateOpen ? null : node.id)}
+                    onRename={() => onActivateRename(isRenameOpen ? null : node.id)}
+                    onDelete={() => onDeleteAccount(node)}
+                  />
                 </div>
               </div>
 
@@ -751,6 +819,16 @@ function TreeList({
                   />
                 </div>
               ) : null}
+
+              {isRenameOpen ? (
+                <div className="mt-2 border-t pt-2">
+                  <RenameAccountForm
+                    account={node}
+                    onCancel={onCancelRename}
+                    onRenamed={onRenamed}
+                  />
+                </div>
+              ) : null}
             </div>
 
             {!isCollapsed && node.children.length > 0 ? (
@@ -761,14 +839,22 @@ function TreeList({
                   formatNumber={formatNumber}
                   balanceLookup={balanceLookup}
                   collapsedIds={collapsedIds}
+                  forcedExpandedIds={forcedExpandedIds}
                   activeParentId={activeParentId}
                   onToggleCollapsed={onToggleCollapsed}
                   onOpenLedger={onOpenLedger}
                   onActivateCreate={onActivateCreate}
+                  renamingAccountId={renamingAccountId}
+                  openActionsAccountId={openActionsAccountId}
+                  onToggleActionsMenu={onToggleActionsMenu}
+                  onCloseActionsMenu={onCloseActionsMenu}
+                  onActivateRename={onActivateRename}
                   deletingAccountId={deletingAccountId}
                   onDeleteAccount={onDeleteAccount}
                   onCreated={onCreated}
+                  onRenamed={onRenamed}
                   onCancelCreate={onCancelCreate}
+                  onCancelRename={onCancelRename}
                 />
               </div>
             ) : null}
@@ -869,6 +955,170 @@ function AccountForm({
 
       {errorMessage ? <p className="mt-2 text-sm text-destructive">{errorMessage}</p> : null}
     </form>
+  )
+}
+
+function RenameAccountForm({ account, onCancel, onRenamed }: RenameAccountFormProps) {
+  const [name, setName] = useState(account.name)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setIsSubmitting(true)
+    setErrorMessage(null)
+
+    try {
+      const updatedAccount = await renameAccount(account.id, name)
+      onRenamed(updatedAccount)
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "Unknown error while renaming account.",
+      )
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="rounded-xl border bg-card p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-medium">Rename account</h3>
+          <p className="text-xs text-muted-foreground">
+            Type stays {formatAccountType(account.accountType)} at the current level.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
+        <label className="space-y-1 text-sm">
+          <span className="font-medium">Name</span>
+          <Input
+            className="h-8"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Account name"
+            required
+          />
+        </label>
+
+        <div className="flex items-end gap-2">
+          <Button type="submit" size="sm" disabled={isSubmitting}>
+            <Pencil />
+            {isSubmitting ? "Saving..." : "Rename"}
+          </Button>
+          <Button type="button" size="sm" variant="ghost" onClick={onCancel} disabled={isSubmitting}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+
+      {errorMessage ? <p className="mt-2 text-sm text-destructive">{errorMessage}</p> : null}
+    </form>
+  )
+}
+
+type AccountActionsMenuProps = {
+  account: AccountNode
+  isOpen: boolean
+  isDeleting: boolean
+  onToggle: () => void
+  onClose: () => void
+  onAddSubAccount: () => void
+  onRename: () => void
+  onDelete: () => void
+}
+
+function AccountActionsMenu({
+  account,
+  isOpen,
+  isDeleting,
+  onToggle,
+  onClose,
+  onAddSubAccount,
+  onRename,
+  onDelete,
+}: AccountActionsMenuProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const canDelete = account.children.length === 0 && !isDeleting
+
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        onClose()
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown)
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown)
+    }
+  }, [isOpen, onClose])
+
+  return (
+    <div ref={containerRef} className="relative">
+      <Button
+        type="button"
+        size="sm"
+        variant={isOpen ? "secondary" : "outline"}
+        className="h-7 px-2 text-[11px]"
+        onClick={onToggle}
+        aria-label={`Open actions for ${account.name}`}
+      >
+        <EllipsisVertical className="size-3.5" />
+        <span>Actions</span>
+      </Button>
+
+      {isOpen ? (
+        <div className="absolute right-0 top-9 z-20 min-w-44 rounded-xl border bg-popover p-1.5 shadow-lg">
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition hover:bg-muted"
+            onClick={() => {
+              onAddSubAccount()
+              onClose()
+            }}
+          >
+            <FolderPlus className="size-4" />
+            <span>Add SubAccount</span>
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition hover:bg-muted"
+            onClick={() => {
+              onRename()
+              onClose()
+            }}
+          >
+            <Pencil className="size-4" />
+            <span>Rename Account</span>
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-destructive transition hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => {
+              onDelete()
+              onClose()
+            }}
+            disabled={!canDelete}
+            title={
+              account.children.length > 0
+                ? "Delete is only available for accounts without subaccounts."
+                : undefined
+            }
+          >
+            <Trash2 className="size-4" />
+            <span>{isDeleting ? "Deleting..." : "Delete"}</span>
+          </button>
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -1153,4 +1403,43 @@ function collectAccountIds(nodes: AccountNode[]) {
   }
 
   return ids
+}
+
+function filterAccountTree(nodes: AccountNode[], searchTerm: string) {
+  if (!searchTerm) {
+    return {
+      nodes,
+      forcedExpandedIds: new Set<string>(),
+    }
+  }
+
+  const forcedExpandedIds = new Set<string>()
+
+  function visit(node: AccountNode): AccountNode | null {
+    const filteredChildren = node.children
+      .map((child) => visit(child))
+      .filter((child): child is AccountNode => child != null)
+    const matchesSelf = node.name.toLowerCase().includes(searchTerm)
+    const hasMatchingDescendant = filteredChildren.length > 0
+
+    if (!matchesSelf && !hasMatchingDescendant) {
+      return null
+    }
+
+    if (hasMatchingDescendant) {
+      forcedExpandedIds.add(node.id)
+    }
+
+    return {
+      ...node,
+      children: filteredChildren,
+    }
+  }
+
+  return {
+    nodes: nodes
+      .map((node) => visit(node))
+      .filter((node): node is AccountNode => node != null),
+    forcedExpandedIds,
+  }
 }

@@ -11,6 +11,7 @@ type AccountsContextValue = {
   errorMessage: string | null
   refreshAccounts: () => Promise<void>
   addAccount: (account: Account) => void
+  updateAccount: (account: Account) => void
 }
 
 const AccountsContext = createContext<AccountsContextValue | null>(null)
@@ -46,6 +47,12 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
     })
   }
 
+  function updateAccount(account: Account) {
+    setAccounts((current) =>
+      current.map((existing) => (existing.id === account.id ? account : existing)),
+    )
+  }
+
   useEffect(() => {
     void refreshAccounts()
   }, [])
@@ -57,6 +64,7 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
       errorMessage,
       refreshAccounts,
       addAccount,
+      updateAccount,
     }),
     [accounts, errorMessage, isLoading],
   )
