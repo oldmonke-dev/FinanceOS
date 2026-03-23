@@ -126,3 +126,17 @@
     @apply m-0 min-h-full bg-background text-foreground;
   }
 }
+
+@layer utilities {
+  .horizontal-scroll-region {
+    max-width: 100%;
+    overflow-x: hidden;
+    overflow-y: visible;
+    scrollbar-gutter: stable;
+  }
+
+  .horizontal-scroll-region[data-has-horizontal-overflow="true"] {
+    overflow-x: auto;
+    padding-bottom: 0.35rem;
+  }
+}

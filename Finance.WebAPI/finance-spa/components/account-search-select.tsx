@@ -133,13 +133,29 @@ export function AccountSearchSelect({
       }
 
       const rect = trigger.getBoundingClientRect()
-      const width = Math.max(rect.width, 352)
+      const viewportWidth = window.innerWidth
+      const viewportHeight = window.innerHeight
+      const horizontalPadding = 8
+      const verticalPadding = 8
+      const preferredWidth = Math.max(rect.width, 352)
+      const width = Math.min(preferredWidth, Math.max(280, viewportWidth - horizontalPadding * 2))
+      const spaceBelow = viewportHeight - rect.bottom - 16
+      const spaceAbove = rect.top - 16
+      const openUpward = spaceBelow < 240 && spaceAbove > spaceBelow
+      const maxHeight = Math.max(220, Math.min(360, (openUpward ? spaceAbove : spaceBelow)))
+      const top = openUpward
+        ? Math.max(verticalPadding, rect.top - maxHeight - 8)
+        : Math.min(rect.bottom + 8, Math.max(verticalPadding, viewportHeight - maxHeight - verticalPadding))
+      const left = Math.max(
+        horizontalPadding,
+        Math.min(rect.left, viewportWidth - width - horizontalPadding),
+      )
 
       setPopupStyle({
-        top: Math.min(rect.bottom + 8, Math.max(8, window.innerHeight - 248)),
-        left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
+        top,
+        left,
         width,
-        maxHeight: Math.max(240, window.innerHeight - rect.bottom - 24),
+        maxHeight,
       })
     }
 
@@ -154,10 +170,12 @@ export function AccountSearchSelect({
     }
 
     window.addEventListener("resize", handleResize)
+    window.addEventListener("scroll", handleResize, true)
 
     return () => {
       window.clearTimeout(timeoutId)
       window.removeEventListener("resize", handleResize)
+      window.removeEventListener("scroll", handleResize, true)
     }
   }, [isOpen])
 
@@ -229,7 +247,7 @@ export function AccountSearchSelect({
               <div
                 ref={popupRef}
                 className={cn(
-                  "absolute min-w-[22rem] rounded-xl border bg-popover text-popover-foreground shadow-md sm:min-w-[26rem]",
+                  "absolute rounded-xl border bg-popover text-popover-foreground shadow-md",
                   contentClassName,
                 )}
                 style={{
@@ -252,7 +270,7 @@ export function AccountSearchSelect({
                     />
                   </div>
                 </div>
-                <div className="max-h-96 overflow-y-auto p-1.5">
+                <div className="overflow-y-auto p-1.5" style={{ maxHeight: popupStyle.maxHeight - 60 }}>
                   {allowEmpty ? (
                     <button
                       type="button"

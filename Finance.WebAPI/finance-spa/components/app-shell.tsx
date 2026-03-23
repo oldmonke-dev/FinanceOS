@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useEffect, useRef, useState } from "react"
 import {
   FileSpreadsheet,
   FolderTree,
@@ -30,6 +31,7 @@ import {
   SidebarMenuItem,
   SidebarProvider,
   SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar"
 
 const navItems = [
@@ -53,6 +55,74 @@ type AppShellProps = {
 export function AppShell({ title, subtitle, badge, children }: AppShellProps) {
   const pathname = usePathname()
   const { user, logout } = useAuth()
+  const contentRef = useRef<HTMLDivElement | null>(null)
+  const [hasHorizontalOverflow, setHasHorizontalOverflow] = useState(false)
+
+  useEffect(() => {
+    const containerElement = contentRef.current
+    if (!containerElement) {
+      return
+    }
+
+    let frameId = 0
+
+    function checkHorizontalOverflow() {
+      const scrollRegions = Array.from(
+        containerElement.querySelectorAll<HTMLElement>("[data-horizontal-scroll-region]"),
+      )
+      let nextHasHorizontalOverflow = false
+
+      for (const region of scrollRegions) {
+        const regionHasOverflow = region.scrollWidth - region.clientWidth > 1
+        region.dataset.hasHorizontalOverflow = regionHasOverflow ? "true" : "false"
+
+        if (regionHasOverflow) {
+          nextHasHorizontalOverflow = true
+        }
+      }
+
+      setHasHorizontalOverflow(nextHasHorizontalOverflow)
+    }
+
+    function scheduleCheck() {
+      cancelAnimationFrame(frameId)
+      frameId = window.requestAnimationFrame(checkHorizontalOverflow)
+    }
+
+    scheduleCheck()
+
+    const resizeObserver = new ResizeObserver(() => {
+      scheduleCheck()
+    })
+
+    resizeObserver.observe(containerElement)
+    for (const element of Array.from(containerElement.querySelectorAll<HTMLElement>("*"))) {
+      resizeObserver.observe(element)
+    }
+
+    const mutationObserver = new MutationObserver(() => {
+      scheduleCheck()
+
+      for (const element of Array.from(containerElement.querySelectorAll<HTMLElement>("*"))) {
+        resizeObserver.observe(element)
+      }
+    })
+
+    mutationObserver.observe(containerElement, {
+      attributes: true,
+      childList: true,
+      subtree: true,
+    })
+
+    window.addEventListener("resize", scheduleCheck)
+
+    return () => {
+      cancelAnimationFrame(frameId)
+      window.removeEventListener("resize", scheduleCheck)
+      mutationObserver.disconnect()
+      resizeObserver.disconnect()
+    }
+  }, [children])
 
   return (
     <SidebarProvider>
@@ -122,7 +192,7 @@ export function AppShell({ title, subtitle, badge, children }: AppShellProps) {
       <SidebarInset className="min-h-0 min-w-0 overflow-x-hidden bg-muted/30">
         <header className="flex min-w-0 items-center justify-between gap-4 border-b bg-background/80 px-4 py-3 backdrop-blur md:px-6">
           <div className="flex min-w-0 items-center gap-3">
-            <SidebarTrigger />
+            <SidebarOverflowHint hasHorizontalOverflow={hasHorizontalOverflow} />
             <div className="min-w-0">
               <p className="truncate text-sm text-muted-foreground">{subtitle}</p>
               <h1 className="truncate text-xl font-semibold">{title}</h1>
@@ -135,10 +205,68 @@ export function AppShell({ title, subtitle, badge, children }: AppShellProps) {
           ) : null}
         </header>
 
-        <div className="flex min-w-0 flex-1 flex-col gap-6 overflow-x-hidden p-4 md:p-6">
+        <div ref={contentRef} className="flex min-w-0 flex-1 flex-col gap-6 overflow-x-hidden p-4 md:p-6">
           {children}
         </div>
       </SidebarInset>
     </SidebarProvider>
+  )
+}
+
+function SidebarOverflowHint({ hasHorizontalOverflow }: { hasHorizontalOverflow: boolean }) {
+  const { state } = useSidebar()
+  const [isHintVisible, setIsHintVisible] = useState(false)
+  const lastOverflowStateRef = useRef(false)
+
+  useEffect(() => {
+    const shouldShowHint = hasHorizontalOverflow && state !== "collapsed"
+    const overflowStarted = shouldShowHint && !lastOverflowStateRef.current
+
+    lastOverflowStateRef.current = shouldShowHint
+
+    if (!shouldShowHint) {
+      setIsHintVisible(false)
+      return
+    }
+
+    if (!overflowStarted) {
+      return
+    }
+
+    setIsHintVisible(true)
+    const timeoutId = window.setTimeout(() => {
+      setIsHintVisible(false)
+    }, 3000)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [hasHorizontalOverflow, state])
+
+  const showHint = hasHorizontalOverflow && state !== "collapsed" && isHintVisible
+
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      <div className="relative">
+        {showHint ? (
+          <>
+            <span className="pointer-events-none absolute inset-0 rounded-md bg-primary/20 animate-ping" />
+            <span className="pointer-events-none absolute -inset-1 rounded-lg border border-primary/30" />
+          </>
+        ) : null}
+        <SidebarTrigger
+          className={
+            showHint ? "relative z-10 bg-primary/10 text-primary hover:bg-primary/15" : "relative z-10"
+          }
+        />
+      </div>
+      <span
+        className={`hidden text-[11px] leading-tight text-muted-foreground transition-all md:block ${
+          showHint ? "max-w-44 opacity-100" : "max-w-0 overflow-hidden opacity-0"
+        }`}
+      >
+        Hide sidebar for better horizontal data fit.
+      </span>
+    </div>
   )
 }

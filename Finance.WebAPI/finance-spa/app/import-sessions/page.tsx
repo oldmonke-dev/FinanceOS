@@ -716,7 +716,7 @@ export default function ImportSessionsPage() {
               </div>
             </div>
 
-            <div className="mt-5 flex gap-3 overflow-x-auto pb-1">
+            <div data-horizontal-scroll-region className="horizontal-scroll-region mt-5 flex gap-3 pb-1">
               {filteredSessions.map((session) => {
                 const isActive = session.id === activeSession?.id
                 const completedRows = session.rows.filter(
@@ -1080,7 +1080,7 @@ export default function ImportSessionsPage() {
                 Scroll horizontally to review all mapped columns and controls.
               </div>
 
-              <div className="mt-5 overflow-x-auto rounded-2xl border pb-2">
+              <div data-horizontal-scroll-region className="horizontal-scroll-region mt-5 rounded-2xl border pb-2">
                 <table className="w-full min-w-[84rem] border-collapse text-xs">
                   <thead className="bg-muted/60">
                     <tr>

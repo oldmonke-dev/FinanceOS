@@ -648,7 +648,7 @@ export default function ImportPage() {
             </div>
           ) : null}
 
-          <div className="mt-5 max-w-full overflow-x-auto rounded-2xl border">
+          <div data-horizontal-scroll-region className="horizontal-scroll-region mt-5 max-w-full rounded-2xl border">
             <table className="w-full min-w-[52rem] table-fixed border-collapse text-sm">
               <thead className="bg-muted/60">
                 <tr>

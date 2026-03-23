@@ -627,7 +627,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
             </div>
           ) : (
             <>
-              <div className="mt-6 overflow-x-auto rounded-2xl border">
+              <div data-horizontal-scroll-region className="horizontal-scroll-region mt-6 rounded-2xl border">
                 <table className="min-w-[68rem] w-full border-collapse text-[11px] sm:text-xs lg:table-fixed">
                 <thead className="bg-muted/60">
                   <tr>
@@ -765,7 +765,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                                     {transaction.splits.length} split{transaction.splits.length === 1 ? "" : "s"}
                                   </span>
                                 </div>
-                                <div className="overflow-x-auto">
+                                <div data-horizontal-scroll-region className="horizontal-scroll-region">
                                   {orderSplitsForDisplay(transaction.splits, resolvedAccount.id).map((split, splitIndex) => (
                                     <div
                                       key={split.id}

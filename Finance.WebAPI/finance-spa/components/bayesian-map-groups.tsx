@@ -178,7 +178,7 @@ export function BayesianMapGroups({ groups }: { groups: BayesianMapGroup[] }) {
                       : "Delete learning"}
                   </Button>
                 </div>
-                <div className="overflow-x-auto rounded-md border">
+                <div data-horizontal-scroll-region className="horizontal-scroll-region rounded-md border">
                   <table className="w-full min-w-[28rem] border-collapse text-xs">
                     <thead className="bg-muted/60">
                       <tr>
