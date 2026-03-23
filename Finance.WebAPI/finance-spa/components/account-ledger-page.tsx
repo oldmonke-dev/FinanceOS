@@ -678,7 +678,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                               }
                             }
                             placeholder="Transaction description"
-                            className={`${inlineTextareaClassName} break-words whitespace-pre-wrap`}
+                            className={`${inlineTextareaClassName} min-h-[2.25rem] break-words whitespace-pre-wrap`}
                             rows={1}
                             ref={(element) => {
                               if (element) {
@@ -765,11 +765,11 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                                     {transaction.splits.length} split{transaction.splits.length === 1 ? "" : "s"}
                                   </span>
                                 </div>
-                                <div className="overflow-hidden">
+                                <div className="overflow-x-auto">
                                   {orderSplitsForDisplay(transaction.splits, resolvedAccount.id).map((split, splitIndex) => (
                                     <div
                                       key={split.id}
-                                      className={`grid grid-cols-[auto_minmax(0,1.8fr)_minmax(0,1.1fr)_auto_9rem] items-center gap-x-2 border-t px-3 py-2 first:border-t-0 ${
+                                      className={`grid min-w-[46rem] grid-cols-[auto_minmax(12rem,1.4fr)_minmax(10rem,1.1fr)_auto_8rem] items-center gap-x-2 border-t px-3 py-2 first:border-t-0 ${
                                         splitIndex % 2 === 0 ? "bg-background/35" : "bg-background/20"
                                       }`}
                                     >
