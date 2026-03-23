@@ -648,8 +648,7 @@ namespace Finance.BusinessLayer.Services
                 throw new InvalidOperationException($"Imported row {rowIndex + 1} is missing a mapped date value.");
             }
 
-            if (DateTime.TryParse(rawValue, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsedInvariant) ||
-                DateTime.TryParse(rawValue, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out parsedInvariant))
+            if (TryParseImportDate(rawValue, out var parsedInvariant))
             {
                 return parsedInvariant.Kind switch
                 {
@@ -660,6 +659,52 @@ namespace Finance.BusinessLayer.Services
             }
 
             throw new InvalidOperationException($"Imported row {rowIndex + 1} has an invalid date value: {rawValue}.");
+        }
+
+        private static bool TryParseImportDate(string value, out DateTime parsedDate)
+        {
+            var normalizedValue = value.Trim();
+            var supportedFormats = new[]
+            {
+                "dd/MM/yy",
+                "d/M/yy",
+                "dd/MM/yyyy",
+                "d/M/yyyy",
+                "dd-MM-yy",
+                "d-M-yy",
+                "dd-MM-yyyy",
+                "d-M-yyyy",
+                "yyyy-MM-dd",
+                "yyyy/MM/dd",
+                "MM/dd/yy",
+                "M/d/yy",
+                "MM/dd/yyyy",
+                "M/d/yyyy",
+            };
+
+            foreach (var format in supportedFormats)
+            {
+                if (DateTime.TryParseExact(
+                    normalizedValue,
+                    format,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeLocal,
+                    out parsedDate))
+                {
+                    return true;
+                }
+            }
+
+            return DateTime.TryParse(
+                       normalizedValue,
+                       CultureInfo.InvariantCulture,
+                       DateTimeStyles.AssumeLocal,
+                       out parsedDate)
+                   || DateTime.TryParse(
+                       normalizedValue,
+                       CultureInfo.CurrentCulture,
+                       DateTimeStyles.AssumeLocal,
+                       out parsedDate);
         }
 
         private static decimal ResolveTransactionAmount(
