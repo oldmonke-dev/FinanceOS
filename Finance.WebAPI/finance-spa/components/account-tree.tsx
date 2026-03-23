@@ -13,6 +13,7 @@ import {
   FolderPlus,
   FolderTree,
   Landmark,
+  LoaderCircle,
   Pencil,
   Plus,
   Trash2,
@@ -673,6 +674,7 @@ function AccountHierarchyImportPanel({
                 {includedDraftCount} path{includedDraftCount === 1 ? "" : "s"} selected for import
               </p>
               <Button type="button" onClick={() => void handleImport()} disabled={isImporting || includedDraftCount === 0}>
+                {isImporting ? <LoaderCircle className="size-4 animate-spin" /> : null}
                 {isImporting ? "Importing..." : "Confirm import"}
               </Button>
             </div>
