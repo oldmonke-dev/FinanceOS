@@ -11,7 +11,7 @@ import {
   useState,
 } from "react"
 import { Dialog as DialogPrimitive } from "radix-ui"
-import { Check, FileLock, Filter, Upload } from "lucide-react"
+import { Check, FileLock, Filter, LoaderCircle, Upload } from "lucide-react"
 import { useRouter } from "next/navigation"
 
 import { AccountSearchSelect } from "@/components/account-search-select"
@@ -88,6 +88,7 @@ export default function ImportPage() {
   const [trimWhitespace, setTrimWhitespace] = useState(true)
   const [skipEmptyRows, setSkipEmptyRows] = useState(true)
   const [rowsToSkip, setRowsToSkip] = useState(0)
+  const [mergeDescriptionContinuationRows, setMergeDescriptionContinuationRows] = useState(false)
   const [previewMode, setPreviewMode] = useState<"limited" | "all" | "range">("limited")
   const [previewLimit, setPreviewLimit] = useState(12)
   const [previewRangeStart, setPreviewRangeStart] = useState(1)
@@ -104,6 +105,7 @@ export default function ImportPage() {
   const [pdfPassword, setPdfPassword] = useState("")
   const [pdfPasswordError, setPdfPasswordError] = useState<string | null>(null)
   const [isExtractingPdf, setIsExtractingPdf] = useState(false)
+  const [isLoadingSourceFile, setIsLoadingSourceFile] = useState(false)
   const [splitPartCount, setSplitPartCount] = useState<2 | 3 | 4 | 5>(2)
   const [isSplitDialogOpen, setIsSplitDialogOpen] = useState(false)
   const [isCreatingSplitSessions, setIsCreatingSplitSessions] = useState(false)
@@ -134,7 +136,13 @@ export default function ImportPage() {
     () => parsed.rows.filter((_, index) => !skippedRowIndexes.has(index)),
     [parsed.rows, skippedRowIndexes],
   )
-  const rowsAfterInclude = rowsAfterSkip
+  const rowsAfterInclude = useMemo(
+    () =>
+      mergeDescriptionContinuationRows
+        ? mergeContinuationDescriptionRows(rowsAfterSkip, hasHeaderRow)
+        : rowsAfterSkip,
+    [hasHeaderRow, mergeDescriptionContinuationRows, rowsAfterSkip],
+  )
   const maxColumns = parsed.maxColumns
   const defaultHeaders = useMemo(
     () => Array.from({ length: maxColumns }, (_, index) => `Column ${index + 1}`),
@@ -265,26 +273,34 @@ export default function ImportPage() {
       return
     }
 
+    setIsLoadingSourceFile(true)
+    setImportMessage(null)
+
     const lowerCaseName = file.name.toLowerCase()
     if (lowerCaseName.endsWith(".pdf") || file.type === "application/pdf") {
       setPendingPdfFile(file)
       setPdfPassword("")
       setPdfPasswordError(null)
       setIsPdfPasswordDialogOpen(true)
+      setIsLoadingSourceFile(false)
       event.target.value = ""
       return
     }
 
-    const text = await file.text()
-    startTransition(() => {
-      setRawCsv(text)
-    })
-    setFileName(file.name)
-    setImportMessage({
-      tone: "success",
-      text: `Loaded CSV file ${file.name}.`,
-    })
-    event.target.value = ""
+    try {
+      const text = await file.text()
+      startTransition(() => {
+        setRawCsv(text)
+      })
+      setFileName(file.name)
+      setImportMessage({
+        tone: "success",
+        text: `Loaded CSV file ${file.name}.`,
+      })
+    } finally {
+      setIsLoadingSourceFile(false)
+      event.target.value = ""
+    }
   }
 
   async function submitPdfForExtraction() {
@@ -293,6 +309,7 @@ export default function ImportPage() {
     }
 
     setIsExtractingPdf(true)
+    setIsLoadingSourceFile(true)
     setPdfPasswordError(null)
 
     try {
@@ -327,6 +344,7 @@ export default function ImportPage() {
       }
     } finally {
       setIsExtractingPdf(false)
+      setIsLoadingSourceFile(false)
     }
   }
 
@@ -494,8 +512,16 @@ export default function ImportPage() {
                 variant="outline"
                 className="h-10 w-full justify-start"
                 onClick={() => fileInputRef.current?.click()}
+                disabled={isLoadingSourceFile}
               >
-                Choose CSV or PDF files
+                {isLoadingSourceFile ? (
+                  <>
+                    <LoaderCircle className="size-4 animate-spin" />
+                    {isExtractingPdf ? "Importing PDF with Tabula..." : "Loading CSV file..."}
+                  </>
+                ) : (
+                  "Choose CSV or PDF files"
+                )}
               </Button>
             </div>
           </div>
@@ -503,6 +529,13 @@ export default function ImportPage() {
           <div className="mt-3 rounded-2xl border bg-background/70 px-4 py-3 text-sm text-muted-foreground">
             {fileName ? `Loaded file: ${fileName}` : "No file selected. Using pasted/sample text."}
           </div>
+
+          {isLoadingSourceFile ? (
+            <div className="mt-3 flex items-center gap-2 rounded-2xl border bg-background/70 px-4 py-3 text-sm text-muted-foreground">
+              <LoaderCircle className="size-4 animate-spin" />
+              <span>{isExtractingPdf ? "Tabula is extracting rows from the PDF..." : "Reading CSV file..."}</span>
+            </div>
+          ) : null}
 
           {importMessage ? (
             <div
@@ -591,6 +624,21 @@ export default function ImportPage() {
                 <label className="flex items-center gap-3 rounded-2xl border bg-background/70 px-4 py-3 text-sm md:col-span-2">
                   <Checkbox checked={skipEmptyRows} onCheckedChange={(checked) => setSkipEmptyRows(checked === true)} />
                   <span>Remove empty rows</span>
+                </label>
+
+                <label className="flex items-center gap-3 rounded-2xl border bg-background/70 px-4 py-3 text-sm md:col-span-2">
+                  <Checkbox
+                    checked={mergeDescriptionContinuationRows}
+                    onCheckedChange={(checked) =>
+                      setMergeDescriptionContinuationRows(checked === true)
+                    }
+                  />
+                  <div>
+                    <p className="font-medium">Merge PDF description continuation rows</p>
+                    <p className="text-muted-foreground">
+                      Joins rows where only the description column has text and the rest of the row is blank or "-".
+                    </p>
+                  </div>
                 </label>
               </div>
             </div>
@@ -1066,6 +1114,46 @@ function normalizeCell(value: string, trimWhitespace: boolean) {
   return trimWhitespace ? value.trim() : value
 }
 
+function mergeContinuationDescriptionRows(rows: string[][], hasHeaderRow: boolean) {
+  if (rows.length === 0) {
+    return rows
+  }
+
+  const headerRow = hasHeaderRow ? rows[0] : null
+  const dataRows = hasHeaderRow ? rows.slice(1) : rows
+
+  const descriptionColumnIndex = resolveDescriptionColumnIndex(headerRow)
+  if (descriptionColumnIndex < 0) {
+    return rows
+  }
+
+  const mergedDataRows: string[][] = []
+
+  for (const row of dataRows) {
+    const normalizedRow = [...row]
+
+    if (
+      mergedDataRows.length > 0 &&
+      isDescriptionContinuationRow(normalizedRow, descriptionColumnIndex)
+    ) {
+      const previousRow = mergedDataRows[mergedDataRows.length - 1]
+      const previousDescription = previousRow[descriptionColumnIndex] ?? ""
+      const continuationDescription = normalizedRow[descriptionColumnIndex] ?? ""
+
+      previousRow[descriptionColumnIndex] = joinDescriptionLines(
+        previousDescription,
+        continuationDescription,
+      )
+
+      continue
+    }
+
+    mergedDataRows.push(normalizedRow)
+  }
+
+  return headerRow ? [headerRow, ...mergedDataRows] : mergedDataRows
+}
+
 function normalizeDelimiter(value: string): Delimiter {
   if (value === ";" || value === "\t" || value === "|") {
     return value
@@ -1076,6 +1164,58 @@ function normalizeDelimiter(value: string): Delimiter {
 
 function normalizeHeader(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, "_")
+}
+
+function resolveDescriptionColumnIndex(headerRow: string[] | null) {
+  if (!headerRow || headerRow.length === 0) {
+    return 1
+  }
+
+  for (let index = 0; index < headerRow.length; index += 1) {
+    const normalized = normalizeHeader(headerRow[index] ?? "")
+    if (normalized.includes("description") || normalized.includes("particular")) {
+      return index
+    }
+  }
+
+  return 1
+}
+
+function isDescriptionContinuationRow(row: string[], descriptionColumnIndex: number) {
+  let hasDescription = false
+
+  for (let index = 0; index < row.length; index += 1) {
+    const cell = row[index] ?? ""
+    const normalizedCell = cell.trim()
+
+    if (index === descriptionColumnIndex) {
+      if (normalizedCell.length > 0 && normalizedCell !== "-") {
+        hasDescription = true
+      }
+      continue
+    }
+
+    if (normalizedCell.length > 0 && normalizedCell !== "-") {
+      return false
+    }
+  }
+
+  return hasDescription
+}
+
+function joinDescriptionLines(currentValue: string, continuationValue: string) {
+  const base = currentValue.trim()
+  const continuation = continuationValue.trim()
+
+  if (!base) {
+    return continuation
+  }
+
+  if (!continuation) {
+    return base
+  }
+
+  return `${base} ${continuation}`.replace(/\s+/g, " ").trim()
 }
 
 function inferImportField(header: string): ImportField {
