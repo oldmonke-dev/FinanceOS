@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 import {
   FileSpreadsheet,
-  FileText,
   FolderTree,
   Home,
   LineChart,
@@ -40,7 +39,6 @@ const navItems = [
   { title: "Account Tree", href: "/accounts", icon: FolderTree },
   { title: "Transactions", href: "/transactions", icon: Receipt },
   { title: "Importer", href: "/import", icon: FileSpreadsheet },
-  { title: "Tabula", href: "/tabula", icon: FileText },
   { title: "Import Sessions", href: "/import-sessions", icon: TableOfContents },
   { title: "Strategies", href: "/strategies", icon: SlidersHorizontal },
   { title: "Budgets", href: "#", icon: Wallet, disabled: true },

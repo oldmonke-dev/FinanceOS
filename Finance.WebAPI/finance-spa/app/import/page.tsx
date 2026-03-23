@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  type ChangeEvent,
   memo,
   startTransition,
   useDeferredValue,
@@ -9,7 +10,8 @@ import {
   useRef,
   useState,
 } from "react"
-import { Check, Filter, LoaderCircle, Upload } from "lucide-react"
+import { Dialog as DialogPrimitive } from "radix-ui"
+import { Check, FileLock, Filter, LoaderCircle, Upload } from "lucide-react"
 import { useRouter } from "next/navigation"
 
 import { AccountSearchSelect } from "@/components/account-search-select"
@@ -27,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { extractPdfImport } from "@/lib/import-extraction"
 import { type Account } from "@/models/account"
 
 type ParsedCsv = {
@@ -90,6 +93,15 @@ export default function ImportPage() {
   const [search, setSearch] = useState("")
   const [columnMappings, setColumnMappings] = useState<Record<number, ImportField>>({})
   const [fileName, setFileName] = useState<string | null>(null)
+  const [importMessage, setImportMessage] = useState<{
+    tone: "success" | "error"
+    text: string
+  } | null>(null)
+  const [pendingPdfFile, setPendingPdfFile] = useState<File | null>(null)
+  const [isPdfPasswordDialogOpen, setIsPdfPasswordDialogOpen] = useState(false)
+  const [pdfPassword, setPdfPassword] = useState("")
+  const [pdfPasswordError, setPdfPasswordError] = useState<string | null>(null)
+  const [isExtractingPdf, setIsExtractingPdf] = useState(false)
   const [isLoadingSourceFile, setIsLoadingSourceFile] = useState(false)
   const [splitPartCount, setSplitPartCount] = useState<2 | 3 | 4 | 5>(2)
   const [isSplitDialogOpen, setIsSplitDialogOpen] = useState(false)
@@ -242,13 +254,25 @@ export default function ImportPage() {
     setSelectedImportRows((current) => (current.size === 0 ? current : new Set()))
   }, [previewRows, usePreviewAsImportSelection])
 
-  async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     if (!file) {
       return
     }
 
     setIsLoadingSourceFile(true)
+    setImportMessage(null)
+
+    const lowerCaseName = file.name.toLowerCase()
+    if (lowerCaseName.endsWith(".pdf") || file.type === "application/pdf") {
+      setPendingPdfFile(file)
+      setPdfPassword("")
+      setPdfPasswordError(null)
+      setIsPdfPasswordDialogOpen(true)
+      setIsLoadingSourceFile(false)
+      event.target.value = ""
+      return
+    }
 
     try {
       const text = await file.text()
@@ -256,10 +280,68 @@ export default function ImportPage() {
         setRawCsv(text)
       })
       setFileName(file.name)
+      setImportMessage({
+        tone: "success",
+        text: `Loaded CSV file ${file.name}.`,
+      })
     } finally {
       setIsLoadingSourceFile(false)
       event.target.value = ""
     }
+  }
+
+  async function submitPdfForExtraction() {
+    if (!pendingPdfFile) {
+      return
+    }
+
+    setIsExtractingPdf(true)
+    setIsLoadingSourceFile(true)
+    setPdfPasswordError(null)
+
+    try {
+      const result = await extractPdfImport(pendingPdfFile, pdfPassword || null)
+
+      startTransition(() => {
+        setRawCsv(result.csvText)
+      })
+      setFileName(result.fileName)
+      setImportMessage({
+        tone: "success",
+        text: result.message,
+      })
+      setIsPdfPasswordDialogOpen(false)
+      setPendingPdfFile(null)
+      setPdfPassword("")
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to extract PDF import data."
+      setImportMessage({
+        tone: "error",
+        text: message,
+      })
+
+      if (message.toLowerCase().includes("password")) {
+        setPdfPasswordError(message)
+      } else {
+        setIsPdfPasswordDialogOpen(false)
+        setPendingPdfFile(null)
+      }
+    } finally {
+      setIsExtractingPdf(false)
+      setIsLoadingSourceFile(false)
+    }
+  }
+
+  function closePdfPasswordDialog() {
+    if (isExtractingPdf) {
+      return
+    }
+
+    setIsPdfPasswordDialogOpen(false)
+    setPendingPdfFile(null)
+    setPdfPassword("")
+    setPdfPasswordError(null)
   }
 
   function resetColumns() {
@@ -381,7 +463,7 @@ export default function ImportPage() {
   return (
     <AppShell
       title="Importer"
-      subtitle="CSV-only importer for previewing, mapping, and creating import sessions"
+      subtitle="Load CSV or PDF files, preview mapped rows, then create an import session"
       badge={isLoading ? "Loading accounts" : `${previewRows.length} preview rows`}
     >
       <section className="grid min-w-0 gap-4 xl:grid-cols-[1.15fr_0.85fr]">
@@ -393,17 +475,17 @@ export default function ImportPage() {
             <div>
               <h2 className="text-lg font-semibold">Source</h2>
               <p className="text-sm text-muted-foreground">
-                Paste CSV text or load a local CSV file.
+                Choose CSV or PDF files, or paste CSV text directly for preview and mapping.
               </p>
             </div>
           </div>
 
           <div className="mt-5 space-y-2 text-sm">
-            <span className="font-medium">CSV file</span>
+            <span className="font-medium">Choose CSV or PDF files</span>
             <input
               ref={fileInputRef}
               type="file"
-              accept=".csv,text/csv"
+              accept=".csv,text/csv,.pdf,application/pdf"
               onChange={handleFileChange}
               className="sr-only"
             />
@@ -417,10 +499,10 @@ export default function ImportPage() {
               {isLoadingSourceFile ? (
                 <>
                   <LoaderCircle className="size-4 animate-spin" />
-                  Loading CSV file...
+                  {isExtractingPdf ? "Importing PDF with Camelot..." : "Loading CSV file..."}
                 </>
               ) : (
-                "Choose CSV file"
+                "Choose CSV or PDF files"
               )}
             </Button>
           </div>
@@ -428,6 +510,25 @@ export default function ImportPage() {
           <div className="mt-3 rounded-2xl border bg-background/70 px-4 py-3 text-sm text-muted-foreground">
             {fileName ? `Loaded file: ${fileName}` : "No file selected. Using pasted/sample text."}
           </div>
+
+          {isLoadingSourceFile ? (
+            <div className="mt-3 flex items-center gap-2 rounded-2xl border bg-background/70 px-4 py-3 text-sm text-muted-foreground">
+              <LoaderCircle className="size-4 animate-spin" />
+              <span>{isExtractingPdf ? "Camelot is extracting rows from the PDF..." : "Reading CSV file..."}</span>
+            </div>
+          ) : null}
+
+          {importMessage ? (
+            <div
+              className={`mt-3 rounded-2xl border px-4 py-3 text-sm ${
+                importMessage.tone === "success"
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                  : "border-destructive/30 bg-destructive/5 text-destructive"
+              }`}
+            >
+              {importMessage.text}
+            </div>
+          ) : null}
 
           <label className="mt-4 block space-y-2 text-sm">
             <span className="font-medium">Raw CSV</span>
@@ -836,6 +937,71 @@ export default function ImportPage() {
           </div>
         </div>
       ) : null}
+
+      <DialogPrimitive.Root
+        open={isPdfPasswordDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            closePdfPasswordDialog()
+          }
+        }}
+      >
+        <DialogPrimitive.Portal>
+          <DialogPrimitive.Overlay className="fixed inset-0 z-[200] bg-black/45" />
+          <DialogPrimitive.Content className="fixed top-1/2 left-1/2 z-[201] w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-3xl border bg-card p-6 shadow-xl">
+            <div className="flex items-start gap-3">
+              <div className="rounded-2xl bg-primary/10 p-3 text-primary">
+                <FileLock className="size-5" />
+              </div>
+              <div className="space-y-2">
+                <DialogPrimitive.Title className="text-lg font-semibold">
+                  PDF password
+                </DialogPrimitive.Title>
+                <DialogPrimitive.Description className="text-sm text-muted-foreground">
+                  Enter the PDF password if the file is protected. Leave it blank if the PDF is not password protected.
+                </DialogPrimitive.Description>
+              </div>
+            </div>
+
+            {pendingPdfFile ? (
+              <div className="mt-4 rounded-2xl border bg-background/70 px-4 py-3 text-sm text-muted-foreground">
+                Selected PDF: {pendingPdfFile.name}
+              </div>
+            ) : null}
+
+            <label className="mt-4 block space-y-2 text-sm">
+              <span className="font-medium">Password</span>
+              <Input
+                type="password"
+                value={pdfPassword}
+                onChange={(event) => {
+                  setPdfPassword(event.target.value)
+                  if (pdfPasswordError) {
+                    setPdfPasswordError(null)
+                  }
+                }}
+                placeholder="Optional"
+                autoFocus
+              />
+            </label>
+
+            {pdfPasswordError ? (
+              <div className="mt-3 rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                {pdfPasswordError}
+              </div>
+            ) : null}
+
+            <div className="mt-6 flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={closePdfPasswordDialog} disabled={isExtractingPdf}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={() => void submitPdfForExtraction()} disabled={!pendingPdfFile || isExtractingPdf}>
+                {isExtractingPdf ? "Extracting..." : "Extract PDF"}
+              </Button>
+            </div>
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Portal>
+      </DialogPrimitive.Root>
     </AppShell>
   )
 }

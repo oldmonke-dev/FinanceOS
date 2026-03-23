@@ -2,7 +2,7 @@ using Finance.WebAPI.Contracts.Imports;
 
 namespace Finance.WebAPI.Services
 {
-    public interface ITabulaPdfExtractionService
+    public interface ICamelotPdfExtractionService
     {
         Task<ExtractPdfImportResult> ExtractAsync(
             Stream pdfStream,

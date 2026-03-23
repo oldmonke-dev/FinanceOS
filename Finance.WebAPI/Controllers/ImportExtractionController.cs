@@ -10,11 +10,11 @@ namespace Finance.WebAPI.Controllers
     [Authorize]
     public class ImportExtractionController : ControllerBase
     {
-        private readonly ITabulaPdfExtractionService _tabulaPdfExtractionService;
+        private readonly ICamelotPdfExtractionService _camelotPdfExtractionService;
 
-        public ImportExtractionController(ITabulaPdfExtractionService tabulaPdfExtractionService)
+        public ImportExtractionController(ICamelotPdfExtractionService camelotPdfExtractionService)
         {
-            _tabulaPdfExtractionService = tabulaPdfExtractionService;
+            _camelotPdfExtractionService = camelotPdfExtractionService;
         }
 
         [HttpPost("pdf")]
@@ -37,7 +37,7 @@ namespace Finance.WebAPI.Controllers
             try
             {
                 await using var stream = file.OpenReadStream();
-                var result = await _tabulaPdfExtractionService.ExtractAsync(
+                var result = await _camelotPdfExtractionService.ExtractAsync(
                     stream,
                     file.FileName,
                     password,
