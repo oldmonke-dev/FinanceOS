@@ -32,6 +32,10 @@ See [dev.readme.md](./dev.readme.md) for:
 - Add Redis where it provides real value.
 - Replace UI choke points with loading skeletons.
 - Introduce queues for long-running or bursty workflows where needed.
+- Plan and execute major refactorings where the current structure is too coupled.
+- Replace string-based matches and magic string workflows with enums or stronger typed models.
+- Extract large components and services into smaller, focused modules.
+- Make Next.js app router pages more modular and easier to reason about.
 - Add RBAC, including a God Mode/admin path and per-user ledger boundaries.
 - Add an email client flow for fetching monthly statements.
 - Build a PDF-to-CSV tool for statement ingestion.
