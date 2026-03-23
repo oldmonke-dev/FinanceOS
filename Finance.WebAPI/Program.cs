@@ -5,6 +5,7 @@ using Finance.Infrastructure.Data;
 using Finance.Infrastructure.Repositories;
 using Finance.Infrastructure.Services;
 using Finance.WebAPI.Configuration;
+using Finance.WebAPI.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -22,6 +23,7 @@ if (string.IsNullOrWhiteSpace(authOptions.JwtSecret))
 }
 
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection("Auth"));
+builder.Services.Configure<TabulaOptions>(builder.Configuration.GetSection("Tabula"));
 
 // Add services to the container.
 
@@ -89,6 +91,7 @@ builder.Services.AddScoped<IStrategyService, StrategyService>();
 builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
 builder.Services.AddScoped<ITransactionService, TransactionService>();
 builder.Services.AddScoped<IUserPreferenceRepository, UserPreferenceRepository>();
+builder.Services.AddScoped<ITabulaPdfExtractionService, TabulaPdfExtractionService>();
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
