@@ -3,10 +3,11 @@ import {
   type BayesianTrainingExample,
   type ImportBayesianTrainingResult,
 } from "@/models/strategy"
+import { authFetch } from "@/lib/auth"
 import { API_BASE_URL } from "@/lib/api-config"
 
 export async function getBayesianStrategy(): Promise<BayesianStrategy> {
-  const response = await fetch(`${API_BASE_URL}/Strategies/bayesian`, {
+  const response = await authFetch(`${API_BASE_URL}/Strategies/bayesian`, {
     cache: "no-store",
     headers: {
       Accept: "application/json",
@@ -60,7 +61,7 @@ export async function getBayesianStrategy(): Promise<BayesianStrategy> {
 export async function importBayesianTrainingData(
   examples: BayesianTrainingExample[],
 ): Promise<ImportBayesianTrainingResult> {
-  const response = await fetch(`${API_BASE_URL}/Strategies/bayesian/import-training`, {
+  const response = await authFetch(`${API_BASE_URL}/Strategies/bayesian/import-training`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -86,7 +87,7 @@ export async function importBayesianTrainingData(
 }
 
 export async function deleteBayesianLearningForAccount(destinationAccountId: string): Promise<void> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE_URL}/Strategies/bayesian/accounts/${destinationAccountId}/learning`,
     {
       method: "DELETE",

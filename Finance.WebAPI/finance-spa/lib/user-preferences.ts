@@ -1,3 +1,4 @@
+import { authFetch } from "@/lib/auth"
 import { API_BASE_URL } from "@/lib/api-config"
 import { type NumberGroupingStyle, type UserPreference } from "@/models/user-preference"
 
@@ -25,7 +26,7 @@ async function readErrorMessage(response: Response, fallback: string) {
 }
 
 export async function getUserPreference(): Promise<UserPreference> {
-  const response = await fetch(`${API_BASE_URL}/UserPreferences`, {
+  const response = await authFetch(`${API_BASE_URL}/UserPreferences`, {
     cache: "no-store",
     headers: {
       Accept: "application/json",
@@ -48,7 +49,7 @@ export async function getUserPreference(): Promise<UserPreference> {
 export async function updateUserPreference(
   numberGroupingStyle: NumberGroupingStyle,
 ): Promise<UserPreference> {
-  const response = await fetch(`${API_BASE_URL}/UserPreferences`, {
+  const response = await authFetch(`${API_BASE_URL}/UserPreferences`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",

@@ -4,11 +4,24 @@ using Finance.Domain.Interfaces;
 using Finance.Infrastructure.Data;
 using Finance.Infrastructure.Repositories;
 using Finance.Infrastructure.Services;
+using Finance.WebAPI.Configuration;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using System.Text.Json.Serialization;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 var enableHttpsRedirection = !builder.Environment.IsDevelopment();
+var authOptions = builder.Configuration.GetSection("Auth").Get<AuthOptions>()
+    ?? throw new InvalidOperationException("Auth configuration is required.");
+
+if (string.IsNullOrWhiteSpace(authOptions.JwtSecret))
+{
+    throw new InvalidOperationException("Auth:JwtSecret must be configured.");
+}
+
+builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection("Auth"));
 
 // Add services to the container.
 
@@ -20,6 +33,23 @@ builder.Services.AddControllers()
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(authOptions.JwtSecret));
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateIssuerSigningKey = true,
+            ValidateLifetime = true,
+            ValidIssuer = authOptions.Issuer,
+            ValidAudience = authOptions.Audience,
+            IssuerSigningKey = signingKey,
+            ClockSkew = TimeSpan.FromMinutes(1),
+        };
+    });
+builder.Services.AddAuthorization();
 builder.Services.AddCors(options =>
 {
     var allowedOrigins = builder.Configuration
@@ -81,6 +111,7 @@ if (enableHttpsRedirection)
     app.UseHttpsRedirection();
 }
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();

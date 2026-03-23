@@ -7,6 +7,7 @@ import {
   FolderTree,
   Home,
   LineChart,
+  LogOut,
   Receipt,
   Settings,
   SlidersHorizontal,
@@ -14,6 +15,7 @@ import {
   Wallet,
 } from "lucide-react"
 
+import { useAuth } from "@/components/providers/auth-provider"
 import {
   Sidebar,
   SidebarContent,
@@ -50,6 +52,7 @@ type AppShellProps = {
 
 export function AppShell({ title, subtitle, badge, children }: AppShellProps) {
   const pathname = usePathname()
+  const { user, logout } = useAuth()
 
   return (
     <SidebarProvider>
@@ -91,6 +94,12 @@ export function AppShell({ title, subtitle, badge, children }: AppShellProps) {
         </SidebarContent>
 
         <SidebarFooter className="p-3">
+          {user ? (
+            <div className="mb-3 rounded-xl border border-sidebar-border bg-sidebar-accent/50 px-3 py-2 text-xs text-sidebar-foreground/80">
+              <p className="truncate font-medium text-sidebar-foreground">{user.displayName}</p>
+              <p className="truncate opacity-70">{user.email}</p>
+            </div>
+          ) : null}
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton asChild isActive={pathname === "/settings"} tooltip="Settings">
@@ -98,6 +107,12 @@ export function AppShell({ title, subtitle, badge, children }: AppShellProps) {
                   <Settings />
                   <span>Settings</span>
                 </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton tooltip="Sign out" onClick={logout}>
+                <LogOut />
+                <span>Sign out</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>

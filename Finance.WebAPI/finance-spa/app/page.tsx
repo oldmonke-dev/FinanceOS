@@ -1,3 +1,5 @@
+"use client"
+
 import Link from "next/link"
 import {
   ArrowRight,
@@ -10,7 +12,7 @@ import {
 } from "lucide-react"
 
 import { AppShell } from "@/components/app-shell"
-import { getAccounts } from "@/lib/accounts"
+import { useAccounts } from "@/components/providers/accounts-provider"
 
 const cards = [
   {
@@ -45,17 +47,9 @@ const cards = [
   },
 ]
 
-export default async function Page() {
-  let accountsCount = 0
-  let errorMessage: string | null = null
-
-  try {
-    const accounts = await getAccounts()
-    accountsCount = accounts.length
-  } catch (error) {
-    errorMessage =
-      error instanceof Error ? error.message : "Unknown error while loading accounts."
-  }
+export default function Page() {
+  const { accounts, errorMessage } = useAccounts()
+  const accountsCount = accounts.length
 
   return (
     <AppShell

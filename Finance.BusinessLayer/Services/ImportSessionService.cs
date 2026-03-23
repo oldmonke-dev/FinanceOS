@@ -10,8 +10,6 @@ namespace Finance.BusinessLayer.Services
 {
     public class ImportSessionService : IImportSessionService
     {
-        private static readonly Guid RootUserId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-        private const string RootUserName = "Root User";
         private const string PriorFeatureKey = "__prior__";
         private static readonly HashSet<string> AllowedLabels = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -38,6 +36,7 @@ namespace Finance.BusinessLayer.Services
         }
 
         public async Task<ImportSessionDTO> CreateImportSessionAsync(
+            Guid userId,
             CreateImportSessionDTO sessionDto,
             CancellationToken cancellationToken = default)
         {
@@ -62,7 +61,7 @@ namespace Finance.BusinessLayer.Services
             var session = new ImportSession
             {
                 Id = Guid.NewGuid(),
-                UserId = RootUserId,
+                UserId = userId,
                 FileName = string.IsNullOrWhiteSpace(sessionDto.FileName) ? null : sessionDto.FileName.Trim(),
                 SourceAccountId = sessionDto.SourceAccountId,
                 CreatedAt = DateTime.UtcNow,
@@ -92,21 +91,21 @@ namespace Finance.BusinessLayer.Services
             UpdateSessionLifecycleState(session);
 
             var created = await _importSessionRepository.CreateAsync(session, cancellationToken);
-            var loaded = await _importSessionRepository.GetByIdAsync(created.Id, RootUserId, cancellationToken)
+            var loaded = await _importSessionRepository.GetByIdAsync(created.Id, userId, cancellationToken)
                 ?? throw new InvalidOperationException("Created import session could not be reloaded.");
 
             return MapSession(loaded);
         }
 
-        public async Task<List<ImportSessionDTO>> GetImportSessionsAsync(CancellationToken cancellationToken = default)
+        public async Task<List<ImportSessionDTO>> GetImportSessionsAsync(Guid userId, CancellationToken cancellationToken = default)
         {
-            var sessions = await _importSessionRepository.GetByUserIdAsync(RootUserId, cancellationToken);
+            var sessions = await _importSessionRepository.GetByUserIdAsync(userId, cancellationToken);
             return sessions.Select(MapSession).ToList();
         }
 
-        public async Task<ImportSessionDTO> GetImportSessionAsync(Guid sessionId, CancellationToken cancellationToken = default)
+        public async Task<ImportSessionDTO> GetImportSessionAsync(Guid userId, Guid sessionId, CancellationToken cancellationToken = default)
         {
-            var session = await _importSessionRepository.GetByIdAsync(sessionId, RootUserId, cancellationToken);
+            var session = await _importSessionRepository.GetByIdAsync(sessionId, userId, cancellationToken);
 
             if (session is null)
             {
@@ -116,9 +115,9 @@ namespace Finance.BusinessLayer.Services
             return MapSession(session);
         }
 
-        public async Task DeleteImportSessionAsync(Guid sessionId, CancellationToken cancellationToken = default)
+        public async Task DeleteImportSessionAsync(Guid userId, Guid sessionId, CancellationToken cancellationToken = default)
         {
-            var session = await _importSessionRepository.GetByIdAsync(sessionId, RootUserId, cancellationToken);
+            var session = await _importSessionRepository.GetByIdAsync(sessionId, userId, cancellationToken);
 
             if (session is null)
             {
@@ -134,10 +133,10 @@ namespace Finance.BusinessLayer.Services
             // Global Bayesian stats are only promoted during posting, never during delete.
             await _importLearningRepository.DeleteSessionEntriesAsync(
                 sessionId,
-                RootUserId,
+                userId,
                 cancellationToken);
 
-            var deleted = await _importSessionRepository.DeleteAsync(sessionId, RootUserId, cancellationToken);
+            var deleted = await _importSessionRepository.DeleteAsync(sessionId, userId, cancellationToken);
 
             if (!deleted)
             {
@@ -146,6 +145,7 @@ namespace Finance.BusinessLayer.Services
         }
 
         public async Task<ImportSessionDTO> UpdateSourceAccountAsync(
+            Guid userId,
             Guid sessionId,
             Guid? sourceAccountId,
             CancellationToken cancellationToken = default)
@@ -157,7 +157,7 @@ namespace Finance.BusinessLayer.Services
 
             var updated = await _importSessionRepository.UpdateSourceAccountAsync(
                 sessionId,
-                RootUserId,
+                userId,
                 sourceAccountId,
                 cancellationToken);
 
@@ -166,7 +166,7 @@ namespace Finance.BusinessLayer.Services
                 throw new KeyNotFoundException("Import session was not found.");
             }
 
-            var session = await _importSessionRepository.GetByIdAsync(sessionId, RootUserId, cancellationToken)
+            var session = await _importSessionRepository.GetByIdAsync(sessionId, userId, cancellationToken)
                 ?? throw new KeyNotFoundException("Import session was not found.");
 
             UpdateSessionLifecycleState(session);
@@ -176,6 +176,7 @@ namespace Finance.BusinessLayer.Services
         }
 
         public async Task<ImportSessionDTO> UpdateTitleAsync(
+            Guid userId,
             Guid sessionId,
             string? fileName,
             CancellationToken cancellationToken = default)
@@ -184,7 +185,7 @@ namespace Finance.BusinessLayer.Services
 
             var updated = await _importSessionRepository.UpdateTitleAsync(
                 sessionId,
-                RootUserId,
+                userId,
                 normalizedFileName,
                 cancellationToken);
 
@@ -193,7 +194,7 @@ namespace Finance.BusinessLayer.Services
                 throw new KeyNotFoundException("Import session was not found.");
             }
 
-            var session = await _importSessionRepository.GetByIdAsync(sessionId, RootUserId, cancellationToken)
+            var session = await _importSessionRepository.GetByIdAsync(sessionId, userId, cancellationToken)
                 ?? throw new KeyNotFoundException("Import session was not found.");
 
             UpdateSessionLifecycleState(session);
@@ -203,6 +204,7 @@ namespace Finance.BusinessLayer.Services
         }
 
         public async Task<ImportSessionRowDTO> UpdateRowDestinationAccountAsync(
+            Guid userId,
             Guid sessionId,
             Guid rowId,
             Guid? destinationAccountId,
@@ -216,7 +218,7 @@ namespace Finance.BusinessLayer.Services
             var updated = await _importSessionRepository.UpdateRowDestinationAccountAsync(
                 sessionId,
                 rowId,
-                RootUserId,
+                userId,
                 destinationAccountId,
                 cancellationToken);
 
@@ -225,7 +227,7 @@ namespace Finance.BusinessLayer.Services
                 throw new KeyNotFoundException("Import session row was not found.");
             }
 
-            var session = await _importSessionRepository.GetByIdAsync(sessionId, RootUserId, cancellationToken)
+            var session = await _importSessionRepository.GetByIdAsync(sessionId, userId, cancellationToken)
                 ?? throw new KeyNotFoundException("Import session was not found.");
 
             var row = session.Rows.FirstOrDefault(item => item.Id == rowId)
@@ -240,7 +242,7 @@ namespace Finance.BusinessLayer.Services
                 await _importLearningRepository.ReplaceSessionRowEntriesAsync(
                     sessionId,
                     rowId,
-                    RootUserId,
+                    userId,
                     destinationAccountId.Value,
                     featureKeys.Append(PriorFeatureKey),
                     cancellationToken);
@@ -250,7 +252,7 @@ namespace Finance.BusinessLayer.Services
                 await _importLearningRepository.DeleteSessionRowEntriesAsync(
                     sessionId,
                     rowId,
-                    RootUserId,
+                    userId,
                     cancellationToken);
             }
 
@@ -261,10 +263,11 @@ namespace Finance.BusinessLayer.Services
         }
 
         public async Task<AddImportSessionToLedgerResultDTO> AddSessionToLedgerAsync(
+            Guid userId,
             Guid sessionId,
             CancellationToken cancellationToken = default)
         {
-            var session = await _importSessionRepository.GetByIdAsync(sessionId, RootUserId, cancellationToken)
+            var session = await _importSessionRepository.GetByIdAsync(sessionId, userId, cancellationToken)
                 ?? throw new KeyNotFoundException("Import session was not found.");
 
             if (!session.SourceAccountId.HasValue || session.SourceAccountId.Value == Guid.Empty)
@@ -316,8 +319,13 @@ namespace Finance.BusinessLayer.Services
                 row.PostedTransactionId = createdTransactionIdByRowId[row.Id];
             }
 
-            await PromoteIncludedRowsToGlobalLearningAsync(session, includedRows, columnMappings, cancellationToken);
-            await _importLearningRepository.DeleteSessionEntriesAsync(sessionId, RootUserId, cancellationToken);
+            await PromoteIncludedRowsToGlobalLearningAsync(
+                userId,
+                session,
+                includedRows,
+                columnMappings,
+                cancellationToken);
+            await _importLearningRepository.DeleteSessionEntriesAsync(sessionId, userId, cancellationToken);
 
             UpdateSessionLifecycleState(session);
             await _importSessionRepository.SaveChangesAsync(cancellationToken);
@@ -334,10 +342,11 @@ namespace Finance.BusinessLayer.Services
         }
 
         public async Task<ImportSessionDTO> ReapplyLearningAsync(
+            Guid userId,
             Guid sessionId,
             CancellationToken cancellationToken = default)
         {
-            var session = await _importSessionRepository.GetByIdAsync(sessionId, RootUserId, cancellationToken)
+            var session = await _importSessionRepository.GetByIdAsync(sessionId, userId, cancellationToken)
                 ?? throw new KeyNotFoundException("Import session was not found.");
 
             if (session.IsArchived)
@@ -358,8 +367,8 @@ namespace Finance.BusinessLayer.Services
             }
 
             var columnMappings = DeserializeColumnMappings(session.ColumnMappingsJson);
-            var globalStats = await _importLearningRepository.GetGlobalStatsAsync(RootUserId, cancellationToken);
-            var sessionEntries = await _importLearningRepository.GetSessionEntriesAsync(sessionId, RootUserId, cancellationToken);
+            var globalStats = await _importLearningRepository.GetGlobalStatsAsync(userId, cancellationToken);
+            var sessionEntries = await _importLearningRepository.GetSessionEntriesAsync(sessionId, userId, cancellationToken);
             var effectiveStats = BuildEffectiveLearningCounts(globalStats, sessionEntries);
 
             foreach (var row in session.Rows
@@ -379,17 +388,18 @@ namespace Finance.BusinessLayer.Services
             UpdateSessionLifecycleState(session);
             await _importSessionRepository.SaveChangesAsync(cancellationToken);
 
-            var updatedSession = await _importSessionRepository.GetByIdAsync(sessionId, RootUserId, cancellationToken)
+            var updatedSession = await _importSessionRepository.GetByIdAsync(sessionId, userId, cancellationToken)
                 ?? throw new KeyNotFoundException("Import session was not found.");
 
             return MapSession(updatedSession);
         }
 
         public async Task<ImportSessionDTO> RevertSessionLearningAsync(
+            Guid userId,
             Guid sessionId,
             CancellationToken cancellationToken = default)
         {
-            var session = await _importSessionRepository.GetByIdAsync(sessionId, RootUserId, cancellationToken)
+            var session = await _importSessionRepository.GetByIdAsync(sessionId, userId, cancellationToken)
                 ?? throw new KeyNotFoundException("Import session was not found.");
 
             if (session.IsArchived)
@@ -397,7 +407,7 @@ namespace Finance.BusinessLayer.Services
                 throw new InvalidOperationException("Archived import sessions cannot revert session learning.");
             }
 
-            await _importLearningRepository.DeleteSessionEntriesAsync(sessionId, RootUserId, cancellationToken);
+            await _importLearningRepository.DeleteSessionEntriesAsync(sessionId, userId, cancellationToken);
 
             foreach (var row in session.Rows.Where(item => item.MappingSource == "learning" && item.AddedToLedgerAt is null))
             {
@@ -409,20 +419,21 @@ namespace Finance.BusinessLayer.Services
             UpdateSessionLifecycleState(session);
             await _importSessionRepository.SaveChangesAsync(cancellationToken);
 
-            var updatedSession = await _importSessionRepository.GetByIdAsync(sessionId, RootUserId, cancellationToken)
+            var updatedSession = await _importSessionRepository.GetByIdAsync(sessionId, userId, cancellationToken)
                 ?? throw new KeyNotFoundException("Import session was not found.");
 
             return MapSession(updatedSession);
         }
 
         public async Task<ImportSessionDTO> DeleteRowsAsync(
+            Guid userId,
             Guid sessionId,
             IEnumerable<Guid> rowIds,
             CancellationToken cancellationToken = default)
         {
             var deletedCount = await _importSessionRepository.DeleteRowsAsync(
                 sessionId,
-                RootUserId,
+                userId,
                 rowIds,
                 cancellationToken);
 
@@ -431,7 +442,7 @@ namespace Finance.BusinessLayer.Services
                 throw new KeyNotFoundException("No import session rows were found.");
             }
 
-            var session = await _importSessionRepository.GetByIdAsync(sessionId, RootUserId, cancellationToken)
+            var session = await _importSessionRepository.GetByIdAsync(sessionId, userId, cancellationToken)
                 ?? throw new KeyNotFoundException("Import session was not found.");
 
             UpdateSessionLifecycleState(session);
@@ -532,7 +543,7 @@ namespace Finance.BusinessLayer.Services
                 Id = session.Id,
                 CreatedAt = session.CreatedAt,
                 UserId = session.UserId,
-                CreatedByUserName = session.User?.DisplayName ?? RootUserName,
+                CreatedByUserName = session.User?.DisplayName ?? session.UserId.ToString(),
                 FileName = session.FileName,
                 SourceAccountId = session.SourceAccountId,
                 SourceAccountName = session.SourceAccount?.Name,
@@ -789,6 +800,7 @@ namespace Finance.BusinessLayer.Services
         }
 
         private async Task PromoteIncludedRowsToGlobalLearningAsync(
+            Guid userId,
             ImportSession session,
             IEnumerable<ImportSessionRow> rows,
             Dictionary<int, string> columnMappings,
@@ -819,7 +831,7 @@ namespace Finance.BusinessLayer.Services
             }
 
             await _importLearningRepository.IncrementGlobalStatsAsync(
-                RootUserId,
+                userId,
                 increments,
                 cancellationToken);
         }

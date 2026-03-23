@@ -2,12 +2,15 @@ using Finance.BusinessLayer.DTOs;
 using Finance.BusinessLayer.Interfaces;
 using Finance.Domain.Entities.Core;
 using Finance.Infrastructure.Repositories;
+using Finance.WebAPI.Extensions;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Finance.WebAPI.Controllers
 {
     [ApiController]
     [Route("[controller]")]
+    [Authorize]
     public class AccountsController : ControllerBase
     {
         private readonly AccountRepository _accountRepository;
@@ -54,7 +57,10 @@ namespace Finance.WebAPI.Controllers
         {
             try
             {
-                var result = await _accountWorkflowService.DeleteAccountAsync(id, cancellationToken);
+                var result = await _accountWorkflowService.DeleteAccountAsync(
+                    id,
+                    User.GetRequiredUserId(),
+                    cancellationToken);
                 return Ok(result);
             }
             catch (InvalidOperationException exception)

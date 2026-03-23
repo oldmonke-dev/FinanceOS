@@ -4,6 +4,9 @@ namespace Finance.BusinessLayer.Interfaces
 {
     public interface IAccountWorkflowService
     {
-        Task<AccountDeletionResultDTO> DeleteAccountAsync(Guid accountId, CancellationToken cancellationToken = default);
+        Task<AccountDeletionResultDTO> DeleteAccountAsync(
+            Guid accountId,
+            Guid userId,
+            CancellationToken cancellationToken = default);
     }
 }

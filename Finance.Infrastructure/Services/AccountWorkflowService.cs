@@ -11,8 +11,6 @@ namespace Finance.Infrastructure.Services
 {
     public class AccountWorkflowService : IAccountWorkflowService
     {
-        private static readonly Guid RootUserId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-
         private readonly AppDbContext _context;
 
         public AccountWorkflowService(AppDbContext context)
@@ -22,6 +20,7 @@ namespace Finance.Infrastructure.Services
 
         public async Task<AccountDeletionResultDTO> DeleteAccountAsync(
             Guid accountId,
+            Guid userId,
             CancellationToken cancellationToken = default)
         {
             var account = await _context.Accounts
@@ -48,7 +47,11 @@ namespace Finance.Infrastructure.Services
             ImportSession? remediationSession = null;
             if (affectedTransactions.Count > 0)
             {
-                remediationSession = BuildAccountDeletionSession(account.Name, accountId, affectedTransactions);
+                remediationSession = BuildAccountDeletionSession(
+                    userId,
+                    account.Name,
+                    accountId,
+                    affectedTransactions);
                 _context.ImportSessions.Add(remediationSession);
                 _context.Transactions.RemoveRange(affectedTransactions);
             }
@@ -107,6 +110,7 @@ namespace Finance.Infrastructure.Services
         }
 
         private static ImportSession BuildAccountDeletionSession(
+            Guid userId,
             string deletedAccountName,
             Guid deletedAccountId,
             IReadOnlyList<Transaction> transactions)
@@ -140,7 +144,7 @@ namespace Finance.Infrastructure.Services
             return new ImportSession
             {
                 Id = Guid.NewGuid(),
-                UserId = RootUserId,
+                UserId = userId,
                 FileName = $"Account removal - {deletedAccountName}",
                 SourceAccountId = null,
                 CreatedAt = DateTime.UtcNow,

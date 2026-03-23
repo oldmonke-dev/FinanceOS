@@ -1,9 +1,11 @@
 import { Geist_Mono, Inter } from "next/font/google"
 
 import "./globals.css"
-import { AccountsProvider } from "@/components/providers/accounts-provider"
-import { ImportSessionsProvider } from "@/components/providers/import-sessions-provider"
-import { UserPreferencesProvider } from "@/components/providers/user-preferences-provider"
+import {
+  AuthenticatedApp,
+  AuthProvider,
+  AuthRouteGuard,
+} from "@/components/providers/auth-provider"
 import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
@@ -29,11 +31,10 @@ export default function RootLayout({
       <body>
         <ThemeProvider>
           <TooltipProvider>
-            <UserPreferencesProvider>
-              <AccountsProvider>
-                <ImportSessionsProvider>{children}</ImportSessionsProvider>
-              </AccountsProvider>
-            </UserPreferencesProvider>
+            <AuthProvider>
+              <AuthRouteGuard />
+              <AuthenticatedApp>{children}</AuthenticatedApp>
+            </AuthProvider>
           </TooltipProvider>
         </ThemeProvider>
       </body>

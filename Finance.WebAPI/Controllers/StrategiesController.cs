@@ -1,11 +1,14 @@
 using Finance.BusinessLayer.DTOs.Strategies;
 using Finance.BusinessLayer.Interfaces;
+using Finance.WebAPI.Extensions;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Finance.WebAPI.Controllers
 {
     [ApiController]
     [Route("[controller]")]
+    [Authorize]
     public class StrategiesController : ControllerBase
     {
         private readonly IStrategyService _strategyService;
@@ -18,7 +21,9 @@ namespace Finance.WebAPI.Controllers
         [HttpGet("bayesian")]
         public async Task<ActionResult<BayesianStrategyDTO>> GetBayesianStrategy(CancellationToken cancellationToken)
         {
-            var strategy = await _strategyService.GetBayesianStrategyAsync(cancellationToken);
+            var strategy = await _strategyService.GetBayesianStrategyAsync(
+                User.GetRequiredUserId(),
+                cancellationToken);
             return Ok(strategy);
         }
 
@@ -27,7 +32,10 @@ namespace Finance.WebAPI.Controllers
             [FromBody] ImportBayesianTrainingDataDTO request,
             CancellationToken cancellationToken)
         {
-            var result = await _strategyService.ImportBayesianTrainingDataAsync(request, cancellationToken);
+            var result = await _strategyService.ImportBayesianTrainingDataAsync(
+                User.GetRequiredUserId(),
+                request,
+                cancellationToken);
             return Ok(result);
         }
 
@@ -39,6 +47,7 @@ namespace Finance.WebAPI.Controllers
             try
             {
                 await _strategyService.DeleteBayesianLearningForAccountAsync(
+                    User.GetRequiredUserId(),
                     destinationAccountId,
                     cancellationToken);
 

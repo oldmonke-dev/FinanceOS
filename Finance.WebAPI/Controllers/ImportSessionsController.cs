@@ -1,11 +1,14 @@
 using Finance.BusinessLayer.DTOs.ImportSessions;
 using Finance.BusinessLayer.Interfaces;
+using Finance.WebAPI.Extensions;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Finance.WebAPI.Controllers
 {
     [ApiController]
     [Route("[controller]")]
+    [Authorize]
     public class ImportSessionsController : ControllerBase
     {
         private readonly IImportSessionService _importSessionService;
@@ -22,7 +25,10 @@ namespace Finance.WebAPI.Controllers
         {
             try
             {
-                var createdSession = await _importSessionService.CreateImportSessionAsync(session, cancellationToken);
+                var createdSession = await _importSessionService.CreateImportSessionAsync(
+                    User.GetRequiredUserId(),
+                    session,
+                    cancellationToken);
 
                 return CreatedAtAction(
                     nameof(GetImportSession),
@@ -38,7 +44,9 @@ namespace Finance.WebAPI.Controllers
         [HttpGet]
         public async Task<ActionResult<List<ImportSessionDTO>>> GetImportSessions(CancellationToken cancellationToken)
         {
-            var sessions = await _importSessionService.GetImportSessionsAsync(cancellationToken);
+            var sessions = await _importSessionService.GetImportSessionsAsync(
+                User.GetRequiredUserId(),
+                cancellationToken);
             return Ok(sessions);
         }
 
@@ -47,7 +55,10 @@ namespace Finance.WebAPI.Controllers
         {
             try
             {
-                var session = await _importSessionService.GetImportSessionAsync(id, cancellationToken);
+                var session = await _importSessionService.GetImportSessionAsync(
+                    User.GetRequiredUserId(),
+                    id,
+                    cancellationToken);
                 return Ok(session);
             }
             catch (KeyNotFoundException exception)
@@ -61,7 +72,10 @@ namespace Finance.WebAPI.Controllers
         {
             try
             {
-                await _importSessionService.DeleteImportSessionAsync(id, cancellationToken);
+                await _importSessionService.DeleteImportSessionAsync(
+                    User.GetRequiredUserId(),
+                    id,
+                    cancellationToken);
                 return NoContent();
             }
             catch (InvalidOperationException exception)
@@ -83,6 +97,7 @@ namespace Finance.WebAPI.Controllers
             try
             {
                 var session = await _importSessionService.UpdateSourceAccountAsync(
+                    User.GetRequiredUserId(),
                     sessionId,
                     request.SourceAccountId,
                     cancellationToken);
@@ -108,6 +123,7 @@ namespace Finance.WebAPI.Controllers
             try
             {
                 var session = await _importSessionService.UpdateTitleAsync(
+                    User.GetRequiredUserId(),
                     sessionId,
                     request.FileName,
                     cancellationToken);
@@ -130,6 +146,7 @@ namespace Finance.WebAPI.Controllers
             try
             {
                 var row = await _importSessionService.UpdateRowDestinationAccountAsync(
+                    User.GetRequiredUserId(),
                     sessionId,
                     rowId,
                     request.DestinationAccountId,
@@ -154,7 +171,10 @@ namespace Finance.WebAPI.Controllers
         {
             try
             {
-                var result = await _importSessionService.AddSessionToLedgerAsync(sessionId, cancellationToken);
+                var result = await _importSessionService.AddSessionToLedgerAsync(
+                    User.GetRequiredUserId(),
+                    sessionId,
+                    cancellationToken);
                 return Ok(result);
             }
             catch (InvalidOperationException exception)
@@ -174,7 +194,10 @@ namespace Finance.WebAPI.Controllers
         {
             try
             {
-                var session = await _importSessionService.ReapplyLearningAsync(sessionId, cancellationToken);
+                var session = await _importSessionService.ReapplyLearningAsync(
+                    User.GetRequiredUserId(),
+                    sessionId,
+                    cancellationToken);
                 return Ok(session);
             }
             catch (InvalidOperationException exception)
@@ -194,7 +217,10 @@ namespace Finance.WebAPI.Controllers
         {
             try
             {
-                var session = await _importSessionService.RevertSessionLearningAsync(sessionId, cancellationToken);
+                var session = await _importSessionService.RevertSessionLearningAsync(
+                    User.GetRequiredUserId(),
+                    sessionId,
+                    cancellationToken);
                 return Ok(session);
             }
             catch (InvalidOperationException exception)
@@ -216,6 +242,7 @@ namespace Finance.WebAPI.Controllers
             try
             {
                 var updatedSession = await _importSessionService.DeleteRowsAsync(
+                    User.GetRequiredUserId(),
                     sessionId,
                     request.RowIds,
                     cancellationToken);

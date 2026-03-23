@@ -6,6 +6,7 @@ import {
   type ImportSession,
   type ImportSessionRow,
 } from "@/models/import-session"
+import { authFetch } from "@/lib/auth"
 import { API_BASE_URL } from "@/lib/api-config"
 
 function normalizeImportSessionRow(raw: Record<string, unknown>): ImportSessionRow {
@@ -107,7 +108,7 @@ async function readErrorMessage(response: Response, fallback: string) {
 }
 
 export async function getImportSessions(): Promise<ImportSession[]> {
-  const response = await fetch(`${API_BASE_URL}/ImportSessions`, {
+  const response = await authFetch(`${API_BASE_URL}/ImportSessions`, {
     cache: "no-store",
     headers: {
       Accept: "application/json",
@@ -135,7 +136,7 @@ export async function getImportSessions(): Promise<ImportSession[]> {
 export async function createImportSession(
   session: CreateImportSessionInput,
 ): Promise<ImportSession> {
-  const response = await fetch(`${API_BASE_URL}/ImportSessions`, {
+  const response = await authFetch(`${API_BASE_URL}/ImportSessions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -158,7 +159,7 @@ export async function createImportSession(
 }
 
 export async function deleteImportSession(sessionId: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/ImportSessions/${sessionId}`, {
+  const response = await authFetch(`${API_BASE_URL}/ImportSessions/${sessionId}`, {
     method: "DELETE",
     headers: {
       Accept: "application/json",
@@ -180,7 +181,7 @@ export async function updateImportSessionRowDestinationAccount(
   rowId: string,
   destinationAccountId: string | null,
 ): Promise<ImportSessionRow> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE_URL}/ImportSessions/${sessionId}/rows/${rowId}/destination-account`,
     {
       method: "PATCH",
@@ -209,7 +210,7 @@ export async function updateImportSessionSourceAccount(
   sessionId: string,
   sourceAccountId: string | null,
 ): Promise<ImportSession> {
-  const response = await fetch(`${API_BASE_URL}/ImportSessions/${sessionId}/source-account`, {
+  const response = await authFetch(`${API_BASE_URL}/ImportSessions/${sessionId}/source-account`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -235,7 +236,7 @@ export async function updateImportSessionTitle(
   sessionId: string,
   fileName: string | null,
 ): Promise<ImportSession> {
-  const response = await fetch(`${API_BASE_URL}/ImportSessions/${sessionId}/title`, {
+  const response = await authFetch(`${API_BASE_URL}/ImportSessions/${sessionId}/title`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -260,7 +261,7 @@ export async function updateImportSessionTitle(
 export async function addImportSessionToLedger(
   sessionId: string,
 ): Promise<AddImportSessionToLedgerResult> {
-  const response = await fetch(`${API_BASE_URL}/ImportSessions/${sessionId}/add-to-ledger`, {
+  const response = await authFetch(`${API_BASE_URL}/ImportSessions/${sessionId}/add-to-ledger`, {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -283,7 +284,7 @@ export async function addImportSessionToLedger(
 export async function reapplyImportSessionLearning(
   sessionId: string,
 ): Promise<ImportSession> {
-  const response = await fetch(`${API_BASE_URL}/ImportSessions/${sessionId}/learning/reapply`, {
+  const response = await authFetch(`${API_BASE_URL}/ImportSessions/${sessionId}/learning/reapply`, {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -306,7 +307,7 @@ export async function reapplyImportSessionLearning(
 export async function revertImportSessionLearning(
   sessionId: string,
 ): Promise<ImportSession> {
-  const response = await fetch(`${API_BASE_URL}/ImportSessions/${sessionId}/learning/revert`, {
+  const response = await authFetch(`${API_BASE_URL}/ImportSessions/${sessionId}/learning/revert`, {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -330,7 +331,7 @@ export async function deleteImportSessionRows(
   sessionId: string,
   rowIds: string[],
 ): Promise<ImportSession> {
-  const response = await fetch(`${API_BASE_URL}/ImportSessions/${sessionId}/rows`, {
+  const response = await authFetch(`${API_BASE_URL}/ImportSessions/${sessionId}/rows`, {
     method: "DELETE",
     headers: {
       "Content-Type": "application/json",

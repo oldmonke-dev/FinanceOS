@@ -6,8 +6,6 @@ namespace Finance.BusinessLayer.Services
 {
     public class StrategyService : IStrategyService
     {
-        private static readonly Guid RootUserId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-
         private readonly IAccountRepository _accountRepository;
         private readonly IImportLearningRepository _importLearningRepository;
 
@@ -19,10 +17,10 @@ namespace Finance.BusinessLayer.Services
             _importLearningRepository = importLearningRepository;
         }
 
-        public async Task<BayesianStrategyDTO> GetBayesianStrategyAsync(CancellationToken cancellationToken = default)
+        public async Task<BayesianStrategyDTO> GetBayesianStrategyAsync(Guid userId, CancellationToken cancellationToken = default)
         {
             var accounts = await _accountRepository.GetAllAccountsAsync();
-            var stats = await _importLearningRepository.GetGlobalStatsAsync(RootUserId, cancellationToken);
+            var stats = await _importLearningRepository.GetGlobalStatsAsync(userId, cancellationToken);
 
             var accountById = accounts.ToDictionary(account => account.Id);
             var pathById = new Dictionary<Guid, string>();
@@ -98,6 +96,7 @@ namespace Finance.BusinessLayer.Services
         }
 
         public async Task<ImportBayesianTrainingResultDTO> ImportBayesianTrainingDataAsync(
+            Guid userId,
             ImportBayesianTrainingDataDTO request,
             CancellationToken cancellationToken = default)
         {
@@ -155,7 +154,7 @@ namespace Finance.BusinessLayer.Services
             }
 
             await _importLearningRepository.IncrementGlobalStatsAsync(
-                RootUserId,
+                userId,
                 increments,
                 cancellationToken);
 
@@ -168,6 +167,7 @@ namespace Finance.BusinessLayer.Services
         }
 
         public async Task DeleteBayesianLearningForAccountAsync(
+            Guid userId,
             Guid destinationAccountId,
             CancellationToken cancellationToken = default)
         {
@@ -177,7 +177,7 @@ namespace Finance.BusinessLayer.Services
             }
 
             var deletedCount = await _importLearningRepository.DeleteGlobalStatsByDestinationAccountAsync(
-                RootUserId,
+                userId,
                 destinationAccountId,
                 cancellationToken);
 

@@ -1,15 +1,17 @@
 using Finance.BusinessLayer.DTOs.UserPreferences;
 using Finance.Domain.Entities.Core;
 using Finance.Domain.Interfaces;
+using Finance.WebAPI.Extensions;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Finance.WebAPI.Controllers
 {
     [ApiController]
     [Route("[controller]")]
+    [Authorize]
     public class UserPreferencesController : ControllerBase
     {
-        private static readonly Guid RootUserId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
         private static readonly HashSet<string> AllowedNumberGroupingStyles = new(StringComparer.OrdinalIgnoreCase)
         {
             "international",
@@ -26,7 +28,9 @@ namespace Finance.WebAPI.Controllers
         [HttpGet]
         public async Task<ActionResult<UserPreferenceDTO>> Get(CancellationToken cancellationToken)
         {
-            var preference = await _userPreferenceRepository.GetOrCreateAsync(RootUserId, cancellationToken);
+            var preference = await _userPreferenceRepository.GetOrCreateAsync(
+                User.GetRequiredUserId(),
+                cancellationToken);
             return Ok(MapPreference(preference));
         }
 
@@ -42,7 +46,7 @@ namespace Finance.WebAPI.Controllers
             }
 
             var preference = await _userPreferenceRepository.UpdateNumberGroupingStyleAsync(
-                RootUserId,
+                User.GetRequiredUserId(),
                 normalizedStyle,
                 cancellationToken);
 

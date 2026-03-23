@@ -3,6 +3,7 @@ import {
   type Transaction,
   type UpdateTransactionInput,
 } from "@/models/transaction"
+import { authFetch } from "@/lib/auth"
 import { API_BASE_URL } from "@/lib/api-config"
 
 function normalizeTransaction(raw: Record<string, unknown>): Transaction {
@@ -35,7 +36,7 @@ function normalizeTransaction(raw: Record<string, unknown>): Transaction {
 export async function createTransaction(
   transaction: CreateTransactionInput,
 ): Promise<Transaction> {
-  const response = await fetch(`${API_BASE_URL}/Transactions`, {
+  const response = await authFetch(`${API_BASE_URL}/Transactions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -71,7 +72,7 @@ export async function getTransactions(accountId?: string): Promise<Transaction[]
     url.searchParams.set("accountId", accountId)
   }
 
-  const response = await fetch(url.toString(), {
+  const response = await authFetch(url.toString(), {
     cache: "no-store",
     headers: {
       Accept: "application/json",
@@ -104,7 +105,7 @@ export async function updateTransaction(
   transactionId: string,
   transaction: UpdateTransactionInput,
 ): Promise<Transaction> {
-  const response = await fetch(`${API_BASE_URL}/Transactions/${transactionId}`, {
+  const response = await authFetch(`${API_BASE_URL}/Transactions/${transactionId}`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -131,7 +132,7 @@ export async function updateTransaction(
 }
 
 export async function deleteTransaction(transactionId: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/Transactions/${transactionId}`, {
+  const response = await authFetch(`${API_BASE_URL}/Transactions/${transactionId}`, {
     method: "DELETE",
     headers: {
       Accept: "application/json",

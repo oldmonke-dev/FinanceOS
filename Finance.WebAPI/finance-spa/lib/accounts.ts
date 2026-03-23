@@ -3,6 +3,7 @@ import {
   type AccountNode,
   type CreateAccountInput,
 } from "@/models/account"
+import { authFetch } from "@/lib/auth"
 import { API_BASE_URL } from "@/lib/api-config"
 
 function normalizeAccount(raw: Record<string, unknown>): Account {
@@ -33,7 +34,7 @@ function readErrorMessage(response: Response, fallback: string) {
 }
 
 export async function getAccounts(): Promise<Account[]> {
-  const response = await fetch(`${API_BASE_URL}/Accounts`, {
+  const response = await authFetch(`${API_BASE_URL}/Accounts`, {
     cache: "no-store",
     headers: {
       Accept: "application/json",
@@ -54,7 +55,7 @@ export async function getAccounts(): Promise<Account[]> {
 }
 
 export async function createAccount(account: CreateAccountInput): Promise<Account> {
-  const response = await fetch(`${API_BASE_URL}/Accounts`, {
+  const response = await authFetch(`${API_BASE_URL}/Accounts`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -85,7 +86,7 @@ export async function deleteAccount(accountId: string): Promise<{
   createdImportSessionId: string | null
   affectedTransactionCount: number
 }> {
-  const response = await fetch(`${API_BASE_URL}/Accounts/${accountId}`, {
+  const response = await authFetch(`${API_BASE_URL}/Accounts/${accountId}`, {
     method: "DELETE",
     headers: {
       Accept: "application/json",
