@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { ChevronRight, Trash2 } from "lucide-react"
 
+import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { deleteBayesianLearningForAccount } from "@/lib/strategies"
@@ -11,6 +12,7 @@ import { type BayesianMapGroup } from "@/models/strategy"
 
 export function BayesianMapGroups({ groups }: { groups: BayesianMapGroup[] }) {
   const router = useRouter()
+  const { confirm, alert } = useConfirmationDialog()
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const [deletingAccountId, setDeletingAccountId] = useState<string | null>(null)
   const [search, setSearch] = useState("")
@@ -49,9 +51,12 @@ export function BayesianMapGroups({ groups }: { groups: BayesianMapGroup[] }) {
   }
 
   async function handleDeleteLearning(group: BayesianMapGroup) {
-    const confirmed = window.confirm(
-      `Delete Bayesian learning for "${group.destinationAccountPath}"? This removes all learned features for this destination account.`,
-    )
+    const confirmed = await confirm({
+      title: "Delete Bayesian learning",
+      message: `Delete Bayesian learning for "${group.destinationAccountPath}"? This removes all learned features for this destination account.`,
+      confirmLabel: "Delete",
+      variant: "destructive",
+    })
 
     if (!confirmed) {
       return
@@ -63,9 +68,10 @@ export function BayesianMapGroups({ groups }: { groups: BayesianMapGroup[] }) {
       await deleteBayesianLearningForAccount(group.destinationAccountId)
       router.refresh()
     } catch (error) {
-      window.alert(
-        error instanceof Error ? error.message : "Failed to delete account learning.",
-      )
+      await alert({
+        title: "Delete failed",
+        message: error instanceof Error ? error.message : "Failed to delete account learning.",
+      })
     } finally {
       setDeletingAccountId(null)
     }

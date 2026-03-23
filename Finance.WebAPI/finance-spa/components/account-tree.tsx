@@ -20,6 +20,7 @@ import {
 } from "lucide-react"
 
 import { useAccounts } from "@/components/providers/accounts-provider"
+import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider"
 import { useImportSessions } from "@/components/providers/import-sessions-provider"
 import { useUserPreferences } from "@/components/providers/user-preferences-provider"
 import { Button } from "@/components/ui/button"
@@ -96,6 +97,7 @@ export function AccountTree() {
   const router = useRouter()
   const { accounts, addAccount, updateAccount, errorMessage, isLoading, refreshAccounts } =
     useAccounts()
+  const { confirm, alert } = useConfirmationDialog()
   const { refreshSessions } = useImportSessions()
   const { formatNumber } = useUserPreferences()
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set())
@@ -239,9 +241,12 @@ export function AccountTree() {
   }
 
   async function handleDeleteAccount(account: Account) {
-    const confirmed = window.confirm(
-      `Delete ${account.name}? Any transactions tagged to this account will be moved into a mandatory review session for remapping.`,
-    )
+    const confirmed = await confirm({
+      title: "Delete account",
+      message: `Delete ${account.name}? Any transactions tagged to this account will be moved into a mandatory review session for remapping.`,
+      confirmLabel: "Delete",
+      variant: "destructive",
+    })
 
     if (!confirmed) {
       return
@@ -258,7 +263,10 @@ export function AccountTree() {
         router.push("/import-sessions")
       }
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "Failed to delete account.")
+      await alert({
+        title: "Delete failed",
+        message: error instanceof Error ? error.message : "Failed to delete account.",
+      })
     } finally {
       setDeletingAccountId(null)
     }
@@ -404,6 +412,7 @@ function AccountHierarchyImportPanel({
   const [fileName, setFileName] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isImporting, setIsImporting] = useState(false)
+  const { confirm } = useConfirmationDialog()
 
   const existingAccountPathLookup = useMemo(() => buildExistingAccountPathLookup(accounts), [accounts])
   const normalizedDrafts = useMemo(
@@ -457,9 +466,11 @@ function AccountHierarchyImportPanel({
       return
     }
 
-    const confirmed = window.confirm(
-      `Import ${draftsToImport.length} account path${draftsToImport.length === 1 ? "" : "s"}? Existing paths will be skipped.`,
-    )
+    const confirmed = await confirm({
+      title: "Import account hierarchy",
+      message: `Import ${draftsToImport.length} account path${draftsToImport.length === 1 ? "" : "s"}? Existing paths will be skipped.`,
+      confirmLabel: "Import",
+    })
 
     if (!confirmed) {
       return

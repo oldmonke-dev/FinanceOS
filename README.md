@@ -23,3 +23,16 @@ See [dev.readme.md](./dev.readme.md) for:
 - connection string setup
 - Entity Framework migration commands
 - running the API and SPA locally
+
+## Todo
+
+- Show balances inside Import Review.
+- Reorder transactions within the same day to avoid misleading negative running balances.
+- Optimize application performance.
+- Add Redis where it provides real value.
+- Replace UI choke points with loading skeletons.
+- Introduce queues for long-running or bursty workflows where needed.
+- Add RBAC, including a God Mode/admin path and per-user ledger boundaries.
+- Add an email client flow for fetching monthly statements.
+- Build a PDF-to-CSV tool for statement ingestion.
+- Add SMS and OTP support.

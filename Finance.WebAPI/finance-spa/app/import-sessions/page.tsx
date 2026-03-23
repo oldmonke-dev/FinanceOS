@@ -7,6 +7,7 @@ import {
   Briefcase,
   CalendarClock,
   CircleDashed,
+  RefreshCw,
   SearchX,
   FileSpreadsheet,
   FolderInput,
@@ -17,6 +18,7 @@ import {
 import { AccountSearchSelect } from "@/components/account-search-select"
 import { AppShell } from "@/components/app-shell"
 import { useAccounts } from "@/components/providers/accounts-provider"
+import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider"
 import { useImportSessions } from "@/components/providers/import-sessions-provider"
 import { useUserPreferences } from "@/components/providers/user-preferences-provider"
 import { Button } from "@/components/ui/button"
@@ -43,6 +45,7 @@ import { type Transaction } from "@/models/transaction"
 
 type ResolvedSessionRow = {
   sessionId: string
+  sessionTitle: string
   rowId: string
   rowIndex: number
   dateKey: string | null
@@ -73,6 +76,7 @@ type StrategyMode =
 
 export default function ImportSessionsPage() {
   const { accounts } = useAccounts()
+  const { confirm } = useConfirmationDialog()
   const { formatNumber } = useUserPreferences()
   const {
     sessions,
@@ -95,6 +99,8 @@ export default function ImportSessionsPage() {
   const [isDeletingRows, setIsDeletingRows] = useState(false)
   const [isReapplyingLearning, setIsReapplyingLearning] = useState(false)
   const [isRevertingLearning, setIsRevertingLearning] = useState(false)
+  const [isLoadingSimilarity, setIsLoadingSimilarity] = useState(false)
+  const [similarityLoadedSessionId, setSimilarityLoadedSessionId] = useState<string | null>(null)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [showAllRows, setShowAllRows] = useState(false)
@@ -148,38 +154,22 @@ export default function ImportSessionsPage() {
     setCurrentPage(1)
   }, [sortMode])
 
-  useEffect(() => {
-    let isCancelled = false
-
-    async function loadLedgerTransactions() {
-      try {
-        const transactions = await getTransactions()
-
-        if (!isCancelled) {
-          setLedgerTransactions(transactions)
-        }
-      } catch {
-        if (!isCancelled) {
-          setLedgerTransactions([])
-        }
-      }
-    }
-
-    void loadLedgerTransactions()
-
-    return () => {
-      isCancelled = true
-    }
-  }, [])
-
   const activeSession =
     filteredSessions.find((session) => session.id === activeSessionId) ?? filteredSessions[0] ?? null
   const isReadOnlySession = activeSession?.isArchived ?? false
   const activeSessionHasUnsavedChanges = activeSession ? hasUnsavedChanges(activeSession.id) : false
+  const isSimilarityLoadedForActiveSession =
+    activeSession != null && similarityLoadedSessionId === activeSession.id
 
   useEffect(() => {
     setDraftTitle(activeSession?.fileName ?? "")
   }, [activeSession?.id, activeSession?.fileName])
+
+  useEffect(() => {
+    setSimilarityLoadedSessionId(null)
+    setLedgerTransactions([])
+    setIsLoadingSimilarity(false)
+  }, [activeSession?.id])
 
   useEffect(() => {
     if (!activeSession || isReadOnlySession) {
@@ -283,29 +273,33 @@ export default function ImportSessionsPage() {
   const sourceAccountOptions = useMemo(() => accounts, [accounts])
   const allVisibleRowsSelected =
     visibleRows.length > 0 && visibleRows.every((row) => selectedRowIds.has(row.id))
-  const resolvedActiveRows = useMemo(
-    () =>
-      sessions
-        .filter((session) => !session.isArchived)
-        .flatMap((session) =>
-          session.rows
-            .map((row) => resolveSessionRow(session, row))
-            .filter((item): item is ResolvedSessionRow => item !== null),
-        ),
-    [sessions],
-  )
-  const resolvedCurrentRowById = useMemo(
-    () =>
-      new Map(
-        activeRows.map((row) => [
-          row.id,
-          activeSession ? resolveSessionRow(activeSession, row) : null,
-        ] as const),
-      ),
-    [activeRows, activeSession],
-  )
+  const resolvedActiveRows = useMemo(() => {
+    if (!isSimilarityLoadedForActiveSession) {
+      return []
+    }
+
+    return sessions
+      .filter((session) => !session.isArchived)
+      .flatMap((session) =>
+        session.rows
+          .map((row) => resolveSessionRow(session, row))
+          .filter((item): item is ResolvedSessionRow => item !== null),
+      )
+  }, [isSimilarityLoadedForActiveSession, sessions])
+  const resolvedCurrentRowById = useMemo(() => {
+    if (!isSimilarityLoadedForActiveSession) {
+      return new Map<string, ResolvedSessionRow | null>()
+    }
+
+    return new Map(
+      activeRows.map((row) => [
+        row.id,
+        activeSession ? resolveSessionRow(activeSession, row) : null,
+      ] as const),
+    )
+  }, [activeRows, activeSession, isSimilarityLoadedForActiveSession])
   const activeSessionSimilarityByRowId = useMemo(() => {
-    if (!activeSession) {
+    if (!activeSession || !isSimilarityLoadedForActiveSession) {
       return new Map<string, number>()
     }
 
@@ -329,9 +323,9 @@ export default function ImportSessionsPage() {
         return [row.id, bestScore] as const
       }),
     )
-  }, [activeRows, activeSession, resolvedActiveRows, resolvedCurrentRowById])
+  }, [activeRows, activeSession, isSimilarityLoadedForActiveSession, resolvedActiveRows, resolvedCurrentRowById])
   const bestActiveSessionMatchByRowId = useMemo(() => {
-    if (!activeSession) {
+    if (!activeSession || !isSimilarityLoadedForActiveSession) {
       return new Map<string, ResolvedSessionRow | null>()
     }
 
@@ -360,13 +354,18 @@ export default function ImportSessionsPage() {
         return [row.id, bestMatch] as const
       }),
     )
-  }, [activeRows, activeSession, resolvedActiveRows, resolvedCurrentRowById])
+  }, [activeRows, activeSession, isSimilarityLoadedForActiveSession, resolvedActiveRows, resolvedCurrentRowById])
   const resolvedLedgerTransactions = useMemo(
-    () => ledgerTransactions.map(resolveLedgerTransaction).filter((item): item is ResolvedLedgerTransaction => item !== null),
-    [ledgerTransactions],
+    () =>
+      isSimilarityLoadedForActiveSession
+        ? ledgerTransactions
+            .map(resolveLedgerTransaction)
+            .filter((item): item is ResolvedLedgerTransaction => item !== null)
+        : [],
+    [isSimilarityLoadedForActiveSession, ledgerTransactions],
   )
   const ledgerSimilarityByRowId = useMemo(() => {
-    if (!activeSession) {
+    if (!activeSession || !isSimilarityLoadedForActiveSession) {
       return new Map<string, number>()
     }
 
@@ -385,9 +384,9 @@ export default function ImportSessionsPage() {
         return [row.id, bestScore] as const
       }),
     )
-  }, [activeRows, activeSession, resolvedCurrentRowById, resolvedLedgerTransactions])
+  }, [activeRows, activeSession, isSimilarityLoadedForActiveSession, resolvedCurrentRowById, resolvedLedgerTransactions])
   const bestLedgerMatchByRowId = useMemo(() => {
-    if (!activeSession) {
+    if (!activeSession || !isSimilarityLoadedForActiveSession) {
       return new Map<string, ResolvedLedgerTransaction | null>()
     }
 
@@ -412,7 +411,7 @@ export default function ImportSessionsPage() {
         return [row.id, bestMatch] as const
       }),
     )
-  }, [activeRows, activeSession, resolvedCurrentRowById, resolvedLedgerTransactions])
+  }, [activeRows, activeSession, isSimilarityLoadedForActiveSession, resolvedCurrentRowById, resolvedLedgerTransactions])
   const accountById = useMemo(
     () => new Map(accounts.map((account) => [account.id, account])),
     [accounts],
@@ -483,9 +482,12 @@ export default function ImportSessionsPage() {
       return
     }
 
-    const confirmed = window.confirm(
-      `Delete "${getSessionTitle(activeSession.fileName)}"? This cannot be undone.`,
-    )
+    const confirmed = await confirm({
+      title: "Delete session",
+      message: `Delete "${getSessionTitle(activeSession.fileName)}"? This cannot be undone.`,
+      confirmLabel: "Delete",
+      variant: "destructive",
+    })
 
     if (!confirmed) {
       return
@@ -625,9 +627,12 @@ export default function ImportSessionsPage() {
       return
     }
 
-    const confirmed = window.confirm(
-      `Delete ${selectedRowIds.size} row${selectedRowIds.size === 1 ? "" : "s"} from this import session?`,
-    )
+    const confirmed = await confirm({
+      title: "Delete rows",
+      message: `Delete ${selectedRowIds.size} row${selectedRowIds.size === 1 ? "" : "s"} from this import session?`,
+      confirmLabel: "Delete rows",
+      variant: "destructive",
+    })
 
     if (!confirmed) {
       return
@@ -641,6 +646,25 @@ export default function ImportSessionsPage() {
       setLedgerResult(null)
     } finally {
       setIsDeletingRows(false)
+    }
+  }
+
+  async function handleLoadSimilarity() {
+    if (!activeSession) {
+      return
+    }
+
+    setIsLoadingSimilarity(true)
+
+    try {
+      const transactions = await getTransactions()
+      setLedgerTransactions(transactions)
+      setSimilarityLoadedSessionId(activeSession.id)
+    } catch {
+      setLedgerTransactions([])
+      setSimilarityLoadedSessionId(activeSession.id)
+    } finally {
+      setIsLoadingSimilarity(false)
     }
   }
 
@@ -867,7 +891,7 @@ export default function ImportSessionsPage() {
                       )}
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2">
                     <Button
                       type="button"
                       variant="outline"
@@ -1086,7 +1110,20 @@ export default function ImportSessionsPage() {
                         Destination account
                       </th>
                       <th className="border-b px-4 py-3 text-left font-medium whitespace-nowrap">
-                        Similarity Index
+                        <div className="flex items-center justify-between gap-2">
+                          <span>Similarity Index</span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            className="size-7"
+                            onClick={() => void handleLoadSimilarity()}
+                            disabled={!activeSession || isLoadingSimilarity}
+                            aria-label="Load similarity index"
+                          >
+                            <RefreshCw className={`size-3.5 ${isLoadingSimilarity ? "animate-spin" : ""}`} />
+                          </Button>
+                        </div>
                       </th>
                     </tr>
                   </thead>
@@ -1183,102 +1220,109 @@ export default function ImportSessionsPage() {
                           </td>
                           <td className="border-t px-3 py-2 align-top">
                             <TooltipProvider>
-                              <div className="min-w-44 space-y-2 rounded-xl border bg-background/70 p-3">
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <button
-                                      type="button"
-                                      className="block w-full rounded-lg px-2 py-1 text-left transition hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                    >
-                                      <SimilarityBar
-                                        label="Active sessions"
-                                        value={activeSessionSimilarity}
-                                        tone="sky"
-                                      />
-                                    </button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="top" sideOffset={8} className="max-w-sm rounded-xl border bg-popover p-0 text-popover-foreground shadow-md">
-                                    {activeSessionMatch && activeSessionSimilarity > 0 ? (
-                                      <MatchTooltipCard
-                                        title="Best match | Active sessions"
-                                        currentDateKey={resolvedCurrentRow?.dateKey ?? null}
-                                        source={
-                                          activeSessionMatch.sourceAccountId
-                                            ? accountPathLookup.get(activeSessionMatch.sourceAccountId) ??
-                                              activeSessionMatch.sourceAccountId
-                                            : "Unassigned"
-                                        }
-                                        destination={
-                                          activeSessionMatch.destinationAccountId
-                                            ? accountPathLookup.get(activeSessionMatch.destinationAccountId) ??
-                                              activeSessionMatch.destinationAccountId
-                                            : "Unmapped"
-                                        }
-                                        amount={
-                                          activeSessionMatch.amount != null
-                                            ? formatNumber(activeSessionMatch.amount)
-                                            : "Unknown"
-                                        }
-                                        date={activeSessionMatch.dateKey ?? "Unknown"}
-                                        description={activeSessionMatch.description || "-"}
-                                        reference={activeSessionMatch.reference || "-"}
-                                      />
-                                    ) : (
-                                      <NoMatchTooltipCard
-                                        title="Best match | Active sessions"
-                                        message="No similar row found in other active sessions."
-                                      />
-                                    )}
-                                  </TooltipContent>
-                                </Tooltip>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <button
-                                      type="button"
-                                      className="block w-full rounded-lg px-2 py-1 text-left transition hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                    >
-                                      <SimilarityBar
-                                        label="Ledger"
-                                        value={ledgerSimilarity}
-                                        tone="emerald"
-                                      />
-                                    </button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="top" sideOffset={8} className="max-w-sm rounded-xl border bg-popover p-0 text-popover-foreground shadow-md">
-                                    {ledgerMatch && ledgerSimilarity > 0 ? (
-                                      <MatchTooltipCard
-                                        title="Best match | Ledger"
-                                        currentDateKey={resolvedCurrentRow?.dateKey ?? null}
-                                        source={
-                                          ledgerMatch.sourceAccountId
-                                            ? accountPathLookup.get(ledgerMatch.sourceAccountId) ??
-                                              ledgerMatch.sourceAccountId
-                                            : "Unassigned"
-                                        }
-                                        destination={
-                                          ledgerMatch.destinationAccountId
-                                            ? accountPathLookup.get(ledgerMatch.destinationAccountId) ??
-                                              ledgerMatch.destinationAccountId
-                                            : "Unmapped"
-                                        }
-                                        amount={
-                                          ledgerMatch.amount != null
-                                            ? formatNumber(ledgerMatch.amount)
-                                            : "Unknown"
-                                        }
-                                        date={ledgerMatch.dateKey ?? "Unknown"}
-                                        description={ledgerMatch.description || "-"}
-                                        reference={ledgerMatch.reference || "-"}
-                                      />
-                                    ) : (
-                                      <NoMatchTooltipCard
-                                        title="Best match | Ledger"
-                                        message="No similar transaction found in the ledger."
-                                      />
-                                    )}
-                                  </TooltipContent>
-                                </Tooltip>
-                              </div>
+                              {isSimilarityLoadedForActiveSession ? (
+                                <div className="min-w-44 space-y-2 rounded-xl border bg-background/70 p-3">
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="block w-full rounded-lg px-2 py-1 text-left transition hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                      >
+                                        <SimilarityBar
+                                          label="Active sessions"
+                                          value={activeSessionSimilarity}
+                                          tone="sky"
+                                        />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" sideOffset={8} className="max-w-sm rounded-xl border bg-popover p-0 text-popover-foreground shadow-md">
+                                      {activeSessionMatch && activeSessionSimilarity > 0 ? (
+                                        <MatchTooltipCard
+                                          title="Best match | Active sessions"
+                                          sessionTitle={activeSessionMatch.sessionTitle}
+                                          currentDateKey={resolvedCurrentRow?.dateKey ?? null}
+                                          source={
+                                            activeSessionMatch.sourceAccountId
+                                              ? accountPathLookup.get(activeSessionMatch.sourceAccountId) ??
+                                                activeSessionMatch.sourceAccountId
+                                              : "Unassigned"
+                                          }
+                                          destination={
+                                            activeSessionMatch.destinationAccountId
+                                              ? accountPathLookup.get(activeSessionMatch.destinationAccountId) ??
+                                                activeSessionMatch.destinationAccountId
+                                              : "Unmapped"
+                                          }
+                                          amount={
+                                            activeSessionMatch.amount != null
+                                              ? formatNumber(activeSessionMatch.amount)
+                                              : "Unknown"
+                                          }
+                                          date={activeSessionMatch.dateKey ?? "Unknown"}
+                                          description={activeSessionMatch.description || "-"}
+                                          reference={activeSessionMatch.reference || "-"}
+                                        />
+                                      ) : (
+                                        <NoMatchTooltipCard
+                                          title="Best match | Active sessions"
+                                          message="No similar row found in other active sessions."
+                                        />
+                                      )}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="block w-full rounded-lg px-2 py-1 text-left transition hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                      >
+                                        <SimilarityBar
+                                          label="Ledger"
+                                          value={ledgerSimilarity}
+                                          tone="emerald"
+                                        />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" sideOffset={8} className="max-w-sm rounded-xl border bg-popover p-0 text-popover-foreground shadow-md">
+                                      {ledgerMatch && ledgerSimilarity > 0 ? (
+                                        <MatchTooltipCard
+                                          title="Best match | Ledger"
+                                          currentDateKey={resolvedCurrentRow?.dateKey ?? null}
+                                          source={
+                                            ledgerMatch.sourceAccountId
+                                              ? accountPathLookup.get(ledgerMatch.sourceAccountId) ??
+                                                ledgerMatch.sourceAccountId
+                                              : "Unassigned"
+                                          }
+                                          destination={
+                                            ledgerMatch.destinationAccountId
+                                              ? accountPathLookup.get(ledgerMatch.destinationAccountId) ??
+                                                ledgerMatch.destinationAccountId
+                                              : "Unmapped"
+                                          }
+                                          amount={
+                                            ledgerMatch.amount != null
+                                              ? formatNumber(ledgerMatch.amount)
+                                              : "Unknown"
+                                          }
+                                          date={ledgerMatch.dateKey ?? "Unknown"}
+                                          description={ledgerMatch.description || "-"}
+                                          reference={ledgerMatch.reference || "-"}
+                                        />
+                                      ) : (
+                                        <NoMatchTooltipCard
+                                          title="Best match | Ledger"
+                                          message="No similar transaction found in the ledger."
+                                        />
+                                      )}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </div>
+                              ) : (
+                                <div className="min-w-44 rounded-xl border border-dashed bg-background/70 p-3 text-[11px] text-muted-foreground">
+                                  Click reload in the header to compute similarity.
+                                </div>
+                              )}
                             </TooltipProvider>
                           </td>
                         </tr>
@@ -1430,6 +1474,7 @@ function resolveSessionRow(
 
   return {
     sessionId: session.id,
+    sessionTitle: getSessionTitle(session.fileName),
     rowId: row.id,
     rowIndex: row.rowIndex,
     dateKey: resolveMappedDateKey(row.values, session.columnMappings),
@@ -1584,8 +1629,10 @@ function scoreAmountSimilarity(left: number | null, right: number | null) {
   return Math.max(0, 1 - delta / scale)
 }
 
+
 type MatchTooltipCardProps = {
   title: string
+  sessionTitle?: string
   currentDateKey: string | null
   source: string
   destination: string
@@ -1597,6 +1644,7 @@ type MatchTooltipCardProps = {
 
 function MatchTooltipCard({
   title,
+  sessionTitle,
   currentDateKey,
   source,
   destination,
@@ -1617,6 +1665,11 @@ function MatchTooltipCard({
         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
           {title}
         </p>
+        {sessionTitle ? (
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Session: {sessionTitle}
+          </p>
+        ) : null}
       </div>
       <div className="grid gap-1.5 px-3 py-3 text-[11px] leading-snug">
         <p><span className="font-semibold text-muted-foreground">Source:</span> {source}</p>

@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation"
 import { AccountSearchSelect } from "@/components/account-search-select"
 import { AppShell } from "@/components/app-shell"
 import { useAccounts } from "@/components/providers/accounts-provider"
+import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider"
 import { useImportSessions } from "@/components/providers/import-sessions-provider"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -70,6 +71,7 @@ const sampleCsv = `Date,Description,Amount,Account,Reference
 export default function ImportPage() {
   const router = useRouter()
   const { accounts, errorMessage, isLoading } = useAccounts()
+  const { alert } = useConfirmationDialog()
   const { createSession } = useImportSessions()
   const [selectedSourceAccountId, setSelectedSourceAccountId] = useState<string>("")
   const [rawCsv, setRawCsv] = useState(sampleCsv)
@@ -82,12 +84,15 @@ export default function ImportPage() {
   const [previewLimit, setPreviewLimit] = useState(12)
   const [previewRangeStart, setPreviewRangeStart] = useState(1)
   const [previewRangeEnd, setPreviewRangeEnd] = useState(25)
-  const [usePreviewAsImportSelection, setUsePreviewAsImportSelection] = useState(true)
+  const [usePreviewAsImportSelection, setUsePreviewAsImportSelection] = useState(false)
   const [selectedImportRows, setSelectedImportRows] = useState<Set<number>>(new Set())
   const [expandedDescriptionRows, setExpandedDescriptionRows] = useState<Set<string>>(new Set())
   const [search, setSearch] = useState("")
   const [columnMappings, setColumnMappings] = useState<Record<number, ImportField>>({})
   const [fileName, setFileName] = useState<string | null>(null)
+  const [splitPartCount, setSplitPartCount] = useState<2 | 3 | 4 | 5>(2)
+  const [isSplitDialogOpen, setIsSplitDialogOpen] = useState(false)
+  const [isCreatingSplitSessions, setIsCreatingSplitSessions] = useState(false)
   const deferredRawCsv = useDeferredValue(rawCsv)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -192,11 +197,15 @@ export default function ImportPage() {
   const allProcessedRows = filteredRows
   const rowsForImport = useMemo(() => {
     if (usePreviewAsImportSelection) {
-      return allProcessedRows
+      return previewRows.filter(({ sourceIndex }) => selectedImportRows.has(sourceIndex))
     }
 
-    return previewRows.filter(({ sourceIndex }) => selectedImportRows.has(sourceIndex))
+    return allProcessedRows
   }, [allProcessedRows, previewRows, selectedImportRows, usePreviewAsImportSelection])
+  const splitPreviewGroups = useMemo(
+    () => splitRowsEvenly(rowsForImport, splitPartCount),
+    [rowsForImport, splitPartCount],
+  )
   const selectedSourceAccount =
     accounts.find((account) => String(account.id) === selectedSourceAccountId) ?? null
   const accountColumnIndex = useMemo(
@@ -218,22 +227,22 @@ export default function ImportPage() {
 
   useEffect(() => {
     if (usePreviewAsImportSelection) {
-      setSelectedImportRows((current) => (current.size === 0 ? current : new Set()))
+      const nextIndexes = previewRows.map(({ sourceIndex }) => sourceIndex)
+
+      setSelectedImportRows((current) => {
+        if (
+          current.size === nextIndexes.length &&
+          nextIndexes.every((sourceIndex) => current.has(sourceIndex))
+        ) {
+          return current
+        }
+
+        return new Set(nextIndexes)
+      })
       return
     }
 
-    const nextIndexes = previewRows.map(({ sourceIndex }) => sourceIndex)
-
-    setSelectedImportRows((current) => {
-      if (
-        current.size === nextIndexes.length &&
-        nextIndexes.every((sourceIndex) => current.has(sourceIndex))
-      ) {
-        return current
-      }
-
-      return new Set(nextIndexes)
-    })
+    setSelectedImportRows((current) => (current.size === 0 ? current : new Set()))
   }, [previewRows, usePreviewAsImportSelection])
 
   async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
@@ -309,6 +318,48 @@ export default function ImportPage() {
     })
 
     router.push(`/import-sessions#${session.id}`)
+  }
+
+  async function createSplitImportSessionsFromPreview() {
+    if (rowsForImport.length < splitPartCount) {
+      await alert({
+        title: "Not enough rows",
+        message: `Need at least ${splitPartCount} selected rows to create ${splitPartCount} split sessions.`,
+      })
+      return
+    }
+
+    setIsCreatingSplitSessions(true)
+
+    try {
+      const rowGroups = splitRowsEvenly(rowsForImport, splitPartCount)
+      const splitTitleBase = buildSplitSessionTitleBase(fileName)
+      let firstSessionId: string | null = null
+
+      for (let index = 0; index < rowGroups.length; index += 1) {
+        const session = await createSession({
+          fileName: `${splitTitleBase}_Split_Part${index + 1}`,
+          sourceAccountId: selectedSourceAccount?.id ?? null,
+          label: "user_import_chunked",
+          strategy: "unassigned",
+          columnMappings,
+          rows: rowGroups[index].map(({ row, sourceIndex }) => ({
+            rowIndex: sourceIndex,
+            values: row,
+            ...resolveDestinationAccount(row, accountColumnIndex, accountLookup),
+          })),
+        })
+
+        if (!firstSessionId) {
+          firstSessionId = session.id
+        }
+      }
+
+      router.push(firstSessionId ? `/import-sessions#${firstSessionId}` : "/import-sessions")
+    } finally {
+      setIsCreatingSplitSessions(false)
+      setIsSplitDialogOpen(false)
+    }
   }
 
   function toggleExpandedDescription(rowKey: string) {
@@ -516,11 +567,7 @@ export default function ImportPage() {
                     onCheckedChange={(checked) => setUsePreviewAsImportSelection(checked === true)}
                   />
                   <div>
-                    <p className="font-medium">Include all processed rows in import session</p>
-                    <p className="text-xs text-muted-foreground">
-                      If checked, all processed rows are sent to the import session. If unchecked,
-                      only the current preview rows you selected are sent.
-                    </p>
+                    <p className="font-medium">Include only preview plus selected</p>
                   </div>
                 </label>
               </div>
@@ -557,6 +604,14 @@ export default function ImportPage() {
                 <div className="flex gap-2">
                   <Button type="button" variant="outline" onClick={resetColumns}>
                     Reset preview
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsSplitDialogOpen(true)}
+                    disabled={rowsForImport.length < 2}
+                  >
+                    Create split sessions
                   </Button>
                   <Button
                     type="button"
@@ -597,7 +652,7 @@ export default function ImportPage() {
             <table className="w-full min-w-[52rem] table-fixed border-collapse text-sm">
               <thead className="bg-muted/60">
                 <tr>
-                  {!usePreviewAsImportSelection ? (
+                  {usePreviewAsImportSelection ? (
                     <th className="w-16 border-b px-4 py-3 text-center align-top">
                       <div className="flex flex-col items-center gap-2">
                         <span className="text-sm font-medium leading-none">Import</span>
@@ -650,7 +705,7 @@ export default function ImportPage() {
                   <tr>
                     <td
                       colSpan={Math.max(
-                        visibleColumnIndexes.length + (!usePreviewAsImportSelection ? 1 : 0),
+                        visibleColumnIndexes.length + (usePreviewAsImportSelection ? 1 : 0),
                         1,
                       )}
                       className="px-4 py-10 text-center text-muted-foreground"
@@ -661,7 +716,7 @@ export default function ImportPage() {
                 ) : (
                   previewRows.map(({ row, sourceIndex }, rowIndex) => (
                     <tr key={`row-${sourceIndex}-${rowIndex}`} className="odd:bg-muted/10 even:bg-muted/35">
-                      {!usePreviewAsImportSelection ? (
+                      {usePreviewAsImportSelection ? (
                         <td className="border-t px-4 py-3 text-center align-top">
                           <SelectionToggle
                             checked={selectedImportRows.has(sourceIndex)}
@@ -705,6 +760,82 @@ export default function ImportPage() {
           </div>
         </article>
       </section>
+
+      {isSplitDialogOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4">
+          <div className="w-full max-w-lg rounded-3xl border bg-card p-6 shadow-xl">
+            <div className="space-y-2">
+              <div>
+                <h3 className="text-lg font-semibold">Create Split Sessions</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Choose how many split sessions to create from the current import set.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2 md:items-end">
+              <label className="space-y-2 text-sm">
+                <span className="font-medium">How many splits</span>
+                <Select
+                  value={String(splitPartCount)}
+                  onValueChange={(value) => setSplitPartCount(Number(value) as 2 | 3 | 4 | 5)}
+                >
+                  <SelectTrigger className="h-11 w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="2">2 Splits</SelectItem>
+                    <SelectItem value="3">3 Splits</SelectItem>
+                    <SelectItem value="4">4 Splits</SelectItem>
+                    <SelectItem value="5">5 Splits</SelectItem>
+                  </SelectContent>
+                </Select>
+              </label>
+
+              <div className="space-y-2 text-sm">
+                <span className="font-medium">Transaction count</span>
+                <div className="flex h-11 w-full items-center rounded-2xl border bg-background/70 px-4 text-sm text-muted-foreground">
+                  Total transactions:
+                  <span className="ml-1 font-medium text-foreground">{rowsForImport.length}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-2xl border bg-background/70 p-4">
+              <p className="text-sm font-medium text-foreground">Transactions in each split</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {splitPreviewGroups.map((group, index) => (
+                  <div
+                    key={`split-preview-${index + 1}`}
+                    className="rounded-xl border bg-card px-3 py-2 text-sm"
+                  >
+                    <span className="font-medium">Split Part {index + 1}</span>
+                    <span className="ml-2 text-muted-foreground">{group.length} txns</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsSplitDialogOpen(false)}
+                disabled={isCreatingSplitSessions}
+              >
+                Close
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void createSplitImportSessionsFromPreview()}
+                disabled={rowsForImport.length < splitPartCount || isCreatingSplitSessions}
+              >
+                {isCreatingSplitSessions ? "Creating..." : "Confirm Create Session"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </AppShell>
   )
 }
@@ -884,6 +1015,36 @@ function parseRowRangeExpression(expression: string, rowCount: number) {
   }
 
   return indexes
+}
+
+function splitRowsEvenly<T>(items: T[], partCount: number) {
+  const groups: T[][] = []
+  const baseSize = Math.floor(items.length / partCount)
+  const remainder = items.length % partCount
+  let startIndex = 0
+
+  for (let index = 0; index < partCount; index += 1) {
+    const currentSize = baseSize + (index < remainder ? 1 : 0)
+    groups.push(items.slice(startIndex, startIndex + currentSize))
+    startIndex += currentSize
+  }
+
+  return groups
+}
+
+function buildSplitSessionTitleBase(fileName: string | null) {
+  const normalized = (fileName ?? "").trim()
+
+  if (!normalized) {
+    return "ImportSession"
+  }
+
+  const extensionIndex = normalized.lastIndexOf(".")
+  if (extensionIndex <= 0) {
+    return normalized
+  }
+
+  return normalized.slice(0, extensionIndex)
 }
 
 type SourceAccountPickerProps = {

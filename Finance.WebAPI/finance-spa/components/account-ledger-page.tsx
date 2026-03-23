@@ -9,6 +9,7 @@ import { notFound } from "next/navigation"
 import { AccountSearchSelect } from "@/components/account-search-select"
 import { AppShell } from "@/components/app-shell"
 import { useAccounts } from "@/components/providers/accounts-provider"
+import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider"
 import { useUserPreferences } from "@/components/providers/user-preferences-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -25,6 +26,7 @@ import type { Transaction } from "@/models/transaction"
 
 export function AccountLedgerPage({ accountId }: { accountId: string }) {
   const { accounts, isLoading, errorMessage } = useAccounts()
+  const { confirm } = useConfirmationDialog()
   const { formatNumber } = useUserPreferences()
   const [savedTransactions, setSavedTransactions] = useState<Transaction[]>([])
   const [draftTransactions, setDraftTransactions] = useState<Transaction[]>([])
@@ -402,10 +404,13 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
     )
   }
 
-  function handleDeleteTransaction(transactionId: string) {
-    const confirmed = window.confirm(
-      "Remove this transaction from the draft ledger? It will only be deleted after you save changes.",
-    )
+  async function handleDeleteTransaction(transactionId: string) {
+    const confirmed = await confirm({
+      title: "Remove transaction",
+      message: "Remove this transaction from the draft ledger? It will only be deleted after you save changes.",
+      confirmLabel: "Remove",
+      variant: "destructive",
+    })
 
     if (!confirmed) {
       return
@@ -739,7 +744,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                             variant="ghost"
                             size="icon"
                             className="size-7 text-destructive"
-                            onClick={() => handleDeleteTransaction(transaction.id)}
+                            onClick={() => void handleDeleteTransaction(transaction.id)}
                             disabled={isSavingChanges}
                             aria-label="Delete transaction"
                           >
