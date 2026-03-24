@@ -1,5 +1,6 @@
 using Finance.Domain.Entities.Core;
 using Finance.Domain.Enums;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace Finance.Infrastructure.Data
@@ -8,15 +9,17 @@ namespace Finance.Infrastructure.Data
     {
         public static async Task SeedBootstrapUsersAsync(
             AppDbContext dbContext,
-            IEnumerable<string> bootstrapUserEmails,
+            IEnumerable<(string Email, string Password)> bootstrapUsers,
             CancellationToken cancellationToken = default)
         {
-            foreach (var email in bootstrapUserEmails
-                .Where(item => !string.IsNullOrWhiteSpace(item))
-                .GroupBy(item => item.Trim(), StringComparer.OrdinalIgnoreCase)
+            var passwordHasher = new PasswordHasher<User>();
+
+            foreach (var bootstrapUser in bootstrapUsers
+                .Where(item => !string.IsNullOrWhiteSpace(item.Email) && !string.IsNullOrWhiteSpace(item.Password))
+                .GroupBy(item => item.Email.Trim(), StringComparer.OrdinalIgnoreCase)
                 .Select(group => group.First()))
             {
-                var normalizedEmail = email.Trim();
+                var normalizedEmail = bootstrapUser.Email.Trim();
                 var user = await dbContext.Users
                     .FirstOrDefaultAsync(
                         existingUser => existingUser.Email.ToLower() == normalizedEmail.ToLower(),
@@ -29,14 +32,26 @@ namespace Finance.Infrastructure.Data
                         Id = Guid.NewGuid(),
                         Email = normalizedEmail,
                         DisplayName = "Root User",
+                        PasswordHash = string.Empty,
+                        IsAdmin = true,
+                        IsSuperUser = true,
                         IsActive = true,
                         CreatedAt = DateTime.UtcNow,
                         LastSeenAt = null,
                     };
 
                     dbContext.Users.Add(user);
-                    await dbContext.SaveChangesAsync(cancellationToken);
                 }
+                else
+                {
+                    user.IsAdmin = true;
+                    user.IsSuperUser = true;
+                    user.IsActive = true;
+                }
+
+                user.PasswordHash = passwordHasher.HashPassword(user, bootstrapUser.Password);
+
+                await dbContext.SaveChangesAsync(cancellationToken);
 
                 var preferenceExists = await dbContext.UserPreferences
                     .AnyAsync(preference => preference.UserId == user.Id, cancellationToken);

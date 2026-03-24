@@ -6,6 +6,7 @@ import { Info } from "lucide-react"
 import { AccountSearchSelect } from "@/components/account-search-select"
 import { AppShell } from "@/components/app-shell"
 import { useAccounts } from "@/components/providers/accounts-provider"
+import { useSnackbar } from "@/components/providers/snackbar-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -42,7 +43,7 @@ const emptySplit = (sign: SplitSign = "dr"): SplitDraft => ({
 
 export default function TransactionsPage() {
   const { accounts, isLoading, errorMessage } = useAccounts()
-  const [submitError, setSubmitError] = useState<string | null>(null)
+  const { showSnackbar } = useSnackbar()
   const [createdTransaction, setCreatedTransaction] = useState<Transaction | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [transactionDate, setTransactionDate] = useState(() =>
@@ -141,7 +142,6 @@ export default function TransactionsPage() {
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setSubmitError(null)
     setCreatedTransaction(null)
     setIsSubmitting(true)
 
@@ -162,10 +162,12 @@ export default function TransactionsPage() {
       setSplits([emptySplit("dr"), emptySplit("cr")])
       setDescription("")
       setReferenceNumber("")
+      showSnackbar({ message: "Transaction created.", tone: "success" })
     } catch (error) {
-      setSubmitError(
-        error instanceof Error ? error.message : "Unknown error while creating transaction.",
-      )
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Unknown error while creating transaction.",
+        tone: "error",
+      })
     } finally {
       setIsSubmitting(false)
     }
@@ -315,9 +317,6 @@ export default function TransactionsPage() {
 
           {errorMessage ? (
             <p className="mt-4 text-sm text-destructive">{errorMessage}</p>
-          ) : null}
-          {submitError ? (
-            <p className="mt-4 text-sm text-destructive">{submitError}</p>
           ) : null}
         </form>
       </section>

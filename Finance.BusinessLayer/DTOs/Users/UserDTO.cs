@@ -1,6 +1,6 @@
-namespace Finance.BusinessLayer.DTOs.Auth
+namespace Finance.BusinessLayer.DTOs.Users
 {
-    public class AuthenticatedUserDTO
+    public class UserDTO
     {
         public Guid Id { get; set; }
 
@@ -11,5 +11,9 @@ namespace Finance.BusinessLayer.DTOs.Auth
         public bool IsAdmin { get; set; }
 
         public bool IsSuperUser { get; set; }
+
+        public bool IsActive { get; set; }
+
+        public DateTime CreatedAt { get; set; }
     }
 }

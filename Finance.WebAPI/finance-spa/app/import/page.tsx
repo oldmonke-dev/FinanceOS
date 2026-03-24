@@ -19,6 +19,7 @@ import { AppShell } from "@/components/app-shell"
 import { useAccounts } from "@/components/providers/accounts-provider"
 import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider"
 import { useImportSessions } from "@/components/providers/import-sessions-provider"
+import { useSnackbar } from "@/components/providers/snackbar-provider"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
@@ -75,6 +76,7 @@ export default function ImportPage() {
   const router = useRouter()
   const { accounts, errorMessage, isLoading } = useAccounts()
   const { alert } = useConfirmationDialog()
+  const { showSnackbar } = useSnackbar()
   const { createSession } = useImportSessions()
   const [selectedSourceAccountId, setSelectedSourceAccountId] = useState<string>("")
   const [rawCsv, setRawCsv] = useState(sampleCsv)
@@ -94,10 +96,6 @@ export default function ImportPage() {
   const [search, setSearch] = useState("")
   const [columnMappings, setColumnMappings] = useState<Record<number, ImportField>>({})
   const [fileName, setFileName] = useState<string | null>(null)
-  const [importMessage, setImportMessage] = useState<{
-    tone: "success" | "error"
-    text: string
-  } | null>(null)
   const [pendingPdfFile, setPendingPdfFile] = useState<File | null>(null)
   const [isPdfPasswordDialogOpen, setIsPdfPasswordDialogOpen] = useState(false)
   const [pdfPassword, setPdfPassword] = useState("")
@@ -269,8 +267,6 @@ export default function ImportPage() {
     }
 
     setIsLoadingSourceFile(true)
-    setImportMessage(null)
-
     const lowerCaseName = file.name.toLowerCase()
     if (lowerCaseName.endsWith(".pdf") || file.type === "application/pdf") {
       setPendingPdfFile(file)
@@ -288,10 +284,7 @@ export default function ImportPage() {
         setRawCsv(text)
       })
       setFileName(file.name)
-      setImportMessage({
-        tone: "success",
-        text: `Loaded CSV file ${file.name}.`,
-      })
+      showSnackbar({ message: `Loaded CSV file ${file.name}.`, tone: "success" })
     } finally {
       setIsLoadingSourceFile(false)
       event.target.value = ""
@@ -314,20 +307,14 @@ export default function ImportPage() {
         setRawCsv(result.csvText)
       })
       setFileName(result.fileName)
-      setImportMessage({
-        tone: "success",
-        text: result.message,
-      })
+      showSnackbar({ message: result.message, tone: "success" })
       setIsPdfPasswordDialogOpen(false)
       setPendingPdfFile(null)
       setPdfPassword("")
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to extract PDF import data."
-      setImportMessage({
-        tone: "error",
-        text: message,
-      })
+      showSnackbar({ message, tone: "error" })
 
       if (message.toLowerCase().includes("password")) {
         setPdfPasswordError(message)
@@ -426,20 +413,28 @@ export default function ImportPage() {
   }
 
   async function createImportSessionFromPreview() {
-    const session = await createSession({
-      fileName,
-      sourceAccountId: selectedSourceAccount?.id ?? null,
-      label: "user_imports",
-      strategy: "unassigned",
-      columnMappings,
-      rows: rowsForImport.map(({ row, sourceIndex }) => ({
-        rowIndex: sourceIndex,
-        values: row,
-        ...resolveDestinationAccount(row, accountColumnIndex, accountLookup),
-      })),
-    })
+    try {
+      const session = await createSession({
+        fileName,
+        sourceAccountId: selectedSourceAccount?.id ?? null,
+        label: "user_imports",
+        strategy: "unassigned",
+        columnMappings,
+        rows: rowsForImport.map(({ row, sourceIndex }) => ({
+          rowIndex: sourceIndex,
+          values: row,
+          ...resolveDestinationAccount(row, accountColumnIndex, accountLookup),
+        })),
+      })
 
-    router.push(`/import-sessions#${session.id}`)
+      showSnackbar({ message: "Import session created.", tone: "success" })
+      router.push(`/import-sessions#${session.id}`)
+    } catch (error) {
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Failed to create import session.",
+        tone: "error",
+      })
+    }
   }
 
   async function createSplitImportSessionsFromPreview() {
@@ -477,7 +472,16 @@ export default function ImportPage() {
         }
       }
 
+      showSnackbar({
+        message: `Created ${rowGroups.length} split import session${rowGroups.length === 1 ? "" : "s"}.`,
+        tone: "success",
+      })
       router.push(firstSessionId ? `/import-sessions#${firstSessionId}` : "/import-sessions")
+    } catch (error) {
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Failed to create split import sessions.",
+        tone: "error",
+      })
     } finally {
       setIsCreatingSplitSessions(false)
       setIsSplitDialogOpen(false)
@@ -553,18 +557,6 @@ export default function ImportPage() {
             <div className="mt-3 flex items-center gap-2 rounded-2xl border bg-background/70 px-4 py-3 text-sm text-muted-foreground">
               <LoaderCircle className="size-4 animate-spin" />
               <span>{isExtractingPdf ? "Tabula is extracting rows from the PDF..." : "Reading CSV file..."}</span>
-            </div>
-          ) : null}
-
-          {importMessage ? (
-            <div
-              className={`mt-3 rounded-2xl border px-4 py-3 text-sm ${
-                importMessage.tone === "success"
-                  ? "border-emerald-300 bg-emerald-50 text-emerald-800"
-                  : "border-destructive/30 bg-destructive/5 text-destructive"
-              }`}
-            >
-              {importMessage.text}
             </div>
           ) : null}
 

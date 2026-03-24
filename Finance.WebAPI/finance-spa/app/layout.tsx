@@ -7,6 +7,7 @@ import {
   AuthRouteGuard,
 } from "@/components/providers/auth-provider"
 import { ConfirmationDialogProvider } from "@/components/providers/confirmation-dialog-provider"
+import { SnackbarProvider } from "@/components/providers/snackbar-provider"
 import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
@@ -31,14 +32,16 @@ export default function RootLayout({
     >
       <body>
         <ThemeProvider>
-          <ConfirmationDialogProvider>
-            <TooltipProvider>
-              <AuthProvider>
-                <AuthRouteGuard />
-                <AuthenticatedApp>{children}</AuthenticatedApp>
-              </AuthProvider>
-            </TooltipProvider>
-          </ConfirmationDialogProvider>
+          <SnackbarProvider>
+            <ConfirmationDialogProvider>
+              <TooltipProvider>
+                <AuthProvider>
+                  <AuthRouteGuard />
+                  <AuthenticatedApp>{children}</AuthenticatedApp>
+                </AuthProvider>
+              </TooltipProvider>
+            </ConfirmationDialogProvider>
+          </SnackbarProvider>
         </ThemeProvider>
       </body>
     </html>

@@ -100,7 +100,7 @@ using (var scope = app.Services.CreateScope())
     dbContext.Database.Migrate();
     await AppDbContextSeed.SeedBootstrapUsersAsync(
         dbContext,
-        authOptions.BootstrapUsers.Select(user => user.Email));
+        authOptions.BootstrapUsers.Select(user => (user.Email, user.Password)));
     await AppDbContextSeed.SeedDefaultAccountsAsync(dbContext);
 }
 

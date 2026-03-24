@@ -60,6 +60,16 @@ namespace Finance.Infrastructure.Data
                     .IsRequired()
                     .HasMaxLength(200);
 
+                entity.Property(user => user.PasswordHash)
+                    .IsRequired()
+                    .HasMaxLength(1000);
+
+                entity.Property(user => user.IsAdmin)
+                    .HasDefaultValue(false);
+
+                entity.Property(user => user.IsSuperUser)
+                    .HasDefaultValue(false);
+
                 entity.Property(user => user.IsActive)
                     .HasDefaultValue(true);
 

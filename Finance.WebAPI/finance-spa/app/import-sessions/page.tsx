@@ -19,6 +19,7 @@ import { AccountSearchSelect } from "@/components/account-search-select"
 import { AppShell } from "@/components/app-shell"
 import { useAccounts } from "@/components/providers/accounts-provider"
 import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider"
+import { useSnackbar } from "@/components/providers/snackbar-provider"
 import { useImportSessions } from "@/components/providers/import-sessions-provider"
 import { useUserPreferences } from "@/components/providers/user-preferences-provider"
 import { Button } from "@/components/ui/button"
@@ -39,7 +40,6 @@ import {
 } from "@/components/ui/select"
 import { formatAccountType } from "@/lib/accounts"
 import { getTransactions } from "@/lib/transactions"
-import { type AddImportSessionToLedgerResult } from "@/models/import-session-ledger"
 import { type ImportSession, type ImportSessionRow } from "@/models/import-session"
 import { type Transaction } from "@/models/transaction"
 
@@ -77,6 +77,7 @@ type StrategyMode =
 export default function ImportSessionsPage() {
   const { accounts } = useAccounts()
   const { confirm } = useConfirmationDialog()
+  const { showSnackbar } = useSnackbar()
   const { formatNumber } = useUserPreferences()
   const {
     sessions,
@@ -109,7 +110,6 @@ export default function ImportSessionsPage() {
   const [strategyMode, setStrategyMode] = useState<StrategyMode>("unassigned")
   const [strategyCheckMessage, setStrategyCheckMessage] = useState<string | null>(null)
   const [strategyCheckTone, setStrategyCheckTone] = useState<"warning" | "success">("warning")
-  const [ledgerResult, setLedgerResult] = useState<AddImportSessionToLedgerResult | null>(null)
   const [sessionView, setSessionView] = useState<"active" | "archived">("active")
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set())
   const [ledgerTransactions, setLedgerTransactions] = useState<Transaction[]>([])
@@ -142,7 +142,6 @@ export default function ImportSessionsPage() {
     setSortMode("original")
     setStrategyMode(resolveStrategyMode(nextActiveSession))
     setStrategyCheckMessage(null)
-    setLedgerResult(null)
     setSelectedRowIds(new Set())
   }, [activeSessionId, filteredSessions])
 
@@ -457,6 +456,12 @@ export default function ImportSessionsPage() {
 
     try {
       await saveSession(activeSession.id)
+      showSnackbar({ message: "Session saved.", tone: "success" })
+    } catch (error) {
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Failed to save session.",
+        tone: "error",
+      })
     } finally {
       setIsSavingSession(false)
     }
@@ -497,6 +502,12 @@ export default function ImportSessionsPage() {
 
     try {
       await deleteSession(activeSession.id)
+      showSnackbar({ message: "Session deleted.", tone: "success" })
+    } catch (error) {
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Failed to delete session.",
+        tone: "error",
+      })
     } finally {
       setIsDeletingSession(false)
     }
@@ -511,7 +522,20 @@ export default function ImportSessionsPage() {
 
     try {
       const result = await addSessionToLedger(activeSession.id)
-      setLedgerResult(result)
+      showSnackbar({
+        message:
+          `Created ${result.createdTransactionCount} transaction${result.createdTransactionCount === 1 ? "" : "s"} in the ledger.` +
+          (result.skippedRowCount > 0
+            ? ` ${result.skippedRowCount} row${result.skippedRowCount === 1 ? " was" : "s were"} skipped.`
+            : ""),
+        tone: "success",
+        durationMs: 2600,
+      })
+    } catch (error) {
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Failed to add rows to the ledger.",
+        tone: "error",
+      })
     } finally {
       setIsAddingToLedger(false)
     }
@@ -535,7 +559,12 @@ export default function ImportSessionsPage() {
     try {
       await saveSession(activeSession.id)
       await reapplyLearning(activeSession.id)
-      setLedgerResult(null)
+      showSnackbar({ message: "Learning applied to this session.", tone: "success" })
+    } catch (error) {
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Failed to apply learning.",
+        tone: "error",
+      })
     } finally {
       setIsReapplyingLearning(false)
     }
@@ -551,7 +580,12 @@ export default function ImportSessionsPage() {
     try {
       await saveSession(activeSession.id)
       await revertLearning(activeSession.id)
-      setLedgerResult(null)
+      showSnackbar({ message: "Session learning reverted.", tone: "success" })
+    } catch (error) {
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Failed to revert learning.",
+        tone: "error",
+      })
     } finally {
       setIsRevertingLearning(false)
     }
@@ -643,7 +677,15 @@ export default function ImportSessionsPage() {
     try {
       await deleteRows(activeSession.id, Array.from(selectedRowIds))
       setSelectedRowIds(new Set())
-      setLedgerResult(null)
+      showSnackbar({
+        message: `Deleted ${selectedRowIds.size} row${selectedRowIds.size === 1 ? "" : "s"}.`,
+        tone: "success",
+      })
+    } catch (error) {
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Failed to delete rows.",
+        tone: "error",
+      })
     } finally {
       setIsDeletingRows(false)
     }
@@ -660,9 +702,14 @@ export default function ImportSessionsPage() {
       const transactions = await getTransactions()
       setLedgerTransactions(transactions)
       setSimilarityLoadedSessionId(activeSession.id)
-    } catch {
+      showSnackbar({ message: "Similarity index loaded.", tone: "success" })
+    } catch (error) {
       setLedgerTransactions([])
       setSimilarityLoadedSessionId(activeSession.id)
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Failed to load similarity index.",
+        tone: "error",
+      })
     } finally {
       setIsLoadingSimilarity(false)
     }
@@ -820,18 +867,6 @@ export default function ImportSessionsPage() {
                   {mappedRowCount}/{activeRows.length} mapped
                 </div>
               </div>
-
-              {ledgerResult ? (
-                <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                  Created {ledgerResult.createdTransactionCount} transaction
-                  {ledgerResult.createdTransactionCount === 1 ? "" : "s"} in the ledger.
-                  {ledgerResult.skippedRowCount > 0
-                    ? ` ${ledgerResult.skippedRowCount} row${
-                        ledgerResult.skippedRowCount === 1 ? " was" : "s were"
-                      } skipped.`
-                    : null}
-                </div>
-              ) : null}
 
               <div className="mt-5 grid gap-2 md:grid-cols-3">
                 <div className="rounded-xl border bg-background/70 px-3 py-2.5">

@@ -5,6 +5,7 @@ using Finance.BusinessLayer.DTOs.Auth;
 using Finance.Infrastructure.Data;
 using Finance.WebAPI.Configuration;
 using Finance.WebAPI.Extensions;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -33,15 +34,6 @@ namespace Finance.WebAPI.Controllers
             CancellationToken cancellationToken)
         {
             var normalizedEmail = request.Email.Trim().ToLowerInvariant();
-            var bootstrapUser = _authOptions.BootstrapUsers.FirstOrDefault(item =>
-                string.Equals(item.Email.Trim(), normalizedEmail, StringComparison.OrdinalIgnoreCase)
-                && item.Password == request.Password);
-
-            if (bootstrapUser is null)
-            {
-                return Unauthorized(new { message = "Invalid email or password." });
-            }
-
             var user = await _context.Users
                 .FirstOrDefaultAsync(item =>
                     item.IsActive
@@ -51,6 +43,13 @@ namespace Finance.WebAPI.Controllers
             if (user is null)
             {
                 return Unauthorized(new { message = "No active user matches those credentials." });
+            }
+
+            var passwordHasher = new PasswordHasher<Finance.Domain.Entities.Core.User>();
+            var passwordResult = passwordHasher.VerifyHashedPassword(user, user.PasswordHash, request.Password);
+            if (passwordResult == PasswordVerificationResult.Failed)
+            {
+                return Unauthorized(new { message = "Invalid email or password." });
             }
 
             user.LastSeenAt = DateTime.UtcNow;
@@ -71,6 +70,8 @@ namespace Finance.WebAPI.Controllers
                     Id = item.Id,
                     Email = item.Email,
                     DisplayName = item.DisplayName,
+                    IsAdmin = item.IsAdmin,
+                    IsSuperUser = item.IsSuperUser,
                 })
                 .FirstOrDefaultAsync(cancellationToken);
 
@@ -92,6 +93,8 @@ namespace Finance.WebAPI.Controllers
                 new(ClaimTypes.NameIdentifier, user.Id.ToString()),
                 new(ClaimTypes.Email, user.Email),
                 new(ClaimTypes.Name, user.DisplayName),
+                new("is_admin", user.IsAdmin ? "true" : "false"),
+                new("is_super_user", user.IsSuperUser ? "true" : "false"),
             };
 
             var credentials = new SigningCredentials(
@@ -115,6 +118,8 @@ namespace Finance.WebAPI.Controllers
                     Id = user.Id,
                     Email = user.Email,
                     DisplayName = user.DisplayName,
+                    IsAdmin = user.IsAdmin,
+                    IsSuperUser = user.IsSuperUser,
                 },
             };
         }

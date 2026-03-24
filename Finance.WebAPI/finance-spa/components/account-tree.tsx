@@ -23,6 +23,7 @@ import {
 import { useAccounts } from "@/components/providers/accounts-provider"
 import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider"
 import { useImportSessions } from "@/components/providers/import-sessions-provider"
+import { useSnackbar } from "@/components/providers/snackbar-provider"
 import { useUserPreferences } from "@/components/providers/user-preferences-provider"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -98,7 +99,8 @@ export function AccountTree() {
   const router = useRouter()
   const { accounts, addAccount, updateAccount, errorMessage, isLoading, refreshAccounts } =
     useAccounts()
-  const { confirm, alert } = useConfirmationDialog()
+  const { confirm } = useConfirmationDialog()
+  const { showSnackbar } = useSnackbar()
   const { refreshSessions } = useImportSessions()
   const { formatNumber } = useUserPreferences()
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set())
@@ -233,12 +235,14 @@ export function AccountTree() {
     setActiveParentId(null)
     setRenamingAccountId(null)
     setOpenActionsAccountId(null)
+    showSnackbar({ message: `Created account ${account.name}.`, tone: "success" })
   }
 
   function handleRenamed(account: Account) {
     updateAccount(account)
     setRenamingAccountId(null)
     setOpenActionsAccountId(null)
+    showSnackbar({ message: `Renamed account to ${account.name}.`, tone: "success" })
   }
 
   async function handleDeleteAccount(account: Account) {
@@ -259,14 +263,15 @@ export function AccountTree() {
     try {
       const result = await deleteAccount(account.id)
       await Promise.all([refreshAccounts(), refreshSessions()])
+      showSnackbar({ message: `Deleted account ${account.name}.`, tone: "success" })
 
       if (result.createdImportSessionId) {
         router.push("/import-sessions")
       }
     } catch (error) {
-      await alert({
-        title: "Delete failed",
+      showSnackbar({
         message: error instanceof Error ? error.message : "Failed to delete account.",
+        tone: "error",
       })
     } finally {
       setDeletingAccountId(null)
@@ -409,9 +414,9 @@ function AccountHierarchyImportPanel({
   addAccount,
   refreshAccounts,
 }: AccountHierarchyImportPanelProps) {
+  const { showSnackbar } = useSnackbar()
   const [drafts, setDrafts] = useState<ImportedAccountDraft[]>([])
   const [fileName, setFileName] = useState<string | null>(null)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isImporting, setIsImporting] = useState(false)
   const { confirm } = useConfirmationDialog()
 
@@ -443,11 +448,14 @@ function AccountHierarchyImportPanel({
       const nextDrafts = parseGnuCashAccountCsv(text, existingAccountPathLookup)
       setDrafts(nextDrafts)
       setFileName(file.name)
-      setErrorMessage(null)
+      showSnackbar({ message: `Parsed account hierarchy from ${file.name}.`, tone: "success" })
     } catch (error) {
       setDrafts([])
       setFileName(file.name)
-      setErrorMessage(error instanceof Error ? error.message : "Failed to parse account hierarchy.")
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Failed to parse account hierarchy.",
+        tone: "error",
+      })
     }
   }
 
@@ -478,7 +486,6 @@ function AccountHierarchyImportPanel({
     }
 
     setIsImporting(true)
-    setErrorMessage(null)
 
     try {
       const accountByPath = new Map(existingAccountPathLookup)
@@ -523,8 +530,15 @@ function AccountHierarchyImportPanel({
       await refreshAccounts()
       setDrafts([])
       setFileName(null)
+      showSnackbar({
+        message: `Imported ${draftsToImport.length} account path${draftsToImport.length === 1 ? "" : "s"}.`,
+        tone: "success",
+      })
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Failed to import account hierarchy.")
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Failed to import account hierarchy.",
+        tone: "error",
+      })
     } finally {
       setIsImporting(false)
     }
@@ -549,12 +563,6 @@ function AccountHierarchyImportPanel({
       <div className="rounded-xl border bg-card px-4 py-3 text-sm text-muted-foreground">
         {fileName ? `Loaded file: ${fileName}` : "No hierarchy file loaded yet."}
       </div>
-
-      {errorMessage ? (
-        <div className="mt-4 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          {errorMessage}
-        </div>
-      ) : null}
 
       {normalizedDrafts.length > 0 ? (
         <div className="grid gap-3 xl:grid-cols-[0.9fr_1.1fr]">
@@ -884,15 +892,14 @@ function AccountForm({
   onCancel,
   onCreated,
 }: AccountFormProps) {
+  const { showSnackbar } = useSnackbar()
   const [name, setName] = useState("")
   const [accountType, setAccountType] = useState<AccountType>(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setIsSubmitting(true)
-    setErrorMessage(null)
 
     try {
       const payload: CreateAccountInput = {
@@ -906,9 +913,10 @@ function AccountForm({
       setAccountType(1)
       onCreated(account)
     } catch (error) {
-      setErrorMessage(
-        error instanceof Error ? error.message : "Unknown error while creating account.",
-      )
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Unknown error while creating account.",
+        tone: "error",
+      })
     } finally {
       setIsSubmitting(false)
     }
@@ -965,29 +973,27 @@ function AccountForm({
           </Button>
         </div>
       </div>
-
-      {errorMessage ? <p className="mt-2 text-sm text-destructive">{errorMessage}</p> : null}
     </form>
   )
 }
 
 function RenameAccountForm({ account, onCancel, onRenamed }: RenameAccountFormProps) {
+  const { showSnackbar } = useSnackbar()
   const [name, setName] = useState(account.name)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setIsSubmitting(true)
-    setErrorMessage(null)
 
     try {
       const updatedAccount = await renameAccount(account.id, name)
       onRenamed(updatedAccount)
     } catch (error) {
-      setErrorMessage(
-        error instanceof Error ? error.message : "Unknown error while renaming account.",
-      )
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Unknown error while renaming account.",
+        tone: "error",
+      })
     } finally {
       setIsSubmitting(false)
     }
@@ -1026,8 +1032,6 @@ function RenameAccountForm({ account, onCancel, onRenamed }: RenameAccountFormPr
           </Button>
         </div>
       </div>
-
-      {errorMessage ? <p className="mt-2 text-sm text-destructive">{errorMessage}</p> : null}
     </form>
   )
 }

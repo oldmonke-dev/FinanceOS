@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { ChevronRight, Trash2 } from "lucide-react"
 
 import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider"
+import { useSnackbar } from "@/components/providers/snackbar-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { deleteBayesianLearningForAccount } from "@/lib/strategies"
@@ -12,7 +13,8 @@ import { type BayesianMapGroup } from "@/models/strategy"
 
 export function BayesianMapGroups({ groups }: { groups: BayesianMapGroup[] }) {
   const router = useRouter()
-  const { confirm, alert } = useConfirmationDialog()
+  const { confirm } = useConfirmationDialog()
+  const { showSnackbar } = useSnackbar()
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const [deletingAccountId, setDeletingAccountId] = useState<string | null>(null)
   const [search, setSearch] = useState("")
@@ -66,11 +68,12 @@ export function BayesianMapGroups({ groups }: { groups: BayesianMapGroup[] }) {
 
     try {
       await deleteBayesianLearningForAccount(group.destinationAccountId)
+      showSnackbar({ message: "Bayesian learning deleted.", tone: "success" })
       router.refresh()
     } catch (error) {
-      await alert({
-        title: "Delete failed",
+      showSnackbar({
         message: error instanceof Error ? error.message : "Failed to delete account learning.",
+        tone: "error",
       })
     } finally {
       setDeletingAccountId(null)

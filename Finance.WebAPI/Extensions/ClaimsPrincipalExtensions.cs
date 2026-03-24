@@ -16,5 +16,21 @@ namespace Finance.WebAPI.Extensions
 
             return userId;
         }
+
+        public static bool IsAdmin(this ClaimsPrincipal user)
+        {
+            return string.Equals(
+                user.FindFirstValue("is_admin"),
+                "true",
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static bool IsSuperUser(this ClaimsPrincipal user)
+        {
+            return string.Equals(
+                user.FindFirstValue("is_super_user"),
+                "true",
+                StringComparison.OrdinalIgnoreCase);
+        }
     }
 }

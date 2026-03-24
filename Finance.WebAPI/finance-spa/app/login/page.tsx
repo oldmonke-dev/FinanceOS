@@ -4,23 +4,26 @@ import { FormEvent, useState } from "react"
 import { ShieldCheck } from "lucide-react"
 
 import { useAuth } from "@/components/providers/auth-provider"
+import { useSnackbar } from "@/components/providers/snackbar-provider"
 
 export default function LoginPage() {
   const { login } = useAuth()
+  const { showSnackbar } = useSnackbar()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setIsSubmitting(true)
-    setErrorMessage(null)
 
     try {
       await login(email, password)
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Failed to sign in.")
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Failed to sign in.",
+        tone: "error",
+      })
       setIsSubmitting(false)
     }
   }
@@ -65,8 +68,6 @@ export default function LoginPage() {
               autoComplete="current-password"
             />
           </label>
-
-          {errorMessage ? <p className="text-sm text-destructive">{errorMessage}</p> : null}
 
           <button
             type="submit"

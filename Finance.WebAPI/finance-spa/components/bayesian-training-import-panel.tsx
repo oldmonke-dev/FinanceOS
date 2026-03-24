@@ -3,13 +3,13 @@
 import { useMemo, useState } from "react"
 
 import { useAccounts } from "@/components/providers/accounts-provider"
+import { useSnackbar } from "@/components/providers/snackbar-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { createAccount } from "@/lib/accounts"
 import { importBayesianTrainingData } from "@/lib/strategies"
 import {
   type BayesianTrainingExample,
-  type ImportBayesianTrainingResult,
 } from "@/models/strategy"
 import { type Account, type AccountType } from "@/models/account"
 
@@ -19,13 +19,11 @@ type ParsedCsv = {
 
 export function BayesianTrainingImportPanel() {
   const { accounts, addAccount, refreshAccounts } = useAccounts()
+  const { showSnackbar } = useSnackbar()
   const [rawCsv, setRawCsv] = useState("")
   const [fileName, setFileName] = useState<string | null>(null)
   const [isImporting, setIsImporting] = useState(false)
   const [isCreatingAccounts, setIsCreatingAccounts] = useState(false)
-  const [processingMessage, setProcessingMessage] = useState<string | null>(null)
-  const [result, setResult] = useState<ImportBayesianTrainingResult | null>(null)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const parsed = useMemo(() => parseCsv(rawCsv), [rawCsv])
   const examples = useMemo(() => buildTrainingExamples(parsed.rows), [parsed.rows])
@@ -41,54 +39,62 @@ export function BayesianTrainingImportPanel() {
     }
 
     setFileName(file.name)
-    setResult(null)
-    setErrorMessage(null)
     setRawCsv(await file.text())
+    showSnackbar({ message: `Loaded training CSV ${file.name}.`, tone: "success" })
   }
 
   async function handleImport() {
     if (missingAccountPaths.length > 0) {
-      setErrorMessage("Some account paths from the training CSV do not exist yet.")
+      showSnackbar({
+        message: "Some account paths from the training CSV do not exist yet.",
+        tone: "error",
+      })
       return
     }
 
     setIsImporting(true)
-    setProcessingMessage("Importing Bayesian training data...")
-    setErrorMessage(null)
+    showSnackbar({ message: "Importing Bayesian training data...", tone: "info" })
 
     try {
       const nextResult = await importBayesianTrainingData(examples)
-      setResult(nextResult)
+      showSnackbar({
+        message: `Imported ${nextResult.importedExampleCount} examples. Skipped ${nextResult.skippedExampleCount}.`,
+        tone: "success",
+        durationMs: 2600,
+      })
     } catch (error) {
-      setErrorMessage(
-        error instanceof Error ? error.message : "Failed to import Bayesian training data.",
-      )
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Failed to import Bayesian training data.",
+        tone: "error",
+      })
     } finally {
       setIsImporting(false)
-      setProcessingMessage(null)
     }
   }
 
   async function handleCreateMissingAccountsAndImport() {
     setIsCreatingAccounts(true)
-    setProcessingMessage("Creating missing accounts...")
-    setErrorMessage(null)
+    showSnackbar({ message: "Creating missing accounts...", tone: "info" })
 
     try {
       await createMissingAccounts(missingAccountPaths, accounts, addAccount)
-      setProcessingMessage("Refreshing accounts...")
+      showSnackbar({ message: "Refreshing accounts...", tone: "info" })
       await refreshAccounts()
 
-      setProcessingMessage("Importing Bayesian training data...")
+      showSnackbar({ message: "Importing Bayesian training data...", tone: "info" })
       const nextResult = await importBayesianTrainingData(examples)
-      setResult(nextResult)
+      showSnackbar({
+        message: `Imported ${nextResult.importedExampleCount} examples. Skipped ${nextResult.skippedExampleCount}.`,
+        tone: "success",
+        durationMs: 2600,
+      })
     } catch (error) {
-      setErrorMessage(
-        error instanceof Error ? error.message : "Failed to create missing accounts.",
-      )
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Failed to create missing accounts.",
+        tone: "error",
+      })
     } finally {
       setIsCreatingAccounts(false)
-      setProcessingMessage(null)
     }
   }
 
@@ -154,32 +160,6 @@ export function BayesianTrainingImportPanel() {
         </div>
       ) : null}
 
-      {processingMessage ? (
-        <div className="mt-4 rounded-xl border bg-background/70 p-3">
-          <div className="flex items-center gap-3">
-            <div className="size-4 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
-            <p className="text-sm font-medium">{processingMessage}</p>
-          </div>
-        </div>
-      ) : null}
-
-      {errorMessage ? (
-        <div className="mt-4 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          {errorMessage}
-        </div>
-      ) : null}
-
-      {result ? (
-        <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-          Imported {result.importedExampleCount} examples. Skipped {result.skippedExampleCount}.
-          {result.missingAccountPaths.length > 0 ? (
-            <div className="mt-2 text-xs">
-              Missing account paths: {result.missingAccountPaths.slice(0, 8).join(", ")}
-              {result.missingAccountPaths.length > 8 ? " ..." : ""}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
     </section>
   )
 }

@@ -10,6 +10,7 @@ import { AccountSearchSelect } from "@/components/account-search-select"
 import { AppShell } from "@/components/app-shell"
 import { useAccounts } from "@/components/providers/accounts-provider"
 import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider"
+import { useSnackbar } from "@/components/providers/snackbar-provider"
 import { useUserPreferences } from "@/components/providers/user-preferences-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -27,6 +28,7 @@ import type { Transaction } from "@/models/transaction"
 export function AccountLedgerPage({ accountId }: { accountId: string }) {
   const { accounts, isLoading, errorMessage } = useAccounts()
   const { confirm } = useConfirmationDialog()
+  const { showSnackbar } = useSnackbar()
   const { formatNumber } = useUserPreferences()
   const [savedTransactions, setSavedTransactions] = useState<Transaction[]>([])
   const [draftTransactions, setDraftTransactions] = useState<Transaction[]>([])
@@ -420,6 +422,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
       (current) => current.filter((transaction) => transaction.id !== transactionId),
       { clearExpandedTransactionId: transactionId },
     )
+    showSnackbar({ message: "Transaction removed from draft.", tone: "success" })
   }
 
   function handleUndo() {
@@ -476,11 +479,12 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
       setSavedTransactions(cloneTransactions(draftTransactions))
       setHistory([cloneTransactions(draftTransactions)])
       setHistoryIndex(0)
-      setTransactionsError(null)
+      showSnackbar({ message: "Ledger changes saved.", tone: "success" })
     } catch (error) {
-      setTransactionsError(
-        error instanceof Error ? error.message : "Failed to save ledger changes.",
-      )
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Failed to save ledger changes.",
+        tone: "error",
+      })
     } finally {
       setIsSavingChanges(false)
     }

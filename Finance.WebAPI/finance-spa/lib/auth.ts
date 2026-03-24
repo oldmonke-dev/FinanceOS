@@ -6,6 +6,8 @@ export type AuthUser = {
   id: string
   email: string
   displayName: string
+  isAdmin: boolean
+  isSuperUser: boolean
 }
 
 export type LoginResult = {
@@ -23,6 +25,8 @@ function normalizeUser(raw: Record<string, unknown>): AuthUser {
     id: String(raw.id ?? raw.Id ?? ""),
     email: String(raw.email ?? raw.Email ?? ""),
     displayName: String(raw.displayName ?? raw.DisplayName ?? ""),
+    isAdmin: Boolean(raw.isAdmin ?? raw.IsAdmin ?? false),
+    isSuperUser: Boolean(raw.isSuperUser ?? raw.IsSuperUser ?? false),
   }
 }
 
