@@ -609,10 +609,11 @@ namespace Finance.BusinessLayer.Services
         {
             var values = DeserializeValues(row.ValuesJson);
             var transactionDate = ResolveTransactionDate(values, columnMappings, row.RowIndex);
-            var amount = ResolveTransactionAmount(values, columnMappings, row.RowIndex);
+            var sourceAmount = ResolveTransactionAmount(values, columnMappings, row.RowIndex);
             var description = ResolveMappedValue(values, columnMappings, "description");
             var reference = ResolveMappedValue(values, columnMappings, "reference");
-            var memo = ResolveMappedValue(values, columnMappings, "memo");
+            var memoValue = ResolveMappedValue(values, columnMappings, "memo");
+            var memo = string.IsNullOrWhiteSpace(memoValue) ? null : memoValue.Trim();
 
             return new Transaction
             {
@@ -623,23 +624,12 @@ namespace Finance.BusinessLayer.Services
                     : description.Trim(),
                 ReferenceNumber = string.IsNullOrWhiteSpace(reference) ? null : reference.Trim(),
                 CreatedAt = DateTime.UtcNow,
-                Splits = new List<Split>
-                {
-                    new()
-                    {
-                        Id = Guid.NewGuid(),
-                        AccountId = session.SourceAccountId!.Value,
-                        Amount = -amount,
-                        Memo = string.IsNullOrWhiteSpace(memo) ? null : memo.Trim(),
-                    },
-                    new()
-                    {
-                        Id = Guid.NewGuid(),
-                        AccountId = row.DestinationAccountId!.Value,
-                        Amount = amount,
-                        Memo = string.IsNullOrWhiteSpace(memo) ? null : memo.Trim(),
-                    },
-                },
+                // Import-session amounts are canonicalized from the selected source account's perspective.
+                Splits = ImportPostingRule.CreateBalancedSplits(
+                    session.SourceAccountId!.Value,
+                    row.DestinationAccountId!.Value,
+                    sourceAmount,
+                    memo),
             };
         }
 

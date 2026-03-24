@@ -122,7 +122,7 @@ namespace Finance.Infrastructure.Services
                 var transaction = transactions[index];
                 var deletedSplit = transaction.Splits.First(split => split.AccountId == deletedAccountId);
                 var destinationAccountId = ResolvePrefilledDestinationAccountId(transaction, deletedAccountId);
-                var amount = -deletedSplit.Amount;
+                var amount = deletedSplit.Amount;
 
                 rows.Add(new ImportSessionRow
                 {

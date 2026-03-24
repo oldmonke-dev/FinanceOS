@@ -361,21 +361,47 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
     }
 
     commitDraft((current) =>
-      current.map((transaction) =>
-        transaction.id !== transactionId
-          ? transaction
-          : {
-              ...transaction,
-              splits: transaction.splits.map((split) =>
-                split.id !== splitId
-                  ? split
-                  : {
-                      ...split,
-                      amount: parsedAmount,
-                    },
-              ),
-            },
-      ),
+      current.map((transaction) => {
+        if (transaction.id !== transactionId) {
+          return transaction
+        }
+
+        const editedSplit = transaction.splits.find((split) => split.id === splitId)
+        if (!editedSplit) {
+          return transaction
+        }
+
+        const nextAbsoluteAmount = Math.abs(parsedAmount)
+        const nextAmount = editedSplit.amount < 0 ? -nextAbsoluteAmount : nextAbsoluteAmount
+
+        return {
+          ...transaction,
+          splits: applyBalancedSplitEdit(transaction.splits, splitId, nextAmount),
+        }
+      }),
+    )
+  }
+
+  function updateSplitSign(transactionId: string, splitId: string, sign: "dr" | "cr") {
+    commitDraft((current) =>
+      current.map((transaction) => {
+        if (transaction.id !== transactionId) {
+          return transaction
+        }
+
+        const editedSplit = transaction.splits.find((split) => split.id === splitId)
+        if (!editedSplit) {
+          return transaction
+        }
+
+        const nextAbsoluteAmount = Math.abs(editedSplit.amount)
+        const nextAmount = sign === "dr" ? -nextAbsoluteAmount : nextAbsoluteAmount
+
+        return {
+          ...transaction,
+          splits: applyBalancedSplitEdit(transaction.splits, splitId, nextAmount),
+        }
+      }),
     )
   }
 
@@ -770,10 +796,10 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                                   </span>
                                 </div>
                                 <div data-horizontal-scroll-region className="horizontal-scroll-region">
-                                  {orderSplitsForDisplay(transaction.splits, resolvedAccount.id).map((split, splitIndex) => (
+                                  {orderSplitsForDisplay(transaction.splits).map((split, splitIndex) => (
                                     <div
                                       key={split.id}
-                                      className={`grid min-w-[40rem] grid-cols-[auto_minmax(10rem,1.3fr)_minmax(8rem,1fr)_auto_7.5rem] items-center gap-x-2 border-t px-2 py-2 text-[11px] first:border-t-0 sm:min-w-[46rem] sm:grid-cols-[auto_minmax(12rem,1.4fr)_minmax(10rem,1.1fr)_auto_8rem] sm:px-3 sm:text-xs ${
+                                      className={`grid min-w-[48rem] grid-cols-[auto_minmax(10rem,1.3fr)_minmax(8rem,1fr)_auto_5.5rem_auto_7.5rem] items-center gap-x-2 border-t px-2 py-2 text-[11px] first:border-t-0 sm:min-w-[54rem] sm:grid-cols-[auto_minmax(12rem,1.4fr)_minmax(10rem,1.1fr)_auto_6rem_auto_8rem] sm:px-3 sm:text-xs ${
                                         splitIndex % 2 === 0 ? "bg-background/35" : "bg-background/20"
                                       }`}
                                     >
@@ -812,12 +838,33 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                                           rows={1}
                                         />
                                       </div>
+                                      <div className="pr-1 text-[11px] text-muted-foreground">Sign</div>
+                                      <div>
+                                        <Select
+                                          value={getSplitSign(split.amount)}
+                                          onValueChange={(value) =>
+                                            updateSplitSign(
+                                              transaction.id,
+                                              split.id,
+                                              value as "dr" | "cr",
+                                            )
+                                          }
+                                        >
+                                          <SelectTrigger className="h-8 px-1.5 text-xs">
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="dr">Dr</SelectItem>
+                                            <SelectItem value="cr">Cr</SelectItem>
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
                                       <div className="pr-1 text-[11px] text-muted-foreground">Amount</div>
                                       <div className={getAmountToneClass(split.amount)}>
                                         <Input
                                           type="number"
                                           step="0.01"
-                                          value={String(split.amount)}
+                                          value={String(Math.abs(split.amount))}
                                           onChange={(event) =>
                                             updateSplitAmount(
                                               transaction.id,
@@ -933,17 +980,51 @@ function formatSignedNumber(
 
 function orderSplitsForDisplay(
   splits: Transaction["splits"],
-  selectedAccountId: string,
 ) {
-  return [...splits].sort((left, right) => {
-    const leftRank = left.accountId === selectedAccountId ? 0 : 1
-    const rightRank = right.accountId === selectedAccountId ? 0 : 1
+  return [...splits]
+}
 
-    if (leftRank !== rightRank) {
-      return leftRank - rightRank
+function getSplitSign(amount: number): "dr" | "cr" {
+  return amount < 0 ? "dr" : "cr"
+}
+
+function applyBalancedSplitEdit(
+  splits: Transaction["splits"],
+  splitId: string,
+  nextAmount: number,
+) {
+  if (splits.length !== 2) {
+    return splits.map((split) =>
+      split.id !== splitId
+        ? split
+        : {
+            ...split,
+            amount: nextAmount,
+          },
+    )
+  }
+
+  const counterpart = splits.find((split) => split.id !== splitId)
+  if (!counterpart) {
+    return splits
+  }
+
+  return splits.map((split) => {
+    if (split.id === splitId) {
+      return {
+        ...split,
+        amount: nextAmount,
+      }
     }
 
-    return 0
+    if (split.id === counterpart.id) {
+      return {
+        ...split,
+        amount: -nextAmount,
+      }
+    }
+
+    return split
   })
 }
 

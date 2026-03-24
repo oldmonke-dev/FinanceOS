@@ -344,7 +344,7 @@ export function AccountTree() {
               Load a GnuCash-style account CSV, review the hierarchy first, edit it, then confirm the import.
             </SheetDescription>
           </SheetHeader>
-          <div className="h-[calc(92vh-5.5rem)] overflow-y-auto px-6 py-5">
+          <div className="h-[calc(92vh-5.5rem)] overflow-y-auto px-6 pb-5 pt-6">
             <AccountHierarchyImportPanel
               accounts={accounts}
               addAccount={addAccount}
