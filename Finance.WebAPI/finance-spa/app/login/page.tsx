@@ -7,8 +7,8 @@ import { useAuth } from "@/components/providers/auth-provider"
 
 export default function LoginPage() {
   const { login } = useAuth()
-  const [email, setEmail] = useState("root@finance.local")
-  const [password, setPassword] = useState("root")
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 

@@ -36,6 +36,8 @@ services:
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=finance_db;Username=finance_user;Password=strongpassword
       Cors__AllowedOrigins__0: http://localhost:3056
       Cors__AllowedOrigins__1: http://127.0.0.1:3056
+      Auth__BootstrapUsers__0__Email: root@finance.local
+      Auth__BootstrapUsers__0__Password: root
     ports:
       - "5133:8080"
     networks:

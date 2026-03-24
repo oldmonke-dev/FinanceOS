@@ -6,43 +6,55 @@ namespace Finance.Infrastructure.Data
 {
     public static class AppDbContextSeed
     {
-        public static async Task SeedRootUserAsync(AppDbContext dbContext, CancellationToken cancellationToken = default)
+        public static async Task SeedBootstrapUsersAsync(
+            AppDbContext dbContext,
+            IEnumerable<string> bootstrapUserEmails,
+            CancellationToken cancellationToken = default)
         {
-            var rootUser = await dbContext.Users
-                .FirstOrDefaultAsync(user => user.Email == "root@finance.local", cancellationToken);
-
-            if (rootUser is null)
+            foreach (var email in bootstrapUserEmails
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .GroupBy(item => item.Trim(), StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First()))
             {
-                rootUser = new User
-                {
-                    Id = Guid.NewGuid(),
-                    Email = "root@finance.local",
-                    DisplayName = "Root User",
-                    IsActive = true,
-                    CreatedAt = DateTime.UtcNow,
-                    LastSeenAt = null,
-                };
+                var normalizedEmail = email.Trim();
+                var user = await dbContext.Users
+                    .FirstOrDefaultAsync(
+                        existingUser => existingUser.Email.ToLower() == normalizedEmail.ToLower(),
+                        cancellationToken);
 
-                dbContext.Users.Add(rootUser);
+                if (user is null)
+                {
+                    user = new User
+                    {
+                        Id = Guid.NewGuid(),
+                        Email = normalizedEmail,
+                        DisplayName = "Root User",
+                        IsActive = true,
+                        CreatedAt = DateTime.UtcNow,
+                        LastSeenAt = null,
+                    };
+
+                    dbContext.Users.Add(user);
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                }
+
+                var preferenceExists = await dbContext.UserPreferences
+                    .AnyAsync(preference => preference.UserId == user.Id, cancellationToken);
+
+                if (preferenceExists)
+                {
+                    continue;
+                }
+
+                dbContext.UserPreferences.Add(new UserPreference
+                {
+                    UserId = user.Id,
+                    NumberGroupingStyle = "international",
+                    UpdatedAt = DateTime.UtcNow,
+                });
+
                 await dbContext.SaveChangesAsync(cancellationToken);
             }
-
-            var preferenceExists = await dbContext.UserPreferences
-                .AnyAsync(preference => preference.UserId == rootUser.Id, cancellationToken);
-
-            if (preferenceExists)
-            {
-                return;
-            }
-
-            dbContext.UserPreferences.Add(new UserPreference
-            {
-                UserId = rootUser.Id,
-                NumberGroupingStyle = "international",
-                UpdatedAt = DateTime.UtcNow,
-            });
-
-            await dbContext.SaveChangesAsync(cancellationToken);
         }
 
         public static async Task SeedDefaultAccountsAsync(AppDbContext dbContext, CancellationToken cancellationToken = default)

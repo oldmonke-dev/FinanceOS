@@ -114,6 +114,39 @@ From the repository root:
 dotnet run --project Finance.WebAPI
 ```
 
+## Local Admin Credentials
+
+When running the API locally, bootstrap admin credentials are expected from configuration overrides rather than `appsettings.Development.json`.
+
+Recommended approach: .NET user secrets.
+
+Initialize user secrets for the API project:
+
+```bash
+dotnet user-secrets init --project Finance.WebAPI
+```
+
+Set the default local admin email and password:
+
+```bash
+dotnet user-secrets set "Auth:BootstrapUsers:0:Email" "root@finance.local" --project Finance.WebAPI
+dotnet user-secrets set "Auth:BootstrapUsers:0:Password" "root" --project Finance.WebAPI
+```
+
+Useful commands:
+
+```bash
+dotnet user-secrets list --project Finance.WebAPI
+dotnet user-secrets clear --project Finance.WebAPI
+```
+
+You can also use environment variables instead:
+
+```bash
+Auth__BootstrapUsers__0__Email=root@finance.local
+Auth__BootstrapUsers__0__Password=root
+```
+
 ## Running the SPA
 
 From `Finance.WebAPI/finance-spa`:
@@ -146,6 +179,11 @@ Start the full stack:
 ```bash
 docker compose up --build
 ```
+
+Default Docker bootstrap admin credentials:
+
+- Email: `root@finance.local`
+- Password: `root`
 
 Services:
 
