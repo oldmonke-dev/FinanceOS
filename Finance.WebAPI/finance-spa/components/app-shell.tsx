@@ -38,6 +38,7 @@ const navItems = [
   { title: "Overview", href: "/", icon: Home },
   { title: "Account Tree", href: "/accounts", icon: FolderTree },
   { title: "Transactions", href: "/transactions", icon: Receipt },
+  { title: "Advanced Filter", href: "/transactions/advanced", icon: TableOfContents },
   { title: "Importer", href: "/import", icon: FileSpreadsheet },
   { title: "Import Sessions", href: "/import-sessions", icon: TableOfContents },
   { title: "Strategies", href: "/strategies", icon: SlidersHorizontal },

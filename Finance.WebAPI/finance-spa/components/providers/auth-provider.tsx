@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useEffect, useMemo, useState } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 
 import {
@@ -13,6 +13,7 @@ import {
 } from "@/lib/auth"
 import { AccountsProvider } from "@/components/providers/accounts-provider"
 import { ImportSessionsProvider } from "@/components/providers/import-sessions-provider"
+import { useUnsavedChanges } from "@/components/providers/unsaved-changes-provider"
 import { UserPreferencesProvider } from "@/components/providers/user-preferences-provider"
 
 type AuthContextValue = {
@@ -20,7 +21,7 @@ type AuthContextValue = {
   token: string | null
   isLoading: boolean
   login: (email: string, password: string) => Promise<void>
-  logout: () => void
+  logout: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -38,6 +39,7 @@ function AuthenticatedProviders({ children }: { children: React.ReactNode }) {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
+  const { confirmNavigationIfNeeded } = useUnsavedChanges()
   const [user, setUser] = useState<AuthUser | null>(null)
   const [token, setToken] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -97,23 +99,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [pathname, router])
 
-  async function login(email: string, password: string) {
+  const login = useCallback(async (email: string, password: string) => {
     const result = await loginRequest(email, password)
     setStoredAuthToken(result.accessToken)
     setToken(result.accessToken)
     setUser(result.user)
     setIsLoading(false)
     router.replace("/")
-  }
+  }, [router])
 
-  function logout() {
+  const logout = useCallback(async () => {
+    const shouldContinue = await confirmNavigationIfNeeded()
+    if (!shouldContinue) {
+      return
+    }
+
     setStoredAuthToken(null)
     setToken(null)
     setUser(null)
     window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
     router.replace("/login")
     router.refresh()
-  }
+  }, [confirmNavigationIfNeeded, router])
 
   const value = useMemo(
     () => ({
@@ -123,7 +130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       login,
       logout,
     }),
-    [user, token, isLoading],
+    [user, token, isLoading, login, logout],
   )
 
   return (

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   ArrowDownCircle,
   ArrowUpCircle,
@@ -21,6 +21,7 @@ import { useAccounts } from "@/components/providers/accounts-provider"
 import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider"
 import { useSnackbar } from "@/components/providers/snackbar-provider"
 import { useImportSessions } from "@/components/providers/import-sessions-provider"
+import { useRegisterUnsavedChanges } from "@/components/providers/unsaved-changes-provider"
 import { useUserPreferences } from "@/components/providers/user-preferences-provider"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -447,9 +448,9 @@ export default function ImportSessionsPage() {
     return pathById
   }, [accountById, accounts])
 
-  async function handleSaveSession() {
+  const saveActiveSessionChanges = useCallback(async () => {
     if (!activeSession) {
-      return
+      return true
     }
 
     setIsSavingSession(true)
@@ -457,14 +458,26 @@ export default function ImportSessionsPage() {
     try {
       await saveSession(activeSession.id)
       showSnackbar({ message: "Session saved.", tone: "success" })
+      return true
     } catch (error) {
       showSnackbar({
         message: error instanceof Error ? error.message : "Failed to save session.",
         tone: "error",
       })
+      return false
     } finally {
       setIsSavingSession(false)
     }
+  }, [activeSession, saveSession, showSnackbar])
+
+  useRegisterUnsavedChanges(
+    `import-session:${activeSession?.id ?? "none"}`,
+    activeSessionHasUnsavedChanges,
+    activeSession ? saveActiveSessionChanges : null,
+  )
+
+  async function handleSaveSession() {
+    await saveActiveSessionChanges()
   }
 
   const sourceAccount = activeSession?.sourceAccountId

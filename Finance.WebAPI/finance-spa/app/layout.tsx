@@ -8,6 +8,7 @@ import {
 } from "@/components/providers/auth-provider"
 import { ConfirmationDialogProvider } from "@/components/providers/confirmation-dialog-provider"
 import { SnackbarProvider } from "@/components/providers/snackbar-provider"
+import { UnsavedChangesProvider } from "@/components/providers/unsaved-changes-provider"
 import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
@@ -34,12 +35,14 @@ export default function RootLayout({
         <ThemeProvider>
           <SnackbarProvider>
             <ConfirmationDialogProvider>
-              <TooltipProvider>
-                <AuthProvider>
-                  <AuthRouteGuard />
-                  <AuthenticatedApp>{children}</AuthenticatedApp>
-                </AuthProvider>
-              </TooltipProvider>
+              <UnsavedChangesProvider>
+                <TooltipProvider>
+                  <AuthProvider>
+                    <AuthRouteGuard />
+                    <AuthenticatedApp>{children}</AuthenticatedApp>
+                  </AuthProvider>
+                </TooltipProvider>
+              </UnsavedChangesProvider>
             </ConfirmationDialogProvider>
           </SnackbarProvider>
         </ThemeProvider>

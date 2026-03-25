@@ -2,7 +2,7 @@
 
 import { Fragment } from "react"
 import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { ArrowLeft, ChevronRight, Landmark, ReceiptText, Redo2, Save, Scale, Trash2, Undo2 } from "lucide-react"
 import { notFound } from "next/navigation"
 
@@ -11,6 +11,7 @@ import { AppShell } from "@/components/app-shell"
 import { useAccounts } from "@/components/providers/accounts-provider"
 import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider"
 import { useSnackbar } from "@/components/providers/snackbar-provider"
+import { useRegisterUnsavedChanges } from "@/components/providers/unsaved-changes-provider"
 import { useUserPreferences } from "@/components/providers/user-preferences-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -194,6 +195,55 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
   useEffect(() => {
     setCurrentPage((current) => Math.min(current, totalPages))
   }, [totalPages])
+
+  const saveChanges = useCallback(async () => {
+    setIsSavingChanges(true)
+
+    try {
+      const savedById = new Map(savedTransactions.map((transaction) => [transaction.id, transaction]))
+      const draftById = new Map(draftTransactions.map((transaction) => [transaction.id, transaction]))
+
+      for (const transaction of draftTransactions) {
+        const savedSnapshot = savedById.get(transaction.id)
+        if (savedSnapshot && serializeTransaction(savedSnapshot) === serializeTransaction(transaction)) {
+          continue
+        }
+
+        await updateTransaction(transaction.id, {
+          description: transaction.description,
+          referenceNumber: transaction.referenceNumber,
+          splits: transaction.splits.map((split) => ({
+            id: split.id,
+            accountId: split.accountId,
+            amount: split.amount,
+            memo: split.memo,
+          })),
+        })
+      }
+
+      for (const transaction of savedTransactions) {
+        if (!draftById.has(transaction.id)) {
+          await deleteTransaction(transaction.id)
+        }
+      }
+
+      setSavedTransactions(cloneTransactions(draftTransactions))
+      setHistory([cloneTransactions(draftTransactions)])
+      setHistoryIndex(0)
+      showSnackbar({ message: "Ledger changes saved.", tone: "success" })
+      return true
+    } catch (error) {
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Failed to save ledger changes.",
+        tone: "error",
+      })
+      return false
+    } finally {
+      setIsSavingChanges(false)
+    }
+  }, [draftTransactions, savedTransactions, showSnackbar])
+
+  useRegisterUnsavedChanges(`account-ledger:${accountId}`, hasUnsavedChanges, saveChanges)
 
   if (isLoading) {
     return (
@@ -472,48 +522,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
   }
 
   async function handleSaveChanges() {
-    setIsSavingChanges(true)
-
-    try {
-      const savedById = new Map(savedTransactions.map((transaction) => [transaction.id, transaction]))
-      const draftById = new Map(draftTransactions.map((transaction) => [transaction.id, transaction]))
-
-      for (const transaction of draftTransactions) {
-        const savedSnapshot = savedById.get(transaction.id)
-        if (savedSnapshot && serializeTransaction(savedSnapshot) === serializeTransaction(transaction)) {
-          continue
-        }
-
-        await updateTransaction(transaction.id, {
-          description: transaction.description,
-          referenceNumber: transaction.referenceNumber,
-          splits: transaction.splits.map((split) => ({
-            id: split.id,
-            accountId: split.accountId,
-            amount: split.amount,
-            memo: split.memo,
-          })),
-        })
-      }
-
-      for (const transaction of savedTransactions) {
-        if (!draftById.has(transaction.id)) {
-          await deleteTransaction(transaction.id)
-        }
-      }
-
-      setSavedTransactions(cloneTransactions(draftTransactions))
-      setHistory([cloneTransactions(draftTransactions)])
-      setHistoryIndex(0)
-      showSnackbar({ message: "Ledger changes saved.", tone: "success" })
-    } catch (error) {
-      showSnackbar({
-        message: error instanceof Error ? error.message : "Failed to save ledger changes.",
-        tone: "error",
-      })
-    } finally {
-      setIsSavingChanges(false)
-    }
+    await saveChanges()
   }
 
   return (
