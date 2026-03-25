@@ -19,7 +19,7 @@ namespace Finance.BusinessLayer.Services
 
         public async Task<BayesianStrategyDTO> GetBayesianStrategyAsync(Guid userId, CancellationToken cancellationToken = default)
         {
-            var accounts = await _accountRepository.GetAllAccountsAsync();
+            var accounts = await _accountRepository.GetAllAccountsAsync(userId, isAdmin: false);
             var stats = await _importLearningRepository.GetGlobalStatsAsync(userId, cancellationToken);
 
             var accountById = accounts.ToDictionary(account => account.Id);
@@ -100,7 +100,7 @@ namespace Finance.BusinessLayer.Services
             ImportBayesianTrainingDataDTO request,
             CancellationToken cancellationToken = default)
         {
-            var accounts = await _accountRepository.GetAllAccountsAsync();
+            var accounts = await _accountRepository.GetAllAccountsAsync(userId, isAdmin: false);
             var accountByNormalizedPath = accounts.ToDictionary(
                 account => NormalizeAccountPath(BuildPath(account, accounts)),
                 account => account);

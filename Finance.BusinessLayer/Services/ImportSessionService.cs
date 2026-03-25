@@ -354,7 +354,7 @@ namespace Finance.BusinessLayer.Services
                 throw new InvalidOperationException("Archived import sessions cannot be rescored.");
             }
 
-            var candidateAccounts = await _accountRepository.GetAllAccountsAsync();
+            var candidateAccounts = await _accountRepository.GetAllAccountsAsync(userId, isAdmin: false);
             var candidateAccountIds = candidateAccounts
                 .Select(account => account.Id)
                 .Where(accountId => accountId != session.SourceAccountId)

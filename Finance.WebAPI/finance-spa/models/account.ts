@@ -5,6 +5,9 @@ export type Account = {
   name: string
   accountType: AccountType | string
   parentAccountId: string | null
+  ownerUserId: string | null
+  ownerDisplayName: string | null
+  ownerEmail: string | null
 }
 
 export type CreateAccountInput = {

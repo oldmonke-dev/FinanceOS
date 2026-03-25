@@ -18,12 +18,14 @@ import {
   Plus,
   Trash2,
   Upload,
+  UserRound,
 } from "lucide-react"
 
 import { useAccounts } from "@/components/providers/accounts-provider"
 import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider"
 import { useImportSessions } from "@/components/providers/import-sessions-provider"
 import { useSnackbar } from "@/components/providers/snackbar-provider"
+import { useAuth } from "@/components/providers/auth-provider"
 import { useUserPreferences } from "@/components/providers/user-preferences-provider"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -32,7 +34,6 @@ import {
   Sheet,
   SheetContent,
   SheetDescription,
-  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
@@ -48,6 +49,7 @@ import {
   createAccount,
   deleteAccount,
   formatAccountType,
+  getAccountOwnerLabel,
   renameAccount,
 } from "@/lib/accounts"
 import { getTransactions } from "@/lib/transactions"
@@ -97,6 +99,7 @@ const accountTypeOptions: { value: AccountType; label: string }[] = [
 
 export function AccountTree() {
   const router = useRouter()
+  const { user } = useAuth()
   const { accounts, addAccount, updateAccount, errorMessage, isLoading, refreshAccounts } =
     useAccounts()
   const { confirm } = useConfirmationDialog()
@@ -306,15 +309,17 @@ export function AccountTree() {
           <Button type="button" size="sm" variant="outline" onClick={expandAll}>
             Expand All
           </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={activeParentId === "root" ? "secondary" : "outline"}
-            onClick={() => setActiveParentId((current) => (current === "root" ? null : "root"))}
-          >
-            <Plus />
-            New account
-          </Button>
+          {user?.isAdmin ? (
+            <Button
+              type="button"
+              size="sm"
+              variant={activeParentId === "root" ? "secondary" : "outline"}
+              onClick={() => setActiveParentId((current) => (current === "root" ? null : "root"))}
+            >
+              <Plus />
+              New account
+            </Button>
+          ) : null}
           <Button type="button" size="sm" variant={isImportOpen ? "secondary" : "outline"} onClick={() => setIsImportOpen(true)}>
             <Upload />
             Import hierarchy
@@ -362,11 +367,12 @@ export function AccountTree() {
         ) : null}
         {normalizedSearchTerm && visibleNodes.length === 0 ? (
           <div className="mb-4 rounded-2xl border border-dashed bg-background/70 p-4 text-sm text-muted-foreground">
-            No accounts matched "{searchTerm.trim()}".
+            No accounts matched &quot;{searchTerm.trim()}&quot;.
           </div>
         ) : null}
         <TreeList
           nodes={visibleNodes}
+          isAdmin={Boolean(user?.isAdmin)}
           depth={0}
           formatNumber={formatNumber}
           balanceLookup={rolledUpBalanceLookup}
@@ -720,6 +726,7 @@ function ImportedTreeList({ nodes }: { nodes: ImportedAccountNode[] }) {
 
 type TreeListProps = {
   nodes: AccountNode[]
+  isAdmin: boolean
   depth: number
   formatNumber: (value: number, fractionDigits?: number) => string
   balanceLookup: Record<string, number>
@@ -744,6 +751,7 @@ type TreeListProps = {
 
 function TreeList({
   nodes,
+  isAdmin,
   depth,
   formatNumber,
   balanceLookup,
@@ -802,6 +810,12 @@ function TreeList({
                         <presentation.icon className={`size-3 ${presentation.iconClass}`} />
                         <span>{presentation.label}</span>
                       </span>
+                      {isAdmin ? (
+                        <span className="inline-flex items-center rounded-full border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                          <UserRound className="mr-1 size-3 shrink-0" />
+                          {getAccountOwnerLabel(node)}
+                        </span>
+                      ) : null}
                     </div>
                     <p className="mt-0.5 text-[11px] text-muted-foreground">
                       {node.parentAccountId != null ? "Nested account" : "Top-level account"}
@@ -856,6 +870,7 @@ function TreeList({
               <div className="mt-1.5 border-l border-dashed pl-2.5">
                 <TreeList
                   nodes={node.children}
+                  isAdmin={isAdmin}
                   depth={depth + 1}
                   formatNumber={formatNumber}
                   balanceLookup={balanceLookup}

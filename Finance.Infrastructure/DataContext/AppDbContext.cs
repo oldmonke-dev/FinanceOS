@@ -32,6 +32,12 @@ namespace Finance.Infrastructure.Data
                   .HasForeignKey(a => a.ParentAccountId)
                   .OnDelete(DeleteBehavior.Restrict);
 
+            modelBuilder.Entity<Account>()
+                .HasOne(a => a.OwnerUser)
+                .WithMany()
+                .HasForeignKey(a => a.OwnerUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             modelBuilder.Entity<Split>()
                 .HasOne(s => s.Account)
                 .WithMany(a => a.Splits)

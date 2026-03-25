@@ -10,6 +10,9 @@ namespace Finance.Domain.Entities.Core
 
         public AccountType AccountType { get; set; }
 
+        public Guid? OwnerUserId { get; set; }
+        public User? OwnerUser { get; set; }
+
         public Guid? ParentAccountId { get; set; }
         public Account? ParentAccount { get; set; }
 

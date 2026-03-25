@@ -7,6 +7,7 @@ namespace Finance.BusinessLayer.Interfaces
         Task<AccountDeletionResultDTO> DeleteAccountAsync(
             Guid accountId,
             Guid userId,
+            bool isAdmin,
             CancellationToken cancellationToken = default);
     }
 }

@@ -15,9 +15,18 @@ namespace Finance.Infrastructure.Repositories
             _context = context;
         }
 
-        public async Task<List<Account>> GetAllAccountsAsync()
+        public async Task<List<Account>> GetAllAccountsAsync(Guid userId, bool isAdmin)
         {
-            return await _context.Accounts.ToListAsync();
+            var query = _context.Accounts
+                .Include(account => account.OwnerUser)
+                .AsQueryable();
+
+            if (!isAdmin)
+            {
+                query = query.Where(account => account.OwnerUserId == null || account.OwnerUserId == userId);
+            }
+
+            return await query.ToListAsync();
         }
 
         public async Task<HashSet<Guid>> GetExistingAccountIdsAsync(IEnumerable<Guid> accountIds, CancellationToken cancellationToken = default)
@@ -30,28 +39,52 @@ namespace Finance.Infrastructure.Repositories
                 .ToHashSetAsync(cancellationToken);
         }
 
-        public async Task<Account> CreateNewAccountAsync(AccountDTO accountDto)
+        public async Task<Account> CreateNewAccountAsync(AccountDTO accountDto, Guid userId, bool isAdmin)
         {
             var normalizedName = NormalizeAccountName(accountDto.Name);
             var accountType = accountDto.AccountType ?? Domain.Enums.AccountType.Asset;
             var parentAccountId = accountDto.ParentAccountId;
-            await EnsureNoDuplicateAsync(parentAccountId, accountType, normalizedName);
+
+            if (!isAdmin && parentAccountId == null)
+            {
+                throw new InvalidOperationException("Only admins can create top-level accounts.");
+            }
+
+            Guid? ownerUserId = isAdmin ? null : userId;
+
+            if (parentAccountId.HasValue)
+            {
+                var parentAccount = await _context.Accounts.FirstOrDefaultAsync(account => account.Id == parentAccountId.Value);
+
+                if (parentAccount is null)
+                {
+                    throw new KeyNotFoundException("Parent account was not found.");
+                }
+
+                if (!isAdmin && parentAccount.OwnerUserId.HasValue && parentAccount.OwnerUserId != userId)
+                {
+                    throw new InvalidOperationException("You cannot create an account under another user's private account.");
+                }
+            }
+
+            await EnsureNoDuplicateAsync(parentAccountId, accountType, normalizedName, ownerUserId: ownerUserId);
 
             var account = new Account
             {
                 Id = accountDto.Id == Guid.Empty ? Guid.NewGuid() : accountDto.Id,
                 Name = normalizedName,
                 AccountType = accountType,
-                ParentAccountId = parentAccountId
+                ParentAccountId = parentAccountId,
+                OwnerUserId = ownerUserId,
             };
 
             _context.Accounts.Add(account);
             await _context.SaveChangesAsync();
 
-            return account;
+            return await GetAccountWithOwnerAsync(account.Id);
         }
 
-        public async Task<Account> RenameAccountAsync(Guid accountId, UpdateAccountNameDTO request)
+        public async Task<Account> RenameAccountAsync(Guid accountId, UpdateAccountNameDTO request, Guid userId, bool isAdmin)
         {
             var account = await _context.Accounts.FirstOrDefaultAsync(item => item.Id == accountId);
 
@@ -60,17 +93,30 @@ namespace Finance.Infrastructure.Repositories
                 throw new KeyNotFoundException("Account was not found.");
             }
 
+            if (!isAdmin && account.OwnerUserId != userId)
+            {
+                throw new InvalidOperationException("You can only rename your own accounts.");
+            }
+
             var normalizedName = NormalizeAccountName(request.Name);
             await EnsureNoDuplicateAsync(
                 account.ParentAccountId,
                 account.AccountType,
                 normalizedName,
-                account.Id);
+                account.Id,
+                account.OwnerUserId);
 
             account.Name = normalizedName;
             await _context.SaveChangesAsync();
 
-            return account;
+            return await GetAccountWithOwnerAsync(account.Id);
+        }
+
+        private async Task<Account> GetAccountWithOwnerAsync(Guid accountId)
+        {
+            return await _context.Accounts
+                .Include(account => account.OwnerUser)
+                .FirstAsync(account => account.Id == accountId);
         }
 
         private static string NormalizeAccountName(string? name)
@@ -89,11 +135,13 @@ namespace Finance.Infrastructure.Repositories
             Guid? parentAccountId,
             Domain.Enums.AccountType accountType,
             string normalizedName,
-            Guid? excludedAccountId = null)
+            Guid? excludedAccountId = null,
+            Guid? ownerUserId = null)
         {
             var duplicateExists = await _context.Accounts.AnyAsync(account =>
                 account.ParentAccountId == parentAccountId
                 && account.AccountType == accountType
+                && account.OwnerUserId == ownerUserId
                 && account.Name.ToLower() == normalizedName.ToLower()
                 && (!excludedAccountId.HasValue || account.Id != excludedAccountId.Value));
 

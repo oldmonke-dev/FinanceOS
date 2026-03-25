@@ -17,6 +17,18 @@ function normalizeAccount(raw: Record<string, unknown>): Account {
       raw.parentAccountId == null && raw.ParentAccountId == null
         ? null
         : String(raw.parentAccountId ?? raw.ParentAccountId),
+    ownerUserId:
+      raw.ownerUserId == null && raw.OwnerUserId == null
+        ? null
+        : String(raw.ownerUserId ?? raw.OwnerUserId),
+    ownerDisplayName:
+      raw.ownerDisplayName == null && raw.OwnerDisplayName == null
+        ? null
+        : String(raw.ownerDisplayName ?? raw.OwnerDisplayName),
+    ownerEmail:
+      raw.ownerEmail == null && raw.OwnerEmail == null
+        ? null
+        : String(raw.ownerEmail ?? raw.OwnerEmail),
   }
 }
 
@@ -173,6 +185,52 @@ export function buildAccountTree(accounts: Account[]): AccountNode[] {
   sortTree(roots)
 
   return roots
+}
+
+export function buildAccountPathLookup(accounts: Account[]) {
+  const accountById = new Map(accounts.map((account) => [account.id, account]))
+  const pathById = new Map<string, string>()
+
+  function buildPath(accountId: string): string {
+    const cached = pathById.get(accountId)
+    if (cached) {
+      return cached
+    }
+
+    const segments: string[] = []
+    let current = accountById.get(accountId)
+
+    while (current) {
+      segments.unshift(current.name)
+      current =
+        current.parentAccountId != null
+          ? accountById.get(current.parentAccountId) ?? undefined
+          : undefined
+    }
+
+    const path = segments.join(" / ")
+    pathById.set(accountId, path)
+    return path
+  }
+
+  accounts.forEach((account) => {
+    buildPath(account.id)
+  })
+
+  return pathById
+}
+
+export function getAccountOwnerLabel(account: Account) {
+  if (!account.ownerUserId) {
+    return "Admin"
+  }
+
+  return account.ownerDisplayName?.trim() || account.ownerEmail?.trim() || account.ownerUserId
+}
+
+export function getAccountAdminLabel(account: Account, accountPathLookup: Map<string, string>) {
+  const path = accountPathLookup.get(account.id) ?? account.name
+  return `${path} · ${getAccountOwnerLabel(account)}`
 }
 
 export function formatAccountType(accountType: number | string) {

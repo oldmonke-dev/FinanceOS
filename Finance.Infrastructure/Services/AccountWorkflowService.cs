@@ -21,6 +21,7 @@ namespace Finance.Infrastructure.Services
         public async Task<AccountDeletionResultDTO> DeleteAccountAsync(
             Guid accountId,
             Guid userId,
+            bool isAdmin,
             CancellationToken cancellationToken = default)
         {
             var account = await _context.Accounts
@@ -30,6 +31,11 @@ namespace Finance.Infrastructure.Services
             if (account is null)
             {
                 throw new KeyNotFoundException("Account was not found.");
+            }
+
+            if (!isAdmin && account.OwnerUserId != userId)
+            {
+                throw new InvalidOperationException("You can only delete your own accounts.");
             }
 
             if (account.Children.Count > 0)

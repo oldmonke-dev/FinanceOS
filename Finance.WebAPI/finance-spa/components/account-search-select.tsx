@@ -2,9 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { Check, ChevronDown, Search } from "lucide-react"
+import { Check, ChevronDown, Search, UserRound } from "lucide-react"
 
+import { useAuth } from "@/components/providers/auth-provider"
 import { Input } from "@/components/ui/input"
+import {
+  buildAccountPathLookup,
+  getAccountAdminLabel,
+  getAccountOwnerLabel,
+} from "@/lib/accounts"
 import { cn } from "@/lib/utils"
 import { type Account } from "@/models/account"
 
@@ -35,6 +41,7 @@ export function AccountSearchSelect({
   contentClassName,
   getAccountLabel,
 }: AccountSearchSelectProps) {
+  const { user } = useAuth()
   const containerRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const popupRef = useRef<HTMLDivElement | null>(null)
@@ -52,37 +59,8 @@ export function AccountSearchSelect({
     () => new Map(accounts.map((account) => [account.id, account])),
     [accounts],
   )
-  const accountPathById = useMemo(() => {
-    const pathById = new Map<string, string>()
-
-    function buildPath(accountId: string): string {
-      const cached = pathById.get(accountId)
-      if (cached) {
-        return cached
-      }
-
-      const segments: string[] = []
-      let current = accountById.get(accountId)
-
-      while (current) {
-        segments.unshift(current.name)
-        current =
-          current.parentAccountId != null
-            ? accountById.get(current.parentAccountId) ?? undefined
-            : undefined
-      }
-
-      const path = segments.join(" / ")
-      pathById.set(accountId, path)
-      return path
-    }
-
-    accounts.forEach((account) => {
-      buildPath(account.id)
-    })
-
-    return pathById
-  }, [accountById, accounts])
+  const accountPathById = useMemo(() => buildAccountPathLookup(accounts), [accounts])
+  const isAdmin = Boolean(user?.isAdmin)
 
   const resolveLabel = useMemo(
     () =>
@@ -93,7 +71,9 @@ export function AccountSearchSelect({
 
   const selectedAccount = value ? accountById.get(value) ?? null : null
   const selectedLabel = selectedAccount
-    ? resolveLabel(selectedAccount)
+    ? isAdmin
+      ? getAccountAdminLabel(selectedAccount, accountPathById)
+      : resolveLabel(selectedAccount)
     : allowEmpty
       ? emptyLabel
       : placeholder
@@ -116,13 +96,17 @@ export function AccountSearchSelect({
     return sortedAccounts.filter((account) => {
       const label = resolveLabel(account).toLowerCase()
       const rawPath = (accountPathById.get(account.id) ?? account.name).toLowerCase()
-      return label.includes(normalizedQuery) || rawPath.includes(normalizedQuery)
+      const ownerLabel = getAccountOwnerLabel(account).toLowerCase()
+      return (
+        label.includes(normalizedQuery)
+        || rawPath.includes(normalizedQuery)
+        || (isAdmin && ownerLabel.includes(normalizedQuery))
+      )
     })
-  }, [accountPathById, normalizedQuery, resolveLabel, sortedAccounts])
+  }, [accountPathById, isAdmin, normalizedQuery, resolveLabel, sortedAccounts])
 
   useEffect(() => {
     if (!isOpen) {
-      setPopupStyle(null)
       return
     }
 
@@ -227,7 +211,7 @@ export function AccountSearchSelect({
           triggerClassName,
         )}
       >
-        <span className={cn("truncate", !selectedAccount && "text-muted-foreground")}>
+        <span className={cn("min-w-0 truncate", !selectedAccount && "text-muted-foreground")}>
           {selectedLabel || placeholder}
         </span>
         <ChevronDown className={cn("size-4 shrink-0 opacity-60 transition", isOpen && "rotate-180")} />
@@ -288,6 +272,7 @@ export function AccountSearchSelect({
                   ) : (
                     filteredAccounts.map((account) => {
                       const isSelected = account.id === value
+                      const ownerLabel = isAdmin ? getAccountOwnerLabel(account) : null
 
                       return (
                         <button
@@ -299,7 +284,15 @@ export function AccountSearchSelect({
                           <span className="flex size-4 items-center justify-center">
                             {isSelected ? <Check className="size-4" /> : null}
                           </span>
-                          <span className="break-words">{resolveLabel(account)}</span>
+                          <span className="min-w-0 flex-1 text-left">
+                            <span className="block break-words">{resolveLabel(account)}</span>
+                            {ownerLabel ? (
+                              <span className="flex items-center gap-1 break-words text-[11px] text-muted-foreground">
+                                <UserRound className="mt-0.5 size-3 shrink-0" />
+                                <span>{ownerLabel}</span>
+                              </span>
+                            ) : null}
+                          </span>
                         </button>
                       )
                     })

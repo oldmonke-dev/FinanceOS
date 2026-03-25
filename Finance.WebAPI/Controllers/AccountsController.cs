@@ -25,24 +25,29 @@ namespace Finance.WebAPI.Controllers
         }
 
         [HttpGet]
-        public async Task<ActionResult<List<Account>>> GetAccounts()
+        public async Task<ActionResult<List<AccountListItemDTO>>> GetAccounts()
         {
-            var accounts = await _accountRepository.GetAllAccountsAsync();
-            return Ok(accounts);
+            var accounts = await _accountRepository.GetAllAccountsAsync(
+                User.GetRequiredUserId(),
+                User.IsAdmin());
+            return Ok(accounts.Select(MapAccount));
         }
 
 
         [HttpPost]
-        public async Task<ActionResult<Account>> CreateAccount([FromBody] AccountDTO account)
+        public async Task<ActionResult<AccountListItemDTO>> CreateAccount([FromBody] AccountDTO account)
         {
             try
             {
-                var createdAccount = await _accountRepository.CreateNewAccountAsync(account);
+                var createdAccount = await _accountRepository.CreateNewAccountAsync(
+                    account,
+                    User.GetRequiredUserId(),
+                    User.IsAdmin());
 
                 return CreatedAtAction(
                     nameof(GetAccounts),
                     new { id = createdAccount.Id },
-                    createdAccount);
+                    MapAccount(createdAccount));
             }
             catch (InvalidOperationException exception)
             {
@@ -60,6 +65,7 @@ namespace Finance.WebAPI.Controllers
                 var result = await _accountWorkflowService.DeleteAccountAsync(
                     id,
                     User.GetRequiredUserId(),
+                    User.IsAdmin(),
                     cancellationToken);
                 return Ok(result);
             }
@@ -74,12 +80,16 @@ namespace Finance.WebAPI.Controllers
         }
 
         [HttpPut("{id:guid}")]
-        public async Task<ActionResult<Account>> RenameAccount(Guid id, [FromBody] UpdateAccountNameDTO request)
+        public async Task<ActionResult<AccountListItemDTO>> RenameAccount(Guid id, [FromBody] UpdateAccountNameDTO request)
         {
             try
             {
-                var updatedAccount = await _accountRepository.RenameAccountAsync(id, request);
-                return Ok(updatedAccount);
+                var updatedAccount = await _accountRepository.RenameAccountAsync(
+                    id,
+                    request,
+                    User.GetRequiredUserId(),
+                    User.IsAdmin());
+                return Ok(MapAccount(updatedAccount));
             }
             catch (InvalidOperationException exception)
             {
@@ -89,6 +99,20 @@ namespace Finance.WebAPI.Controllers
             {
                 return NotFound(new { message = exception.Message });
             }
+        }
+
+        private static AccountListItemDTO MapAccount(Account account)
+        {
+            return new AccountListItemDTO
+            {
+                Id = account.Id,
+                Name = account.Name,
+                AccountType = account.AccountType,
+                ParentAccountId = account.ParentAccountId,
+                OwnerUserId = account.OwnerUserId,
+                OwnerDisplayName = account.OwnerUser?.DisplayName,
+                OwnerEmail = account.OwnerUser?.Email,
+            };
         }
     }
 }
