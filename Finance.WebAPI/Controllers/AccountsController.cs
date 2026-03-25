@@ -109,6 +109,7 @@ namespace Finance.WebAPI.Controllers
                 Name = account.Name,
                 AccountType = account.AccountType,
                 ParentAccountId = account.ParentAccountId,
+                OpeningBalance = account.OpeningBalance,
                 OwnerUserId = account.OwnerUserId,
                 OwnerDisplayName = account.OwnerUser?.DisplayName,
                 OwnerEmail = account.OwnerUser?.Email,

@@ -74,6 +74,7 @@ namespace Finance.Infrastructure.Repositories
                 Id = accountDto.Id == Guid.Empty ? Guid.NewGuid() : accountDto.Id,
                 Name = normalizedName,
                 AccountType = accountType,
+                OpeningBalance = accountDto.OpeningBalance ?? 0m,
                 ParentAccountId = parentAccountId,
                 OwnerUserId = ownerUserId,
             };
@@ -107,6 +108,7 @@ namespace Finance.Infrastructure.Repositories
                 account.OwnerUserId);
 
             account.Name = normalizedName;
+            account.OpeningBalance = request.OpeningBalance ?? 0m;
             await _context.SaveChangesAsync();
 
             return await GetAccountWithOwnerAsync(account.Id);

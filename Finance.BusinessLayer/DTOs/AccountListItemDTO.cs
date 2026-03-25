@@ -12,6 +12,8 @@ namespace Finance.BusinessLayer.DTOs
 
         public Guid? ParentAccountId { get; set; }
 
+        public decimal OpeningBalance { get; set; }
+
         public Guid? OwnerUserId { get; set; }
 
         public string? OwnerDisplayName { get; set; }

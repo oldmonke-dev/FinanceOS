@@ -193,6 +193,7 @@ async function createMissingAccounts(
         name: segment,
         accountType: inferAccountTypeFromPath(segments),
         parentAccountId,
+        openingBalance: 0,
       })
 
       addAccount(createdAccount)

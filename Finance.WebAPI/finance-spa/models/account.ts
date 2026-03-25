@@ -5,6 +5,7 @@ export type Account = {
   name: string
   accountType: AccountType | string
   parentAccountId: string | null
+  openingBalance: number
   ownerUserId: string | null
   ownerDisplayName: string | null
   ownerEmail: string | null
@@ -15,6 +16,7 @@ export type CreateAccountInput = {
   name: string
   accountType: AccountType
   parentAccountId: string | null
+  openingBalance: number
 }
 
 export type AccountNode = Account & {

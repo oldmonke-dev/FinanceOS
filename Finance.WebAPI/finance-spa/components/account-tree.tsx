@@ -73,6 +73,12 @@ type RenameAccountFormProps = {
   onRenamed: (account: Account) => void
 }
 
+type OpeningBalanceFormProps = {
+  account: Account
+  onCancel: () => void
+  onSaved: (account: Account) => void
+}
+
 type ImportedAccountDraft = {
   id: string
   fullPath: string
@@ -109,6 +115,7 @@ export function AccountTree() {
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set())
   const [activeParentId, setActiveParentId] = useState<string | "root" | null>(null)
   const [renamingAccountId, setRenamingAccountId] = useState<string | null>(null)
+  const [editingOpeningBalanceAccountId, setEditingOpeningBalanceAccountId] = useState<string | null>(null)
   const [openActionsAccountId, setOpenActionsAccountId] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [balanceLookup, setBalanceLookup] = useState<Record<string, number>>({})
@@ -127,7 +134,7 @@ export function AccountTree() {
     const nextLookup = { ...balanceLookup }
 
     function visit(node: AccountNode): number {
-      const ownBalance = balanceLookup[node.id] ?? 0
+      const ownBalance = (balanceLookup[node.id] ?? 0) + node.openingBalance
       const childBalance = node.children.reduce((sum, child) => sum + visit(child), 0)
       const total = ownBalance + childBalance
       nextLookup[node.id] = total
@@ -237,6 +244,7 @@ export function AccountTree() {
     addAccount(account)
     setActiveParentId(null)
     setRenamingAccountId(null)
+    setEditingOpeningBalanceAccountId(null)
     setOpenActionsAccountId(null)
     showSnackbar({ message: `Created account ${account.name}.`, tone: "success" })
   }
@@ -244,8 +252,17 @@ export function AccountTree() {
   function handleRenamed(account: Account) {
     updateAccount(account)
     setRenamingAccountId(null)
+    setEditingOpeningBalanceAccountId(null)
     setOpenActionsAccountId(null)
     showSnackbar({ message: `Renamed account to ${account.name}.`, tone: "success" })
+  }
+
+  function handleOpeningBalanceSaved(account: Account) {
+    updateAccount(account)
+    setEditingOpeningBalanceAccountId(null)
+    setRenamingAccountId(null)
+    setOpenActionsAccountId(null)
+    showSnackbar({ message: `Updated opening balance for ${account.name}.`, tone: "success" })
   }
 
   async function handleDeleteAccount(account: Account) {
@@ -383,10 +400,12 @@ export function AccountTree() {
           onOpenLedger={(accountId) => router.push(`/accounts/${accountId}`)}
           onActivateCreate={(parentId) => {
             setRenamingAccountId(null)
+            setEditingOpeningBalanceAccountId(null)
             setOpenActionsAccountId(null)
             setActiveParentId(parentId)
           }}
           renamingAccountId={renamingAccountId}
+          editingOpeningBalanceAccountId={editingOpeningBalanceAccountId}
           openActionsAccountId={openActionsAccountId}
           onToggleActionsMenu={(accountId) =>
             setOpenActionsAccountId((current) => (current === accountId ? null : accountId))
@@ -394,15 +413,24 @@ export function AccountTree() {
           onCloseActionsMenu={() => setOpenActionsAccountId(null)}
           onActivateRename={(accountId) => {
             setActiveParentId(null)
+            setEditingOpeningBalanceAccountId(null)
             setOpenActionsAccountId(null)
             setRenamingAccountId(accountId)
+          }}
+          onActivateOpeningBalanceEdit={(accountId) => {
+            setActiveParentId(null)
+            setRenamingAccountId(null)
+            setOpenActionsAccountId(null)
+            setEditingOpeningBalanceAccountId(accountId)
           }}
           deletingAccountId={deletingAccountId}
           onDeleteAccount={(account) => void handleDeleteAccount(account)}
           onCreated={handleCreated}
           onRenamed={handleRenamed}
+          onOpeningBalanceSaved={handleOpeningBalanceSaved}
           onCancelCreate={() => setActiveParentId(null)}
           onCancelRename={() => setRenamingAccountId(null)}
+          onCancelOpeningBalanceEdit={() => setEditingOpeningBalanceAccountId(null)}
         />
       </div>
     </div>
@@ -525,6 +553,7 @@ function AccountHierarchyImportPanel({
             name: segment,
             accountType,
             parentAccountId,
+            openingBalance: 0,
           })
 
           addAccount(createdAccount)
@@ -737,16 +766,20 @@ type TreeListProps = {
   onOpenLedger: (accountId: string) => void
   onActivateCreate: (parentId: string | "root" | null) => void
   renamingAccountId: string | null
+  editingOpeningBalanceAccountId: string | null
   openActionsAccountId: string | null
   onToggleActionsMenu: (accountId: string) => void
   onCloseActionsMenu: () => void
   onActivateRename: (accountId: string | null) => void
+  onActivateOpeningBalanceEdit: (accountId: string | null) => void
   deletingAccountId: string | null
   onDeleteAccount: (account: Account) => void
   onCreated: (account: Account) => void
   onRenamed: (account: Account) => void
+  onOpeningBalanceSaved: (account: Account) => void
   onCancelCreate: () => void
   onCancelRename: () => void
+  onCancelOpeningBalanceEdit: () => void
 }
 
 function TreeList({
@@ -762,16 +795,20 @@ function TreeList({
   onOpenLedger,
   onActivateCreate,
   renamingAccountId,
+  editingOpeningBalanceAccountId,
   openActionsAccountId,
   onToggleActionsMenu,
   onCloseActionsMenu,
   onActivateRename,
+  onActivateOpeningBalanceEdit,
   deletingAccountId,
   onDeleteAccount,
   onCreated,
   onRenamed,
+  onOpeningBalanceSaved,
   onCancelCreate,
   onCancelRename,
+  onCancelOpeningBalanceEdit,
 }: TreeListProps) {
   return (
     <ul className="space-y-1.5">
@@ -779,6 +816,7 @@ function TreeList({
         const isCollapsed = forcedExpandedIds.has(node.id) ? false : collapsedIds.has(node.id)
         const isCreateOpen = activeParentId === node.id
         const isRenameOpen = renamingAccountId === node.id
+        const isOpeningBalanceOpen = editingOpeningBalanceAccountId === node.id
         const presentation = getAccountTypePresentation(node.accountType)
 
         return (
@@ -839,6 +877,9 @@ function TreeList({
                     onClose={onCloseActionsMenu}
                     onAddSubAccount={() => onActivateCreate(isCreateOpen ? null : node.id)}
                     onRename={() => onActivateRename(isRenameOpen ? null : node.id)}
+                    onEditOpeningBalance={() =>
+                      onActivateOpeningBalanceEdit(isOpeningBalanceOpen ? null : node.id)
+                    }
                     onDelete={() => onDeleteAccount(node)}
                   />
                 </div>
@@ -864,6 +905,16 @@ function TreeList({
                   />
                 </div>
               ) : null}
+
+              {isOpeningBalanceOpen ? (
+                <div className="mt-2 border-t pt-2">
+                  <OpeningBalanceForm
+                    account={node}
+                    onCancel={onCancelOpeningBalanceEdit}
+                    onSaved={onOpeningBalanceSaved}
+                  />
+                </div>
+              ) : null}
             </div>
 
             {!isCollapsed && node.children.length > 0 ? (
@@ -881,16 +932,20 @@ function TreeList({
                   onOpenLedger={onOpenLedger}
                   onActivateCreate={onActivateCreate}
                   renamingAccountId={renamingAccountId}
+                  editingOpeningBalanceAccountId={editingOpeningBalanceAccountId}
                   openActionsAccountId={openActionsAccountId}
                   onToggleActionsMenu={onToggleActionsMenu}
                   onCloseActionsMenu={onCloseActionsMenu}
                   onActivateRename={onActivateRename}
+                  onActivateOpeningBalanceEdit={onActivateOpeningBalanceEdit}
                   deletingAccountId={deletingAccountId}
                   onDeleteAccount={onDeleteAccount}
                   onCreated={onCreated}
                   onRenamed={onRenamed}
+                  onOpeningBalanceSaved={onOpeningBalanceSaved}
                   onCancelCreate={onCancelCreate}
                   onCancelRename={onCancelRename}
+                  onCancelOpeningBalanceEdit={onCancelOpeningBalanceEdit}
                 />
               </div>
             ) : null}
@@ -910,6 +965,7 @@ function AccountForm({
   const { showSnackbar } = useSnackbar()
   const [name, setName] = useState("")
   const [accountType, setAccountType] = useState<AccountType>(1)
+  const [openingBalance, setOpeningBalance] = useState("0")
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -921,11 +977,13 @@ function AccountForm({
         name,
         accountType,
         parentAccountId,
+        openingBalance: Number(openingBalance) || 0,
       }
 
       const account = await createAccount(payload)
       setName("")
       setAccountType(1)
+      setOpeningBalance("0")
       onCreated(account)
     } catch (error) {
       showSnackbar({
@@ -948,7 +1006,7 @@ function AccountForm({
         </div>
       </div>
 
-      <div className="mt-3 grid gap-2 md:grid-cols-[1.2fr_0.8fr_auto]">
+      <div className="mt-3 grid gap-2 md:grid-cols-[1.2fr_0.8fr_0.9fr_auto]">
         <label className="space-y-1 text-sm">
           <span className="font-medium">Name</span>
           <Input
@@ -979,6 +1037,18 @@ function AccountForm({
           </Select>
         </label>
 
+        <label className="space-y-1 text-sm">
+          <span className="font-medium">Opening balance</span>
+          <Input
+            className="h-8"
+            type="number"
+            step="0.01"
+            value={openingBalance}
+            onChange={(event) => setOpeningBalance(event.target.value)}
+            placeholder="0.00"
+          />
+        </label>
+
         <div className="flex items-end gap-2">
           <Button type="submit" size="sm" disabled={isSubmitting}>
             {isSubmitting ? "Creating..." : "Create"}
@@ -1002,7 +1072,10 @@ function RenameAccountForm({ account, onCancel, onRenamed }: RenameAccountFormPr
     setIsSubmitting(true)
 
     try {
-      const updatedAccount = await renameAccount(account.id, name)
+      const updatedAccount = await renameAccount(account.id, {
+        name,
+        openingBalance: account.openingBalance,
+      })
       onRenamed(updatedAccount)
     } catch (error) {
       showSnackbar({
@@ -1020,7 +1093,7 @@ function RenameAccountForm({ account, onCancel, onRenamed }: RenameAccountFormPr
         <div>
           <h3 className="text-sm font-medium">Rename account</h3>
           <p className="text-xs text-muted-foreground">
-            Type stays {formatAccountType(account.accountType)} at the current level.
+            Opening balance stays {account.openingBalance.toFixed(2)} while you rename this account.
           </p>
         </div>
       </div>
@@ -1051,6 +1124,70 @@ function RenameAccountForm({ account, onCancel, onRenamed }: RenameAccountFormPr
   )
 }
 
+function OpeningBalanceForm({ account, onCancel, onSaved }: OpeningBalanceFormProps) {
+  const { showSnackbar } = useSnackbar()
+  const [openingBalance, setOpeningBalance] = useState(String(account.openingBalance))
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setIsSubmitting(true)
+
+    try {
+      const updatedAccount = await renameAccount(account.id, {
+        name: account.name,
+        openingBalance: Number(openingBalance) || 0,
+      })
+      onSaved(updatedAccount)
+    } catch (error) {
+      showSnackbar({
+        message:
+          error instanceof Error ? error.message : "Unknown error while updating opening balance.",
+        tone: "error",
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="rounded-xl border bg-card p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-medium">Edit opening balance</h3>
+          <p className="text-xs text-muted-foreground">
+            Account name stays {account.name} while you update the starting balance.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
+        <label className="space-y-1 text-sm">
+          <span className="font-medium">Opening balance</span>
+          <Input
+            className="h-8"
+            type="number"
+            step="0.01"
+            value={openingBalance}
+            onChange={(event) => setOpeningBalance(event.target.value)}
+            placeholder="0.00"
+          />
+        </label>
+
+        <div className="flex items-end gap-2">
+          <Button type="submit" size="sm" disabled={isSubmitting}>
+            <Pencil />
+            {isSubmitting ? "Saving..." : "Save"}
+          </Button>
+          <Button type="button" size="sm" variant="ghost" onClick={onCancel} disabled={isSubmitting}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    </form>
+  )
+}
+
 type AccountActionsMenuProps = {
   account: AccountNode
   isOpen: boolean
@@ -1059,6 +1196,7 @@ type AccountActionsMenuProps = {
   onClose: () => void
   onAddSubAccount: () => void
   onRename: () => void
+  onEditOpeningBalance: () => void
   onDelete: () => void
 }
 
@@ -1070,6 +1208,7 @@ function AccountActionsMenu({
   onClose,
   onAddSubAccount,
   onRename,
+  onEditOpeningBalance,
   onDelete,
 }: AccountActionsMenuProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -1130,6 +1269,17 @@ function AccountActionsMenu({
           >
             <Pencil className="size-4" />
             <span>Rename Account</span>
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition hover:bg-muted"
+            onClick={() => {
+              onEditOpeningBalance()
+              onClose()
+            }}
+          >
+            <Pencil className="size-4" />
+            <span>Edit Opening Balance</span>
           </button>
           <button
             type="button"

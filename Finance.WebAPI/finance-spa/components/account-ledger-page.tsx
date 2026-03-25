@@ -22,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { buildAccountTree, formatAccountType } from "@/lib/accounts"
+import { buildAccountPathLookup, buildAccountTree, formatAccountType } from "@/lib/accounts"
 import { deleteTransaction, getTransactions, updateTransaction } from "@/lib/transactions"
 import type { Transaction } from "@/models/transaction"
 
@@ -45,38 +45,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
   const account = accounts.find((item) => item.id === accountId) ?? null
   const resolvedAccountId = account?.id ?? null
   const tree = useMemo(() => buildAccountTree(accounts), [accounts])
-  const accountPathLookup = useMemo(() => {
-    const accountById = new Map(accounts.map((account) => [account.id, account]))
-    const pathById = new Map<string, string>()
-
-    function buildPath(accountId: string): string {
-      const cached = pathById.get(accountId)
-      if (cached) {
-        return cached
-      }
-
-      const segments: string[] = []
-      let current = accountById.get(accountId)
-
-      while (current) {
-        segments.unshift(current.name)
-        current =
-          current.parentAccountId != null
-            ? accountById.get(current.parentAccountId) ?? undefined
-            : undefined
-      }
-
-      const path = segments.join(" / ")
-      pathById.set(accountId, path)
-      return path
-    }
-
-    accounts.forEach((account) => {
-      buildPath(account.id)
-    })
-
-    return pathById
-  }, [accounts])
+  const accountPathLookup = useMemo(() => buildAccountPathLookup(accounts), [accounts])
   const availableDestinationAccounts = useMemo(
     () =>
       resolvedAccountId == null
@@ -92,8 +61,8 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
     return draftTransactions.reduce((sum, transaction) => {
       const split = transaction.splits.find((item) => item.accountId === resolvedAccountId)
       return sum + (split?.amount ?? 0)
-    }, 0)
-  }, [draftTransactions, resolvedAccountId])
+    }, account?.openingBalance ?? 0)
+  }, [account?.openingBalance, draftTransactions, resolvedAccountId])
   const transactionRows = useMemo(() => {
     if (!resolvedAccountId) {
       return []
@@ -117,7 +86,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
     })
 
     const trailingBalanceByTransactionId = new Map<string, number>()
-    let runningBalance = 0
+    let runningBalance = account?.openingBalance ?? 0
 
     for (const row of [...baseRows].reverse()) {
       runningBalance += row.accountSplit?.amount ?? 0
@@ -128,7 +97,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
       ...row,
       trailingBalance: trailingBalanceByTransactionId.get(row.transaction.id) ?? 0,
     }))
-  }, [draftTransactions, resolvedAccountId, accounts])
+  }, [account?.openingBalance, draftTransactions, resolvedAccountId, accounts])
   const totalPages = Math.max(1, Math.ceil(transactionRows.length / rowsPerPage))
   const pagedTransactionRows = useMemo(
     () =>
@@ -559,13 +528,22 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
             </div>
           </div>
 
-          <div className="mt-4 grid gap-2 md:grid-cols-3">
+          <div className="mt-4 grid gap-2 md:grid-cols-4">
             <div className="rounded-xl border bg-background/70 px-3 py-2">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <ReceiptText className="size-3.5" />
                 <span>Entries</span>
               </div>
               <p className="mt-1 text-base font-semibold leading-tight">{transactionRows.length}</p>
+            </div>
+            <div className="rounded-xl border bg-background/70 px-3 py-2">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Scale className="size-3.5" />
+                <span>Opening balance</span>
+              </div>
+              <p className="mt-1 text-base font-semibold leading-tight">
+                {formatNumber(resolvedAccount.openingBalance)}
+              </p>
             </div>
             <div className="rounded-xl border bg-background/70 px-3 py-2">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">

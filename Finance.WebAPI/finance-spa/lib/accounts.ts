@@ -17,6 +17,7 @@ function normalizeAccount(raw: Record<string, unknown>): Account {
       raw.parentAccountId == null && raw.ParentAccountId == null
         ? null
         : String(raw.parentAccountId ?? raw.ParentAccountId),
+    openingBalance: Number(raw.openingBalance ?? raw.OpeningBalance ?? 0),
     ownerUserId:
       raw.ownerUserId == null && raw.OwnerUserId == null
         ? null
@@ -128,14 +129,17 @@ export async function deleteAccount(accountId: string): Promise<{
   }
 }
 
-export async function renameAccount(accountId: string, name: string): Promise<Account> {
+export async function renameAccount(
+  accountId: string,
+  input: { name: string; openingBalance: number },
+): Promise<Account> {
   const response = await authFetch(`${API_BASE_URL}/Accounts/${accountId}`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
     },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(input),
   })
 
   if (!response.ok) {

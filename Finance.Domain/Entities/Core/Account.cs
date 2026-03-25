@@ -10,6 +10,8 @@ namespace Finance.Domain.Entities.Core
 
         public AccountType AccountType { get; set; }
 
+        public decimal OpeningBalance { get; set; }
+
         public Guid? OwnerUserId { get; set; }
         public User? OwnerUser { get; set; }
 
