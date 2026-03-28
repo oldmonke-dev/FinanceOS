@@ -7,7 +7,7 @@ export default function AccountsPage() {
       title="Account tree"
       subtitle="Shared account state backed by the accounts API"
     >
-      <div className="w-full xl:max-w-[60%]">
+      <div className="mx-auto w-full xl:max-w-[65%]">
         <AccountTree />
       </div>
     </AppShell>

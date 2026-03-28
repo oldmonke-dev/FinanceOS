@@ -1,3 +1,5 @@
+using Finance.Domain.Enums;
+
 namespace Finance.Domain.Entities.Core
 {
     public static class ImportPostingRule
@@ -13,20 +15,26 @@ namespace Finance.Domain.Entities.Core
                 throw new InvalidOperationException("Import posting amount cannot be zero.");
             }
 
+            var absoluteAmount = Math.Abs(sourceAmount);
+            var sourceSide = sourceAmount < 0 ? SplitSide.Debit : SplitSide.Credit;
+            var destinationSide = sourceSide == SplitSide.Debit ? SplitSide.Credit : SplitSide.Debit;
+
             return new List<Split>
             {
                 new()
                 {
                     Id = Guid.NewGuid(),
                     AccountId = sourceAccountId,
-                    Amount = sourceAmount,
+                    Amount = absoluteAmount,
+                    Side = sourceSide,
                     Memo = memo,
                 },
                 new()
                 {
                     Id = Guid.NewGuid(),
                     AccountId = destinationAccountId,
-                    Amount = -sourceAmount,
+                    Amount = absoluteAmount,
+                    Side = destinationSide,
                     Memo = memo,
                 },
             };

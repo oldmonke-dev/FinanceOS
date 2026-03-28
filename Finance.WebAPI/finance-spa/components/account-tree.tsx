@@ -44,6 +44,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { getDisplayBalanceForAccount, getSignedSplitAmount } from "@/lib/accounting"
 import {
   buildAccountTree,
   createAccount,
@@ -109,6 +110,9 @@ const accountTypeOptions: { value: AccountType; label: string }[] = [
   { value: 5, label: "Expense" },
 ]
 
+const ACCOUNT_TREE_COLLAPSED_STATE_KEY = "finance.account-tree.collapsed"
+const ACCOUNT_TREE_RESTORE_PENDING_KEY = "finance.account-tree.restore-pending"
+
 export function AccountTree() {
   const router = useRouter()
   const { user } = useAuth()
@@ -119,6 +123,7 @@ export function AccountTree() {
   const { refreshSessions } = useImportSessions()
   const { formatNumber } = useUserPreferences()
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set())
+  const hasInitializedCollapsedIdsRef = useRef(false)
   const [activeParentId, setActiveParentId] = useState<string | "root" | null>(null)
   const [renamingAccountId, setRenamingAccountId] = useState<string | null>(null)
   const [editingOpeningBalanceAccountId, setEditingOpeningBalanceAccountId] = useState<string | null>(null)
@@ -157,6 +162,49 @@ export function AccountTree() {
   }, [nodes, balanceLookup])
 
   useEffect(() => {
+    if (nodes.length === 0 || hasInitializedCollapsedIdsRef.current) {
+      return
+    }
+
+    const defaultCollapsedIds = new Set(collectBranchAccountIds(nodes))
+
+    if (typeof window === "undefined") {
+      setCollapsedIds(defaultCollapsedIds)
+      hasInitializedCollapsedIdsRef.current = true
+      return
+    }
+
+    const shouldRestore = window.sessionStorage.getItem(ACCOUNT_TREE_RESTORE_PENDING_KEY) === "1"
+    const savedCollapsedIds = window.sessionStorage.getItem(ACCOUNT_TREE_COLLAPSED_STATE_KEY)
+
+    if (shouldRestore && savedCollapsedIds) {
+      try {
+        const parsedIds = JSON.parse(savedCollapsedIds)
+        if (Array.isArray(parsedIds)) {
+          setCollapsedIds(new Set(parsedIds.filter((value): value is string => typeof value === "string")))
+        } else {
+          setCollapsedIds(defaultCollapsedIds)
+        }
+      } catch {
+        setCollapsedIds(defaultCollapsedIds)
+      }
+    } else {
+      setCollapsedIds(defaultCollapsedIds)
+    }
+
+    window.sessionStorage.removeItem(ACCOUNT_TREE_RESTORE_PENDING_KEY)
+    hasInitializedCollapsedIdsRef.current = true
+  }, [nodes])
+
+  useEffect(() => {
+    if (!hasInitializedCollapsedIdsRef.current || typeof window === "undefined") {
+      return
+    }
+
+    window.sessionStorage.setItem(ACCOUNT_TREE_COLLAPSED_STATE_KEY, JSON.stringify([...collapsedIds]))
+  }, [collapsedIds])
+
+  useEffect(() => {
     let isCancelled = false
 
     async function loadBalances() {
@@ -171,7 +219,7 @@ export function AccountTree() {
 
         for (const transaction of transactions) {
           for (const split of transaction.splits) {
-            nextLookup[split.accountId] = (nextLookup[split.accountId] ?? 0) + split.amount
+            nextLookup[split.accountId] = (nextLookup[split.accountId] ?? 0) + getSignedSplitAmount(split)
           }
         }
 
@@ -278,7 +326,7 @@ export function AccountTree() {
   }
 
   function collapseAll() {
-    setCollapsedIds(new Set(collectAccountIds(nodes)))
+    setCollapsedIds(new Set(collectBranchAccountIds(nodes)))
   }
 
   function expandAll() {
@@ -344,7 +392,7 @@ export function AccountTree() {
   }
 
   return (
-    <div className="rounded-2xl border bg-card p-3 shadow-sm">
+    <div className="mx-auto w-full max-w-5xl rounded-2xl border bg-card p-3 shadow-sm">
       <div className="flex flex-col gap-2 border-b pb-2 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-3">
           <div className="rounded-lg bg-primary/8 p-2 text-primary">
@@ -421,7 +469,7 @@ export function AccountTree() {
         </SheetContent>
       </Sheet>
 
-      <div className="mt-3">
+      <div className="mx-auto mt-3 w-full max-w-6xl">
         {balanceError ? (
           <div className="mb-4 rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
             {balanceError}
@@ -442,7 +490,12 @@ export function AccountTree() {
           forcedExpandedIds={searchResult.forcedExpandedIds}
           activeParentId={activeParentId}
           onToggleCollapsed={toggleCollapsed}
-          onOpenLedger={(accountId) => router.push(`/accounts/${accountId}`)}
+          onOpenLedger={(accountId) => {
+            if (typeof window !== "undefined") {
+              window.sessionStorage.setItem(ACCOUNT_TREE_COLLAPSED_STATE_KEY, JSON.stringify([...collapsedIds]))
+            }
+            router.push(`/accounts/${accountId}`)
+          }}
           onActivateCreate={(parentId) => {
             setRenamingAccountId(null)
             setEditingOpeningBalanceAccountId(null)
@@ -924,7 +977,9 @@ function TreeList({
                   </div>
                   <div className="rounded-full border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground">
                     <span className="text-muted-foreground">Balance:</span>{" "}
-                    <span className="tabular-nums">{formatNumber(balanceLookup[node.id] ?? 0)}</span>
+                    <span className="tabular-nums">
+                      {formatNumber(getDisplayBalanceForAccount(node.accountType, balanceLookup[node.id] ?? 0))}
+                    </span>
                   </div>
                   <div className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                     {node.children.length} subaccount{node.children.length === 1 ? "" : "s"}
@@ -1736,12 +1791,14 @@ function buildImportedAccountTree(drafts: ImportedAccountDraft[]) {
   return roots
 }
 
-function collectAccountIds(nodes: AccountNode[]) {
+function collectBranchAccountIds(nodes: AccountNode[]) {
   const ids: string[] = []
 
   for (const node of nodes) {
-    ids.push(node.id)
-    ids.push(...collectAccountIds(node.children))
+    if (node.children.length > 0) {
+      ids.push(node.id)
+      ids.push(...collectBranchAccountIds(node.children))
+    }
   }
 
   return ids

@@ -39,6 +39,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { getSignedSplitAmount } from "@/lib/accounting"
 import { formatAccountType } from "@/lib/accounts"
 import { getTransactions } from "@/lib/transactions"
 import { type ImportSession, type ImportSessionRow } from "@/models/import-session"
@@ -1541,16 +1542,21 @@ function resolveLedgerTransaction(transaction: Transaction): ResolvedLedgerTrans
   }
 
   const sourceSplit =
-    splits.find((split) => split.amount < 0) ?? splits.reduce((current, split) => (split.amount < current.amount ? split : current), splits[0])
+    splits.find((split) => split.side === "debit") ??
+    splits.reduce(
+      (current, split) =>
+        getSignedSplitAmount(split) < getSignedSplitAmount(current) ? split : current,
+      splits[0],
+    )
   const destinationSplit =
-    splits.find((split) => split.amount > 0) ?? splits.find((split) => split.id !== sourceSplit.id) ?? null
+    splits.find((split) => split.side === "credit") ?? splits.find((split) => split.id !== sourceSplit.id) ?? null
 
   return {
     transactionId: transaction.id,
     dateKey: normalizeDateKey(transaction.transactionDate),
     description: transaction.description.trim().toLowerCase(),
     reference: (transaction.referenceNumber ?? "").trim().toLowerCase(),
-    amount: sourceSplit ? Math.abs(sourceSplit.amount) * (sourceSplit.amount >= 0 ? 1 : -1) : null,
+    amount: sourceSplit ? getSignedSplitAmount(sourceSplit) : null,
     sourceAccountId: sourceSplit?.accountId ?? null,
     destinationAccountId: destinationSplit?.accountId ?? null,
   }

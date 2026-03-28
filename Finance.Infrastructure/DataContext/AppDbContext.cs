@@ -62,6 +62,11 @@ namespace Finance.Infrastructure.Data
                 .Property(s => s.Amount)
                 .HasPrecision(18, 2);
 
+            modelBuilder.Entity<Split>()
+                .Property(s => s.Side)
+                .HasConversion<string>()
+                .HasMaxLength(20);
+
             modelBuilder.Entity<User>(entity =>
             {
                 entity.HasKey(user => user.Id);

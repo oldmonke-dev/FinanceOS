@@ -1,7 +1,10 @@
+import type { SplitSide } from "@/lib/accounting"
+
 export type Split = {
   id: string
   accountId: string
   amount: number
+  side: SplitSide
   memo: string | null
 }
 
@@ -17,6 +20,7 @@ export type Transaction = {
 export type CreateSplitInput = {
   accountId: string
   amount: number
+  side: SplitSide
   memo?: string
 }
 
@@ -24,6 +28,7 @@ export type UpdateSplitInput = {
   id: string
   accountId: string
   amount: number
+  side: SplitSide
   memo?: string | null
 }
 

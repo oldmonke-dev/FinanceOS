@@ -1,6 +1,7 @@
 using Finance.BusinessLayer.DTOs.Transactions;
 using Finance.BusinessLayer.Interfaces;
 using Finance.Domain.Entities.Core;
+using Finance.Domain.Enums;
 using Finance.Domain.Interfaces;
 
 namespace Finance.BusinessLayer.Services
@@ -47,7 +48,8 @@ namespace Finance.BusinessLayer.Services
                     {
                         Id = Guid.NewGuid(),
                         AccountId = split.AccountId,
-                        Amount = split.Amount,
+                        Amount = Math.Abs(split.Amount),
+                        Side = split.Side,
                         Memo = string.IsNullOrWhiteSpace(split.Memo) ? null : split.Memo.Trim()
                     })
                     .ToList()
@@ -107,7 +109,8 @@ namespace Finance.BusinessLayer.Services
             {
                 var updatedSplit = transactionDto.Splits.First(item => item.Id == split.Id);
                 split.AccountId = updatedSplit.AccountId;
-                split.Amount = updatedSplit.Amount;
+                split.Amount = Math.Abs(updatedSplit.Amount);
+                split.Side = updatedSplit.Side;
                 split.Memo = string.IsNullOrWhiteSpace(updatedSplit.Memo) ? null : updatedSplit.Memo.Trim();
             }
 
@@ -162,15 +165,20 @@ namespace Finance.BusinessLayer.Services
                 throw new InvalidOperationException("Each split must reference a valid account.");
             }
 
-            if (transactionDto.Splits.Any(split => split.Amount == 0))
+            if (transactionDto.Splits.Any(split => split.Amount <= 0))
             {
-                throw new InvalidOperationException("Split amounts cannot be zero.");
+                throw new InvalidOperationException("Split amounts must be greater than zero.");
             }
 
-            var totalAmount = transactionDto.Splits.Sum(split => split.Amount);
-            if (totalAmount != 0)
+            var debitTotal = transactionDto.Splits
+                .Where(split => split.Side == SplitSide.Debit)
+                .Sum(split => split.Amount);
+            var creditTotal = transactionDto.Splits
+                .Where(split => split.Side == SplitSide.Credit)
+                .Sum(split => split.Amount);
+            if (debitTotal != creditTotal)
             {
-                throw new InvalidOperationException("A transaction must be balanced. The sum of all split amounts must equal zero.");
+                throw new InvalidOperationException("A transaction must be balanced. Total debits must equal total credits.");
             }
         }
 
@@ -191,15 +199,20 @@ namespace Finance.BusinessLayer.Services
                 throw new InvalidOperationException("Each split must reference a valid account.");
             }
 
-            if (transactionDto.Splits.Any(split => split.Amount == 0))
+            if (transactionDto.Splits.Any(split => split.Amount <= 0))
             {
-                throw new InvalidOperationException("Split amounts cannot be zero.");
+                throw new InvalidOperationException("Split amounts must be greater than zero.");
             }
 
-            var totalAmount = transactionDto.Splits.Sum(split => split.Amount);
-            if (totalAmount != 0)
+            var debitTotal = transactionDto.Splits
+                .Where(split => split.Side == SplitSide.Debit)
+                .Sum(split => split.Amount);
+            var creditTotal = transactionDto.Splits
+                .Where(split => split.Side == SplitSide.Credit)
+                .Sum(split => split.Amount);
+            if (debitTotal != creditTotal)
             {
-                throw new InvalidOperationException("A transaction must be balanced. The sum of all split amounts must equal zero.");
+                throw new InvalidOperationException("A transaction must be balanced. Total debits must equal total credits.");
             }
         }
 
@@ -218,6 +231,7 @@ namespace Finance.BusinessLayer.Services
                         Id = split.Id,
                         AccountId = split.AccountId,
                         Amount = split.Amount,
+                        Side = split.Side,
                         Memo = split.Memo
                     })
                     .ToList()

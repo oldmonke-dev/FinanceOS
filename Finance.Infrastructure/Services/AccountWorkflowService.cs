@@ -4,6 +4,7 @@ using Finance.BusinessLayer.DTOs;
 using Finance.BusinessLayer.Interfaces;
 using Finance.Domain.Entities.Core;
 using Finance.Domain.Entities.UserSession;
+using Finance.Domain.Enums;
 using Finance.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -128,7 +129,9 @@ namespace Finance.Infrastructure.Services
                 var transaction = transactions[index];
                 var deletedSplit = transaction.Splits.First(split => split.AccountId == deletedAccountId);
                 var destinationAccountId = ResolvePrefilledDestinationAccountId(transaction, deletedAccountId);
-                var amount = deletedSplit.Amount;
+                var amount = deletedSplit.Side == SplitSide.Debit
+                    ? -deletedSplit.Amount
+                    : deletedSplit.Amount;
 
                 rows.Add(new ImportSessionRow
                 {

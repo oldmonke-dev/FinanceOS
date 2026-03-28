@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react"
 import {
   FileSpreadsheet,
   FolderTree,
+  HelpCircle,
   Home,
   LineChart,
   LogOut,
@@ -180,6 +181,14 @@ export function AppShell({ title, subtitle, badge, children }: AppShellProps) {
                 <Link href="/settings">
                   <Settings />
                   <span>Settings</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild isActive={pathname === "/help"} tooltip="Help">
+                <Link href="/help">
+                  <HelpCircle />
+                  <span>Help</span>
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>

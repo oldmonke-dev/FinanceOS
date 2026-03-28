@@ -27,6 +27,11 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import {
+  getCreditTotal as getSplitCreditTotal,
+  getDebitTotal as getSplitDebitTotal,
+  getSignedSplitAmount,
+} from "@/lib/accounting"
 import { buildAccountTree } from "@/lib/accounts"
 import { deleteTransaction, getTransactions, updateTransaction } from "@/lib/transactions"
 import { cn } from "@/lib/utils"
@@ -78,6 +83,7 @@ export function AdvancedTransactionsPage() {
   const accountPopupRef = useRef<HTMLDivElement | null>(null)
   const [accountQuery, setAccountQuery] = useState("")
   const [selectedAccountIds, setSelectedAccountIds] = useState<Set<string>>(new Set())
+  const [collapsedAccountIds, setCollapsedAccountIds] = useState<Set<string>>(new Set())
   const [bulkTargetAccountId, setBulkTargetAccountId] = useState<string | null>(null)
   const [descriptionQuery, setDescriptionQuery] = useState("")
   const [memoQuery, setMemoQuery] = useState("")
@@ -132,6 +138,10 @@ export function AdvancedTransactionsPage() {
     () => filterAccountTree(accountTree, deferredAccountQuery.trim().toLowerCase()),
     [accountTree, deferredAccountQuery],
   )
+
+  useEffect(() => {
+    setCollapsedAccountIds(new Set(collectExpandableAccountIds(accountTree)))
+  }, [accountTree])
 
   const archivedSessions = useMemo(
     () => sessions.filter((session) => session.isArchived),
@@ -487,6 +497,7 @@ export function AdvancedTransactionsPage() {
             id: split.id,
             accountId: split.accountId,
             amount: split.amount,
+            side: split.side,
             memo: split.memo,
           })),
         })
@@ -758,19 +769,37 @@ export function AdvancedTransactionsPage() {
                     <X className="size-3.5" />
                   </button>
                 </div>
-                <div className="mt-2 flex items-center justify-between">
+                <div className="mt-2 flex items-center justify-between gap-2">
                   <p className="text-[11px] text-muted-foreground">
                     Compact tree multi-select
                   </p>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setSelectedAccountIds(new Set())}
-                    disabled={selectedAccountCount === 0}
-                  >
-                    Clear all
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setCollapsedAccountIds(new Set(collectExpandableAccountIds(filteredAccountTree)))}
+                    >
+                      Collapse all
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setCollapsedAccountIds(new Set())}
+                    >
+                      Expand all
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSelectedAccountIds(new Set())}
+                      disabled={selectedAccountCount === 0}
+                    >
+                      Clear all
+                    </Button>
+                  </div>
                 </div>
                 <div className="mt-2 max-h-72 overflow-y-auto pr-1">
                   {filteredAccountTree.length === 0 ? (
@@ -779,6 +808,18 @@ export function AdvancedTransactionsPage() {
                     <AccountTreeMultiSelect
                       nodes={filteredAccountTree}
                       selectedAccountIds={selectedAccountIds}
+                      collapsedAccountIds={collapsedAccountIds}
+                      onToggleCollapse={(accountId) =>
+                        setCollapsedAccountIds((current) => {
+                          const next = new Set(current)
+                          if (next.has(accountId)) {
+                            next.delete(accountId)
+                          } else {
+                            next.add(accountId)
+                          }
+                          return next
+                        })
+                      }
                       onToggle={(node, checked) =>
                         setSelectedAccountIds((current) => {
                           const next = new Set(current)
@@ -1164,7 +1205,7 @@ export function AdvancedTransactionsPage() {
                     <Fragment key={transaction.id}>
                       {orderSplitsForDisplay(transaction.splits).map((split, splitIndex) => {
                         const splitAccountLabel = accountPathLookup.get(split.accountId) ?? split.accountId
-                        const isDebit = split.amount < 0
+                        const isDebit = split.side === "debit"
 
                         return (
                           <tr
@@ -1369,11 +1410,15 @@ function formatImportSessionLabel(label: string) {
 function AccountTreeMultiSelect({
   nodes,
   selectedAccountIds,
+  collapsedAccountIds,
+  onToggleCollapse,
   onToggle,
   depth = 0,
 }: {
   nodes: AccountNode[]
   selectedAccountIds: Set<string>
+  collapsedAccountIds: Set<string>
+  onToggleCollapse: (accountId: string) => void
   onToggle: (node: AccountNode, checked: boolean) => void
   depth?: number
 }) {
@@ -1381,29 +1426,47 @@ function AccountTreeMultiSelect({
     <div className="space-y-1">
       {nodes.map((node) => {
         const isChecked = selectedAccountIds.has(node.id)
+        const isCollapsed = collapsedAccountIds.has(node.id)
+        const hasChildren = node.children.length > 0
 
         return (
           <div key={node.id}>
-            <label
+            <div
               className={cn(
                 "flex items-start gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-muted/60",
                 isChecked && "bg-primary/5",
               )}
               style={{ paddingLeft: `${depth * 14 + 8}px` }}
             >
-              <Checkbox
-                checked={isChecked}
-                onCheckedChange={(checked) => onToggle(node, Boolean(checked))}
-                aria-label={`Select account ${node.name}`}
-              />
-              <span className="min-w-0">
-                <span className="block truncate font-medium">{node.name}</span>
-              </span>
-            </label>
-            {node.children.length > 0 ? (
+              {hasChildren ? (
+                <button
+                  type="button"
+                  onClick={() => onToggleCollapse(node.id)}
+                  aria-label={isCollapsed ? `Expand ${node.name}` : `Collapse ${node.name}`}
+                  className="mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <ChevronDown className={cn("size-3 transition", isCollapsed && "-rotate-90")} />
+                </button>
+              ) : (
+                <span className="size-4 shrink-0" />
+              )}
+              <label className="flex min-w-0 items-start gap-2">
+                <Checkbox
+                  checked={isChecked}
+                  onCheckedChange={(checked) => onToggle(node, Boolean(checked))}
+                  aria-label={`Select account ${node.name}`}
+                />
+                <span className="min-w-0">
+                  <span className="block truncate font-medium">{node.name}</span>
+                </span>
+              </label>
+            </div>
+            {hasChildren && !isCollapsed ? (
               <AccountTreeMultiSelect
                 nodes={node.children}
                 selectedAccountIds={selectedAccountIds}
+                collapsedAccountIds={collapsedAccountIds}
+                onToggleCollapse={onToggleCollapse}
                 onToggle={onToggle}
                 depth={depth + 1}
               />
@@ -1417,6 +1480,12 @@ function AccountTreeMultiSelect({
 
 function collectAccountNodeIds(node: AccountNode): string[] {
   return [node.id, ...node.children.flatMap((child) => collectAccountNodeIds(child))]
+}
+
+function collectExpandableAccountIds(nodes: AccountNode[]): string[] {
+  return nodes.flatMap((node) =>
+    node.children.length > 0 ? [node.id, ...collectExpandableAccountIds(node.children)] : [],
+  )
 }
 
 function filterAccountTree(nodes: AccountNode[], searchTerm: string): AccountNode[] {
@@ -1517,18 +1586,15 @@ function getComparableDateValue(value: string) {
 }
 
 function getDebitTotal(transaction: Transaction) {
-  return transaction.splits.reduce(
-    (sum, split) => sum + (split.amount < 0 ? Math.abs(split.amount) : 0),
-    0,
-  )
+  return getSplitDebitTotal(transaction.splits)
 }
 
 function getCreditTotal(transaction: Transaction) {
-  return transaction.splits.reduce((sum, split) => sum + (split.amount > 0 ? split.amount : 0), 0)
+  return getSplitCreditTotal(transaction.splits)
 }
 
 function orderSplitsForDisplay(transactionSplits: Transaction["splits"]) {
-  return [...transactionSplits].sort((left, right) => left.amount - right.amount)
+  return [...transactionSplits].sort((left, right) => getSignedSplitAmount(left) - getSignedSplitAmount(right))
 }
 
 function formatDate(value: string) {

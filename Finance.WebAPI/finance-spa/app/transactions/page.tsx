@@ -22,6 +22,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { getOppositeSide, getSignedAmount, type SplitSide } from "@/lib/accounting"
 import { createTransaction } from "@/lib/transactions"
 import { type CreateTransactionInput, type Transaction } from "@/models/transaction"
 
@@ -146,16 +147,17 @@ export default function TransactionsPage() {
     setIsSubmitting(true)
 
     try {
-      const payload: CreateTransactionInput = {
-        transactionDate: new Date(transactionDate).toISOString(),
-        description,
-        referenceNumber,
-        splits: splits.map((split) => ({
-          accountId: split.accountId,
-          amount: getEffectiveSplitAmount(split),
-          memo: split.memo,
-        })),
-      }
+        const payload: CreateTransactionInput = {
+          transactionDate: new Date(transactionDate).toISOString(),
+          description,
+          referenceNumber,
+          splits: splits.map((split) => ({
+            accountId: split.accountId,
+            amount: Math.abs(Number(split.amount || 0)),
+            side: split.sign === "dr" ? "debit" : "credit",
+            memo: split.memo,
+          })),
+        }
 
       const created = await createTransaction(payload)
       setCreatedTransaction(created)
@@ -340,7 +342,9 @@ export default function TransactionsPage() {
                 <p className="font-medium">
                   {accountPathLookup.get(split.accountId) ?? "Account"}
                 </p>
-                <p className="text-muted-foreground">Amount: {split.amount}</p>
+                <p className="text-muted-foreground">
+                  Amount: {split.amount} {split.side === "debit" ? "Dr" : "Cr"}
+                </p>
                 {split.memo ? <p className="text-muted-foreground">Memo: {split.memo}</p> : null}
               </div>
             ))}
@@ -364,12 +368,14 @@ function normalizeUnsignedAmount(value: string) {
 }
 
 function getOppositeSign(sign: SplitSign): SplitSign {
-  return sign === "cr" ? "dr" : "cr"
+  const oppositeSide = getOppositeSide(sign === "dr" ? "debit" : "credit")
+  return oppositeSide === "debit" ? "dr" : "cr"
 }
 
 function getEffectiveSplitAmount(split: SplitDraft) {
   const numericValue = Math.abs(Number(split.amount || 0))
-  return split.sign === "dr" ? -numericValue : numericValue
+  const side: SplitSide = split.sign === "dr" ? "debit" : "credit"
+  return getSignedAmount(numericValue, side)
 }
 
 function FieldInfoTooltip({ content }: { content: string }) {

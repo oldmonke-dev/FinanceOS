@@ -3,6 +3,7 @@ import {
   type Transaction,
   type UpdateTransactionInput,
 } from "@/models/transaction"
+import { normalizeSplitSide } from "@/lib/accounting"
 import { authFetch } from "@/lib/auth"
 import { API_BASE_URL } from "@/lib/api-config"
 
@@ -25,7 +26,8 @@ function normalizeTransaction(raw: Record<string, unknown>): Transaction {
       return {
         id: String(item.id ?? item.Id ?? ""),
         accountId: String(item.accountId ?? item.AccountId ?? ""),
-        amount: Number(item.amount ?? item.Amount ?? 0),
+        amount: Math.abs(Number(item.amount ?? item.Amount ?? 0)),
+        side: normalizeSplitSide(item.side ?? item.Side, Number(item.amount ?? item.Amount ?? 0)),
         memo:
           item.memo == null && item.Memo == null ? null : String(item.memo ?? item.Memo),
       }

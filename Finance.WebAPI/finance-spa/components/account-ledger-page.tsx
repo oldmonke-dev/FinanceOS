@@ -28,8 +28,18 @@ import {
   formatAccountType,
   renameAccount,
 } from "@/lib/accounts"
+import {
+  getBalanceDeltaForAccount,
+  getDisplayBalanceForAccount,
+  getDisplaySplitAmountForAccount,
+  getSignedSplitAmount,
+  getStoredBalanceFromDisplay,
+  type SplitSide,
+} from "@/lib/accounting"
 import { deleteTransaction, getTransactions, updateTransaction } from "@/lib/transactions"
 import type { Transaction } from "@/models/transaction"
+
+const ACCOUNT_TREE_RESTORE_PENDING_KEY = "finance.account-tree.restore-pending"
 
 export function AccountLedgerPage({ accountId }: { accountId: string }) {
   const { accounts, isLoading, errorMessage, updateAccount } = useAccounts()
@@ -70,9 +80,17 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
 
     return draftTransactions.reduce((sum, transaction) => {
       const split = transaction.splits.find((item) => item.accountId === resolvedAccountId)
-      return sum + (split?.amount ?? 0)
+      return sum + (split ? getBalanceDeltaForAccount(account?.accountType, split) : 0)
     }, account?.openingBalance ?? 0)
-  }, [account?.openingBalance, draftTransactions, resolvedAccountId])
+  }, [account?.accountType, account?.openingBalance, draftTransactions, resolvedAccountId])
+  const openingBalanceDisplay = useMemo(
+    () => getDisplayBalanceForAccount(account?.accountType, account?.openingBalance ?? 0),
+    [account?.accountType, account?.openingBalance],
+  )
+  const currentBalanceDisplay = useMemo(
+    () => getDisplayBalanceForAccount(account?.accountType, currentBalance),
+    [account?.accountType, currentBalance],
+  )
   const transactionRows = useMemo(() => {
     if (!resolvedAccountId) {
       return []
@@ -99,7 +117,9 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
     let runningBalance = account?.openingBalance ?? 0
 
     for (const row of [...baseRows].reverse()) {
-      runningBalance += row.accountSplit?.amount ?? 0
+      runningBalance += row.accountSplit
+        ? getBalanceDeltaForAccount(account?.accountType, row.accountSplit)
+        : 0
       trailingBalanceByTransactionId.set(row.transaction.id, runningBalance)
     }
 
@@ -107,7 +127,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
       ...row,
       trailingBalance: trailingBalanceByTransactionId.get(row.transaction.id) ?? 0,
     }))
-  }, [account?.openingBalance, draftTransactions, resolvedAccountId, accounts])
+  }, [account?.accountType, account?.openingBalance, draftTransactions, resolvedAccountId, accounts])
   const totalPages = Math.max(1, Math.ceil(transactionRows.length / rowsPerPage))
   const pagedTransactionRows = useMemo(
     () =>
@@ -126,7 +146,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
       accountNameDraft !== account.name ||
       accountNumberDraft !== (account.accountNumber ?? "") ||
       accountDescriptionDraft !== (account.description ?? "") ||
-      openingBalanceDraft !== String(account.openingBalance)
+      openingBalanceDraft !== String(getDisplayBalanceForAccount(account.accountType, account.openingBalance))
     )
   const canUndo = historyIndex > 0
   const canRedo = historyIndex >= 0 && historyIndex < history.length - 1
@@ -187,7 +207,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
     setAccountNameDraft(account.name)
     setAccountNumberDraft(account.accountNumber ?? "")
     setAccountDescriptionDraft(account.description ?? "")
-    setOpeningBalanceDraft(String(account.openingBalance))
+    setOpeningBalanceDraft(String(getDisplayBalanceForAccount(account.accountType, account.openingBalance)))
   }, [account])
 
   useEffect(() => {
@@ -214,6 +234,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
             id: split.id,
             accountId: split.accountId,
             amount: split.amount,
+            side: split.side,
             memo: split.memo,
           })),
         })
@@ -420,11 +441,10 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
         }
 
         const nextAbsoluteAmount = Math.abs(parsedAmount)
-        const nextAmount = editedSplit.amount < 0 ? -nextAbsoluteAmount : nextAbsoluteAmount
 
         return {
           ...transaction,
-          splits: applyBalancedSplitEdit(transaction.splits, splitId, nextAmount),
+          splits: applyBalancedSplitEdit(transaction.splits, splitId, nextAbsoluteAmount, editedSplit.side),
         }
       }),
     )
@@ -442,12 +462,11 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
           return transaction
         }
 
-        const nextAbsoluteAmount = Math.abs(editedSplit.amount)
-        const nextAmount = sign === "dr" ? -nextAbsoluteAmount : nextAbsoluteAmount
+        const nextSide: SplitSide = sign === "dr" ? "debit" : "credit"
 
         return {
           ...transaction,
-          splits: applyBalancedSplitEdit(transaction.splits, splitId, nextAmount),
+          splits: applyBalancedSplitEdit(transaction.splits, splitId, editedSplit.amount, nextSide),
         }
       }),
     )
@@ -535,7 +554,10 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
         name: accountNameDraft,
         accountNumber: accountNumberDraft.trim() || null,
         description: accountDescriptionDraft.trim() || null,
-        openingBalance: Number(openingBalanceDraft) || 0,
+        openingBalance: getStoredBalanceFromDisplay(
+          account.accountType,
+          Number(openingBalanceDraft) || 0,
+        ),
       })
 
       updateAccount(updatedAccount)
@@ -559,7 +581,14 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
       <div className="space-y-4">
         <div>
           <Button asChild type="button" variant="outline">
-            <Link href="/accounts">
+            <Link
+              href="/accounts"
+              onClick={() => {
+                if (typeof window !== "undefined") {
+                  window.sessionStorage.setItem(ACCOUNT_TREE_RESTORE_PENDING_KEY, "1")
+                }
+              }}
+            >
               <ArrowLeft />
               Back to account tree
             </Link>
@@ -604,7 +633,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                 <span>Opening balance</span>
               </div>
               <p className="mt-1 text-base font-semibold leading-tight">
-                {formatNumber(resolvedAccount.openingBalance)}
+                {formatNumber(openingBalanceDisplay)}
               </p>
             </div>
             <div className="rounded-xl border bg-background/70 px-3 py-2">
@@ -612,7 +641,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                 <Scale className="size-3.5" />
                 <span>Current balance</span>
               </div>
-              <p className="mt-1 text-base font-semibold leading-tight">{formatNumber(currentBalance)}</p>
+              <p className="mt-1 text-base font-semibold leading-tight">{formatNumber(currentBalanceDisplay)}</p>
             </div>
             <div className="rounded-xl border bg-background/70 px-3 py-2">
               <p className="text-xs text-muted-foreground">Under account</p>
@@ -639,7 +668,14 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                     setAccountNameDraft(resolvedAccount.name)
                     setAccountNumberDraft(resolvedAccount.accountNumber ?? "")
                     setAccountDescriptionDraft(resolvedAccount.description ?? "")
-                    setOpeningBalanceDraft(String(resolvedAccount.openingBalance))
+                    setOpeningBalanceDraft(
+                      String(
+                        getDisplayBalanceForAccount(
+                          resolvedAccount.accountType,
+                          resolvedAccount.openingBalance,
+                        ),
+                      ),
+                    )
                   }}
                   disabled={!hasAccountDetailChanges || isSavingAccountDetails}
                 >
@@ -889,11 +925,16 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                             rows={1}
                           />
                         </td>
-                        <td className={`border-t px-2 py-2 text-right align-top font-medium tabular-nums whitespace-nowrap sm:px-3 ${getAmountToneClass(accountSplit?.amount ?? 0)}`}>
-                          {formatSignedNumber(accountSplit?.amount ?? 0, formatNumber)}
+                        <td className={`border-t px-2 py-2 text-right align-top font-medium tabular-nums whitespace-nowrap sm:px-3 ${getAmountToneClass(accountSplit ? getDisplaySplitAmountForAccount(resolvedAccount.accountType, accountSplit) : 0)}`}>
+                          {formatSignedNumber(
+                            accountSplit
+                              ? getDisplaySplitAmountForAccount(resolvedAccount.accountType, accountSplit)
+                              : 0,
+                            formatNumber,
+                          )}
                         </td>
                         <td className="border-t px-2 py-2 text-right align-top font-medium tabular-nums whitespace-nowrap text-muted-foreground sm:px-3">
-                          {formatNumber(trailingBalance)}
+                          {formatNumber(getDisplayBalanceForAccount(resolvedAccount.accountType, trailingBalance))}
                         </td>
                         <td className="border-t px-2 py-2 text-right align-top sm:px-3">
                           <Button
@@ -923,7 +964,10 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                                   </span>
                                 </div>
                                 <div data-horizontal-scroll-region className="horizontal-scroll-region">
-                                  {orderSplitsForDisplay(transaction.splits).map((split, splitIndex) => (
+                                  {orderSplitsForDisplay(transaction.splits).map((split, splitIndex) => {
+                                    const splitSignedAmount = getSignedSplitAmount(split)
+
+                                    return (
                                     <div
                                       key={split.id}
                                       className={`grid min-w-[48rem] grid-cols-[auto_minmax(10rem,1.3fr)_minmax(8rem,1fr)_auto_5.5rem_auto_7.5rem] items-center gap-x-2 border-t px-2 py-2 text-[11px] first:border-t-0 sm:min-w-[54rem] sm:grid-cols-[auto_minmax(12rem,1.4fr)_minmax(10rem,1.1fr)_auto_6rem_auto_8rem] sm:px-3 sm:text-xs ${
@@ -968,7 +1012,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                                       <div className="pr-1 text-[11px] text-muted-foreground">Sign</div>
                                       <div>
                                         <Select
-                                          value={getSplitSign(split.amount)}
+                                          value={getSplitSign(split.side)}
                                           onValueChange={(value) =>
                                             updateSplitSign(
                                               transaction.id,
@@ -987,11 +1031,11 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                                         </Select>
                                       </div>
                                       <div className="pr-1 text-[11px] text-muted-foreground">Amount</div>
-                                      <div className={getAmountToneClass(split.amount)}>
+                                      <div className={getAmountToneClass(splitSignedAmount)}>
                                         <Input
                                           type="number"
                                           step="0.01"
-                                          value={String(Math.abs(split.amount))}
+                                          value={String(split.amount)}
                                           onChange={(event) =>
                                             updateSplitAmount(
                                               transaction.id,
@@ -999,11 +1043,12 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                                               event.target.value,
                                             )
                                           }
-                                          className={`${inlineNumberInputClassName} ${getAmountToneClass(split.amount)}`}
+                                          className={`${inlineNumberInputClassName} ${getAmountToneClass(splitSignedAmount)}`}
                                         />
                                       </div>
                                     </div>
-                                  ))}
+                                    )
+                                  })}
                                 </div>
                               </div>
                             </td>
@@ -1111,14 +1156,15 @@ function orderSplitsForDisplay(
   return [...splits]
 }
 
-function getSplitSign(amount: number): "dr" | "cr" {
-  return amount < 0 ? "dr" : "cr"
+function getSplitSign(side: "debit" | "credit"): "dr" | "cr" {
+  return side === "debit" ? "dr" : "cr"
 }
 
 function applyBalancedSplitEdit(
   splits: Transaction["splits"],
   splitId: string,
   nextAmount: number,
+  nextSide: SplitSide,
 ) {
   if (splits.length !== 2) {
     return splits.map((split) =>
@@ -1127,6 +1173,7 @@ function applyBalancedSplitEdit(
         : {
             ...split,
             amount: nextAmount,
+            side: nextSide,
           },
     )
   }
@@ -1141,13 +1188,15 @@ function applyBalancedSplitEdit(
       return {
         ...split,
         amount: nextAmount,
+        side: nextSide,
       }
     }
 
     if (split.id === counterpart.id) {
       return {
         ...split,
-        amount: -nextAmount,
+        amount: nextAmount,
+        side: (nextSide === "debit" ? "credit" : "debit") as SplitSide,
       }
     }
 
