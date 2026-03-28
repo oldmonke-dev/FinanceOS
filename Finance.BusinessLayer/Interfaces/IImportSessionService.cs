@@ -1,7 +1,8 @@
 using Finance.BusinessLayer.DTOs.ImportSessions;
 
 namespace Finance.BusinessLayer.Interfaces
-{
+{   
+    // Comment
     public interface IImportSessionService
     {
         Task<ImportSessionDTO> CreateImportSessionAsync(
