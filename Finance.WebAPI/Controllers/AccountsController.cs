@@ -101,12 +101,38 @@ namespace Finance.WebAPI.Controllers
             }
         }
 
+        [HttpPut("{id:guid}/owner")]
+        public async Task<ActionResult<AccountListItemDTO>> UpdateAccountOwner(
+            Guid id,
+            [FromBody] UpdateAccountOwnerDTO request)
+        {
+            try
+            {
+                var updatedAccount = await _accountRepository.UpdateAccountOwnerAsync(
+                    id,
+                    request.OwnerUserId,
+                    User.GetRequiredUserId(),
+                    User.IsAdmin());
+                return Ok(MapAccount(updatedAccount));
+            }
+            catch (InvalidOperationException exception)
+            {
+                return BadRequest(new { message = exception.Message });
+            }
+            catch (KeyNotFoundException exception)
+            {
+                return NotFound(new { message = exception.Message });
+            }
+        }
+
         private static AccountListItemDTO MapAccount(Account account)
         {
             return new AccountListItemDTO
             {
                 Id = account.Id,
                 Name = account.Name,
+                AccountNumber = account.AccountNumber,
+                Description = account.Description,
                 AccountType = account.AccountType,
                 ParentAccountId = account.ParentAccountId,
                 OpeningBalance = account.OpeningBalance,

@@ -8,6 +8,10 @@ namespace Finance.Domain.Entities.Core
 
         public string Name { get; set; } = string.Empty;
 
+        public string? AccountNumber { get; set; }
+
+        public string? Description { get; set; }
+
         public AccountType AccountType { get; set; }
 
         public decimal OpeningBalance { get; set; }

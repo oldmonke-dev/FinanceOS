@@ -6,6 +6,10 @@ namespace Finance.BusinessLayer.DTOs.UserPreferences
 
         public string NumberGroupingStyle { get; set; } = "international";
 
+        public string FinancialYearMode { get; set; } = "indian";
+
+        public DateTime? CustomFinancialYearStartDate { get; set; }
+
         public DateTime UpdatedAt { get; set; }
     }
 }

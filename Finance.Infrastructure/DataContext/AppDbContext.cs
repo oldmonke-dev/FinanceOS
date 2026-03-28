@@ -38,6 +38,14 @@ namespace Finance.Infrastructure.Data
                 .HasForeignKey(a => a.OwnerUserId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            modelBuilder.Entity<Account>()
+                .Property(a => a.AccountNumber)
+                .HasMaxLength(50);
+
+            modelBuilder.Entity<Account>()
+                .Property(a => a.Description)
+                .HasMaxLength(500);
+
             modelBuilder.Entity<Split>()
                 .HasOne(s => s.Account)
                 .WithMany(a => a.Splits)
@@ -91,6 +99,14 @@ namespace Finance.Infrastructure.Data
                     .IsRequired()
                     .HasMaxLength(40)
                     .HasDefaultValue("international");
+
+                entity.Property(preference => preference.FinancialYearMode)
+                    .IsRequired()
+                    .HasMaxLength(40)
+                    .HasDefaultValue("indian");
+
+                entity.Property(preference => preference.CustomFinancialYearStartDate)
+                    .HasColumnType("date");
 
                 entity.Property(preference => preference.UpdatedAt)
                     .HasColumnType("timestamp with time zone");

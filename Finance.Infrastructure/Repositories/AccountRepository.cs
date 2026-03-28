@@ -73,6 +73,8 @@ namespace Finance.Infrastructure.Repositories
             {
                 Id = accountDto.Id == Guid.Empty ? Guid.NewGuid() : accountDto.Id,
                 Name = normalizedName,
+                AccountNumber = NormalizeOptionalText(accountDto.AccountNumber, 50),
+                Description = NormalizeOptionalText(accountDto.Description, 500),
                 AccountType = accountType,
                 OpeningBalance = accountDto.OpeningBalance ?? 0m,
                 ParentAccountId = parentAccountId,
@@ -108,7 +110,45 @@ namespace Finance.Infrastructure.Repositories
                 account.OwnerUserId);
 
             account.Name = normalizedName;
+            account.AccountNumber = NormalizeOptionalText(request.AccountNumber, 50);
+            account.Description = NormalizeOptionalText(request.Description, 500);
             account.OpeningBalance = request.OpeningBalance ?? 0m;
+            await _context.SaveChangesAsync();
+
+            return await GetAccountWithOwnerAsync(account.Id);
+        }
+
+        public async Task<Account> UpdateAccountOwnerAsync(Guid accountId, Guid? ownerUserId, Guid userId, bool isAdmin)
+        {
+            if (!isAdmin)
+            {
+                throw new InvalidOperationException("Only admins can change account ownership.");
+            }
+
+            var account = await _context.Accounts.FirstOrDefaultAsync(item => item.Id == accountId);
+
+            if (account is null)
+            {
+                throw new KeyNotFoundException("Account was not found.");
+            }
+
+            if (ownerUserId.HasValue)
+            {
+                var userExists = await _context.Users.AnyAsync(item => item.Id == ownerUserId.Value && item.IsActive);
+                if (!userExists)
+                {
+                    throw new InvalidOperationException("The selected user was not found or is inactive.");
+                }
+            }
+
+            await EnsureNoDuplicateAsync(
+                account.ParentAccountId,
+                account.AccountType,
+                account.Name,
+                account.Id,
+                ownerUserId);
+
+            account.OwnerUserId = ownerUserId;
             await _context.SaveChangesAsync();
 
             return await GetAccountWithOwnerAsync(account.Id);
@@ -131,6 +171,23 @@ namespace Finance.Infrastructure.Repositories
             }
 
             return normalizedName;
+        }
+
+        private static string? NormalizeOptionalText(string? value, int maxLength)
+        {
+            var normalized = value?.Trim();
+
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                return null;
+            }
+
+            if (normalized.Length > maxLength)
+            {
+                throw new InvalidOperationException($"Field cannot exceed {maxLength} characters.");
+            }
+
+            return normalized;
         }
 
         private async Task EnsureNoDuplicateAsync(

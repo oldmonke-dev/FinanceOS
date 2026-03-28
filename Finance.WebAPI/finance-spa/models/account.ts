@@ -3,6 +3,8 @@ export type AccountType = 1 | 2 | 3 | 4 | 5
 export type Account = {
   id: string
   name: string
+  accountNumber: string | null
+  description: string | null
   accountType: AccountType | string
   parentAccountId: string | null
   openingBalance: number
@@ -14,6 +16,8 @@ export type Account = {
 export type CreateAccountInput = {
   id?: string
   name: string
+  accountNumber?: string | null
+  description?: string | null
   accountType: AccountType
   parentAccountId: string | null
   openingBalance: number

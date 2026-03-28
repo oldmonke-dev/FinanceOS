@@ -51,14 +51,17 @@ import {
   formatAccountType,
   getAccountOwnerLabel,
   renameAccount,
+  updateAccountOwner,
 } from "@/lib/accounts"
 import { getTransactions } from "@/lib/transactions"
+import { getUsers } from "@/lib/users"
 import {
   type Account,
   type AccountNode,
   type AccountType,
   type CreateAccountInput,
 } from "@/models/account"
+import { type User } from "@/models/user"
 
 type AccountFormProps = {
   parentAccountId: string | null
@@ -69,6 +72,9 @@ type AccountFormProps = {
 
 type RenameAccountFormProps = {
   account: Account
+  users: User[]
+  isAdmin: boolean
+  isLoadingUsers: boolean
   onCancel: () => void
   onRenamed: (account: Account) => void
 }
@@ -122,6 +128,8 @@ export function AccountTree() {
   const [balanceError, setBalanceError] = useState<string | null>(null)
   const [isImportOpen, setIsImportOpen] = useState(false)
   const [deletingAccountId, setDeletingAccountId] = useState<string | null>(null)
+  const [users, setUsers] = useState<User[]>([])
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false)
 
   const nodes = buildAccountTree(accounts)
   const normalizedSearchTerm = searchTerm.trim().toLowerCase()
@@ -187,6 +195,43 @@ export function AccountTree() {
       isCancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (!user?.isAdmin) {
+      setUsers([])
+      return
+    }
+
+    let isCancelled = false
+
+    async function loadUsers() {
+      setIsLoadingUsers(true)
+
+      try {
+        const nextUsers = await getUsers()
+        if (!isCancelled) {
+          setUsers(nextUsers.filter((item) => item.isActive))
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          showSnackbar({
+            message: error instanceof Error ? error.message : "Failed to load users.",
+            tone: "error",
+          })
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingUsers(false)
+        }
+      }
+    }
+
+    void loadUsers()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [showSnackbar, user?.isAdmin])
 
   if (isLoading) {
     return (
@@ -254,7 +299,7 @@ export function AccountTree() {
     setRenamingAccountId(null)
     setEditingOpeningBalanceAccountId(null)
     setOpenActionsAccountId(null)
-    showSnackbar({ message: `Renamed account to ${account.name}.`, tone: "success" })
+    showSnackbar({ message: `Updated account ${account.name}.`, tone: "success" })
   }
 
   function handleOpeningBalanceSaved(account: Account) {
@@ -407,6 +452,8 @@ export function AccountTree() {
           renamingAccountId={renamingAccountId}
           editingOpeningBalanceAccountId={editingOpeningBalanceAccountId}
           openActionsAccountId={openActionsAccountId}
+          users={users}
+          isLoadingUsers={isLoadingUsers}
           onToggleActionsMenu={(accountId) =>
             setOpenActionsAccountId((current) => (current === accountId ? null : accountId))
           }
@@ -768,6 +815,8 @@ type TreeListProps = {
   renamingAccountId: string | null
   editingOpeningBalanceAccountId: string | null
   openActionsAccountId: string | null
+  users: User[]
+  isLoadingUsers: boolean
   onToggleActionsMenu: (accountId: string) => void
   onCloseActionsMenu: () => void
   onActivateRename: (accountId: string | null) => void
@@ -797,6 +846,8 @@ function TreeList({
   renamingAccountId,
   editingOpeningBalanceAccountId,
   openActionsAccountId,
+  users,
+  isLoadingUsers,
   onToggleActionsMenu,
   onCloseActionsMenu,
   onActivateRename,
@@ -844,10 +895,11 @@ function TreeList({
                   >
                     <div className="flex flex-wrap items-center gap-1.5">
                       <p className="text-sm font-medium leading-tight transition hover:text-primary">{node.name}</p>
-                      <span className="inline-flex items-center gap-1 rounded-full border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground">
-                        <presentation.icon className={`size-3 ${presentation.iconClass}`} />
-                        <span>{presentation.label}</span>
-                      </span>
+                      {node.accountNumber ? (
+                        <span className="rounded-full border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                          #{node.accountNumber}
+                        </span>
+                      ) : null}
                       {isAdmin ? (
                         <span className="inline-flex items-center rounded-full border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground">
                           <UserRound className="mr-1 size-3 shrink-0" />
@@ -856,12 +908,20 @@ function TreeList({
                       ) : null}
                     </div>
                     <p className="mt-0.5 text-[11px] text-muted-foreground">
-                      {node.parentAccountId != null ? "Nested account" : "Top-level account"}
+                      {node.description?.trim()
+                        ? node.description
+                        : node.parentAccountId != null
+                          ? "Nested account"
+                          : "Top-level account"}
                     </p>
                   </button>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-1.5">
+                  <div className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    <presentation.icon className={`size-3 ${presentation.iconClass}`} />
+                    <span>{presentation.label}</span>
+                  </div>
                   <div className="rounded-full border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground">
                     <span className="text-muted-foreground">Balance:</span>{" "}
                     <span className="tabular-nums">{formatNumber(balanceLookup[node.id] ?? 0)}</span>
@@ -900,6 +960,9 @@ function TreeList({
                 <div className="mt-2 border-t pt-2">
                   <RenameAccountForm
                     account={node}
+                    users={users}
+                    isAdmin={isAdmin}
+                    isLoadingUsers={isLoadingUsers}
                     onCancel={onCancelRename}
                     onRenamed={onRenamed}
                   />
@@ -934,6 +997,8 @@ function TreeList({
                   renamingAccountId={renamingAccountId}
                   editingOpeningBalanceAccountId={editingOpeningBalanceAccountId}
                   openActionsAccountId={openActionsAccountId}
+                  users={users}
+                  isLoadingUsers={isLoadingUsers}
                   onToggleActionsMenu={onToggleActionsMenu}
                   onCloseActionsMenu={onCloseActionsMenu}
                   onActivateRename={onActivateRename}
@@ -964,6 +1029,8 @@ function AccountForm({
 }: AccountFormProps) {
   const { showSnackbar } = useSnackbar()
   const [name, setName] = useState("")
+  const [accountNumber, setAccountNumber] = useState("")
+  const [description, setDescription] = useState("")
   const [accountType, setAccountType] = useState<AccountType>(1)
   const [openingBalance, setOpeningBalance] = useState("0")
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -975,6 +1042,8 @@ function AccountForm({
     try {
       const payload: CreateAccountInput = {
         name,
+        accountNumber: accountNumber.trim() || null,
+        description: description.trim() || null,
         accountType,
         parentAccountId,
         openingBalance: Number(openingBalance) || 0,
@@ -982,6 +1051,8 @@ function AccountForm({
 
       const account = await createAccount(payload)
       setName("")
+      setAccountNumber("")
+      setDescription("")
       setAccountType(1)
       setOpeningBalance("0")
       onCreated(account)
@@ -1006,7 +1077,7 @@ function AccountForm({
         </div>
       </div>
 
-      <div className="mt-3 grid gap-2 md:grid-cols-[1.2fr_0.8fr_0.9fr_auto]">
+      <div className="mt-3 grid gap-2 md:grid-cols-[minmax(0,1.1fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_auto]">
         <label className="space-y-1 text-sm">
           <span className="font-medium">Name</span>
           <Input
@@ -1015,6 +1086,17 @@ function AccountForm({
             onChange={(event) => setName(event.target.value)}
             placeholder="Account name"
             required
+          />
+        </label>
+
+        <label className="space-y-1 text-sm">
+          <span className="font-medium">Account number</span>
+          <Input
+            className="h-8"
+            value={accountNumber}
+            onChange={(event) => setAccountNumber(event.target.value)}
+            placeholder="Optional"
+            maxLength={50}
           />
         </label>
 
@@ -1049,6 +1131,17 @@ function AccountForm({
           />
         </label>
 
+        <label className="space-y-1 text-sm md:col-span-3">
+          <span className="font-medium">Description</span>
+          <Input
+            className="h-8"
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="Optional notes for this account"
+            maxLength={500}
+          />
+        </label>
+
         <div className="flex items-end gap-2">
           <Button type="submit" size="sm" disabled={isSubmitting}>
             {isSubmitting ? "Creating..." : "Create"}
@@ -1062,9 +1155,19 @@ function AccountForm({
   )
 }
 
-function RenameAccountForm({ account, onCancel, onRenamed }: RenameAccountFormProps) {
+function RenameAccountForm({
+  account,
+  users,
+  isAdmin,
+  isLoadingUsers,
+  onCancel,
+  onRenamed,
+}: RenameAccountFormProps) {
   const { showSnackbar } = useSnackbar()
   const [name, setName] = useState(account.name)
+  const [accountNumber, setAccountNumber] = useState(account.accountNumber ?? "")
+  const [description, setDescription] = useState(account.description ?? "")
+  const [selectedOwnerId, setSelectedOwnerId] = useState(account.ownerUserId ?? "admin")
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -1072,10 +1175,20 @@ function RenameAccountForm({ account, onCancel, onRenamed }: RenameAccountFormPr
     setIsSubmitting(true)
 
     try {
-      const updatedAccount = await renameAccount(account.id, {
+      let updatedAccount = await renameAccount(account.id, {
         name,
+        accountNumber: accountNumber.trim() || null,
+        description: description.trim() || null,
         openingBalance: account.openingBalance,
       })
+
+      if (isAdmin) {
+        const nextOwnerUserId = selectedOwnerId === "admin" ? null : selectedOwnerId
+        if (nextOwnerUserId !== account.ownerUserId) {
+          updatedAccount = await updateAccountOwner(account.id, nextOwnerUserId)
+        }
+      }
+
       onRenamed(updatedAccount)
     } catch (error) {
       showSnackbar({
@@ -1091,14 +1204,14 @@ function RenameAccountForm({ account, onCancel, onRenamed }: RenameAccountFormPr
     <form onSubmit={handleSubmit} className="rounded-xl border bg-card p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="text-sm font-medium">Rename account</h3>
+          <h3 className="text-sm font-medium">Edit account</h3>
           <p className="text-xs text-muted-foreground">
-            Opening balance stays {account.openingBalance.toFixed(2)} while you rename this account.
+            Opening balance stays {account.openingBalance.toFixed(2)} while you edit account metadata.
           </p>
         </div>
       </div>
 
-      <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
+      <div className="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,14rem)_auto]">
         <label className="space-y-1 text-sm">
           <span className="font-medium">Name</span>
           <Input
@@ -1110,10 +1223,55 @@ function RenameAccountForm({ account, onCancel, onRenamed }: RenameAccountFormPr
           />
         </label>
 
+        <label className="space-y-1 text-sm">
+          <span className="font-medium">Account number</span>
+          <Input
+            className="h-8"
+            value={accountNumber}
+            onChange={(event) => setAccountNumber(event.target.value)}
+            placeholder="Optional"
+            maxLength={50}
+          />
+        </label>
+
+        {isAdmin ? (
+          <label className="space-y-1 text-sm">
+            <span className="font-medium">Linked user</span>
+            <Select
+              value={selectedOwnerId}
+              onValueChange={setSelectedOwnerId}
+              disabled={isLoadingUsers}
+            >
+              <SelectTrigger className="h-8">
+                <SelectValue placeholder={isLoadingUsers ? "Loading users..." : "Select user"} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="admin">Admin</SelectItem>
+                {users.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.displayName} ({item.email})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+        ) : null}
+
+        <label className="space-y-1 text-sm md:col-span-2">
+          <span className="font-medium">Description</span>
+          <Input
+            className="h-8"
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="Optional notes for this account"
+            maxLength={500}
+          />
+        </label>
+
         <div className="flex items-end gap-2">
           <Button type="submit" size="sm" disabled={isSubmitting}>
             <Pencil />
-            {isSubmitting ? "Saving..." : "Rename"}
+            {isSubmitting ? "Saving..." : "Save"}
           </Button>
           <Button type="button" size="sm" variant="ghost" onClick={onCancel} disabled={isSubmitting}>
             Cancel
@@ -1136,6 +1294,8 @@ function OpeningBalanceForm({ account, onCancel, onSaved }: OpeningBalanceFormPr
     try {
       const updatedAccount = await renameAccount(account.id, {
         name: account.name,
+        accountNumber: account.accountNumber,
+        description: account.description,
         openingBalance: Number(openingBalance) || 0,
       })
       onSaved(updatedAccount)
@@ -1268,7 +1428,7 @@ function AccountActionsMenu({
             }}
           >
             <Pencil className="size-4" />
-            <span>Rename Account</span>
+            <span>Edit Account</span>
           </button>
           <button
             type="button"
@@ -1601,7 +1761,10 @@ function filterAccountTree(nodes: AccountNode[], searchTerm: string) {
     const filteredChildren = node.children
       .map((child) => visit(child))
       .filter((child): child is AccountNode => child != null)
-    const matchesSelf = node.name.toLowerCase().includes(searchTerm)
+    const matchesSelf =
+      node.name.toLowerCase().includes(searchTerm) ||
+      (node.accountNumber ?? "").toLowerCase().includes(searchTerm) ||
+      (node.description ?? "").toLowerCase().includes(searchTerm)
     const hasMatchingDescendant = filteredChildren.length > 0
 
     if (!matchesSelf && !hasMatchingDescendant) {

@@ -2,12 +2,19 @@
 
 import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ChevronRight, Trash2 } from "lucide-react"
+import { ChevronRight, Info, Trash2, UserRound } from "lucide-react"
 
 import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider"
 import { useSnackbar } from "@/components/providers/snackbar-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { getAccountOwnerLabel } from "@/lib/accounts"
 import { deleteBayesianLearningForAccount } from "@/lib/strategies"
 import { type BayesianMapGroup } from "@/models/strategy"
 
@@ -28,7 +35,7 @@ export function BayesianMapGroups({ groups }: { groups: BayesianMapGroup[] }) {
     }
 
     return groups.filter((group) => {
-      const haystack = `${group.destinationAccountName} ${group.destinationAccountPath}`.toLowerCase()
+      const haystack = `${group.destinationAccountName} ${group.destinationAccountPath} ${getBayesianGroupOwnerLabel(group)}`.toLowerCase()
       return haystack.includes(normalizedSearch)
     })
   }, [groups, search])
@@ -151,14 +158,21 @@ export function BayesianMapGroups({ groups }: { groups: BayesianMapGroup[] }) {
                   className={`size-4 shrink-0 text-muted-foreground transition ${isExpanded ? "rotate-90" : ""}`}
                 />
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{group.destinationAccountName}</p>
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                    <p className="truncate text-sm font-medium">{group.destinationAccountName}</p>
+                    <span className="inline-flex items-center rounded-full border bg-card px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                      <UserRound className="mr-1 size-3 shrink-0" />
+                      {getBayesianGroupOwnerLabel(group)}
+                    </span>
+                  </div>
                   <p className="truncate text-[11px] text-muted-foreground">
                     {group.destinationAccountPath}
                   </p>
                 </div>
               </div>
               <div className="shrink-0 rounded-full border bg-card px-2 py-0.5 text-[11px] text-muted-foreground">
-                {group.totalLearnedCount}
+                <span className="font-medium text-foreground">Learned:</span>{" "}
+                <span className="tabular-nums">{group.totalLearnedCount}</span>
               </div>
             </button>
 
@@ -181,12 +195,39 @@ export function BayesianMapGroups({ groups }: { groups: BayesianMapGroup[] }) {
                       : "Delete learning"}
                   </Button>
                 </div>
-                <div data-horizontal-scroll-region className="horizontal-scroll-region rounded-md border">
-                  <table className="w-full min-w-[28rem] border-collapse text-xs">
+                <div data-horizontal-scroll-region className="horizontal-scroll-region overflow-x-auto rounded-md border">
+                  <table className="w-full table-fixed border-collapse text-xs">
+                    <colgroup>
+                      <col />
+                      <col className="w-32" />
+                    </colgroup>
                     <thead className="bg-muted/60">
                       <tr>
                         <th className="border-b px-2.5 py-1.5 text-left font-medium">Feature key</th>
-                        <th className="border-b px-2.5 py-1.5 text-right font-medium">Count</th>
+                        <th className="border-b px-2.5 py-1.5 text-right font-medium">
+                          <div className="flex items-center justify-end gap-1">
+                            <span>Learned</span>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="rounded-full p-0.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                                    aria-label="What learned means"
+                                  >
+                                    <Info className="size-3.5" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs">
+                                  <p className="text-xs leading-relaxed">
+                                    Learned is the number of stored Bayesian observations for this
+                                    feature key under the selected destination account.
+                                  </p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </div>
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -195,10 +236,10 @@ export function BayesianMapGroups({ groups }: { groups: BayesianMapGroup[] }) {
                           key={`${group.destinationAccountId}-${entry.featureKey}`}
                           className={index % 2 === 0 ? "bg-card/60" : "bg-card"}
                         >
-                          <td className="border-t px-2.5 py-1 font-mono text-[11px] leading-snug">
+                          <td className="border-t px-2.5 py-1 font-mono text-[11px] leading-snug break-all">
                             {entry.featureKey}
                           </td>
-                          <td className="border-t px-2.5 py-1 text-right tabular-nums">
+                          <td className="border-t px-2.5 py-1 text-right tabular-nums whitespace-nowrap">
                             {entry.count}
                           </td>
                         </tr>
@@ -213,4 +254,19 @@ export function BayesianMapGroups({ groups }: { groups: BayesianMapGroup[] }) {
       })}
     </div>
   )
+}
+
+function getBayesianGroupOwnerLabel(group: BayesianMapGroup) {
+  return getAccountOwnerLabel({
+    id: group.destinationAccountId,
+    name: group.destinationAccountName,
+    accountNumber: null,
+    description: null,
+    accountType: "Unknown",
+    parentAccountId: null,
+    openingBalance: 0,
+    ownerUserId: group.destinationAccountOwnerUserId,
+    ownerDisplayName: group.destinationAccountOwnerDisplayName,
+    ownerEmail: group.destinationAccountOwnerEmail,
+  })
 }

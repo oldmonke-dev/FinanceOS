@@ -7,6 +7,9 @@ export type BayesianMapGroup = {
   destinationAccountId: string
   destinationAccountName: string
   destinationAccountPath: string
+  destinationAccountOwnerUserId: string | null
+  destinationAccountOwnerDisplayName: string | null
+  destinationAccountOwnerEmail: string | null
   totalLearnedCount: number
   entries: BayesianMapEntry[]
 }

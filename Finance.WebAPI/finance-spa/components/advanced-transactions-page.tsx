@@ -779,14 +779,15 @@ export function AdvancedTransactionsPage() {
                     <AccountTreeMultiSelect
                       nodes={filteredAccountTree}
                       selectedAccountIds={selectedAccountIds}
-                      onToggle={(accountId, checked) =>
+                      onToggle={(node, checked) =>
                         setSelectedAccountIds((current) => {
                           const next = new Set(current)
+                          const accountIds = collectAccountNodeIds(node)
 
                           if (checked) {
-                            next.add(accountId)
+                            accountIds.forEach((accountId) => next.add(accountId))
                           } else {
-                            next.delete(accountId)
+                            accountIds.forEach((accountId) => next.delete(accountId))
                           }
 
                           return next
@@ -1373,7 +1374,7 @@ function AccountTreeMultiSelect({
 }: {
   nodes: AccountNode[]
   selectedAccountIds: Set<string>
-  onToggle: (accountId: string, checked: boolean) => void
+  onToggle: (node: AccountNode, checked: boolean) => void
   depth?: number
 }) {
   return (
@@ -1392,7 +1393,7 @@ function AccountTreeMultiSelect({
             >
               <Checkbox
                 checked={isChecked}
-                onCheckedChange={(checked) => onToggle(node.id, Boolean(checked))}
+                onCheckedChange={(checked) => onToggle(node, Boolean(checked))}
                 aria-label={`Select account ${node.name}`}
               />
               <span className="min-w-0">
@@ -1412,6 +1413,10 @@ function AccountTreeMultiSelect({
       })}
     </div>
   )
+}
+
+function collectAccountNodeIds(node: AccountNode): string[] {
+  return [node.id, ...node.children.flatMap((child) => collectAccountNodeIds(child))]
 }
 
 function filterAccountTree(nodes: AccountNode[], searchTerm: string): AccountNode[] {

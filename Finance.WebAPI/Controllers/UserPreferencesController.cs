@@ -18,6 +18,13 @@ namespace Finance.WebAPI.Controllers
             "indian",
         };
 
+        private static readonly HashSet<string> AllowedFinancialYearModes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "indian",
+            "american",
+            "custom",
+        };
+
         private readonly IUserPreferenceRepository _userPreferenceRepository;
 
         public UserPreferencesController(IUserPreferenceRepository userPreferenceRepository)
@@ -45,9 +52,22 @@ namespace Finance.WebAPI.Controllers
                 return BadRequest(new { message = "Number grouping style is not supported." });
             }
 
-            var preference = await _userPreferenceRepository.UpdateNumberGroupingStyleAsync(
+            var normalizedFinancialYearMode = NormalizeFinancialYearMode(request.FinancialYearMode);
+            if (!AllowedFinancialYearModes.Contains(normalizedFinancialYearMode))
+            {
+                return BadRequest(new { message = "Financial year mode is not supported." });
+            }
+
+            if (normalizedFinancialYearMode == "custom" && !request.CustomFinancialYearStartDate.HasValue)
+            {
+                return BadRequest(new { message = "Custom financial year start date is required." });
+            }
+
+            var preference = await _userPreferenceRepository.UpdatePreferencesAsync(
                 User.GetRequiredUserId(),
                 normalizedStyle,
+                normalizedFinancialYearMode,
+                normalizedFinancialYearMode == "custom" ? request.CustomFinancialYearStartDate : null,
                 cancellationToken);
 
             return Ok(MapPreference(preference));
@@ -58,12 +78,19 @@ namespace Finance.WebAPI.Controllers
             return string.IsNullOrWhiteSpace(value) ? "international" : value.Trim().ToLowerInvariant();
         }
 
+        private static string NormalizeFinancialYearMode(string? value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? "indian" : value.Trim().ToLowerInvariant();
+        }
+
         private static UserPreferenceDTO MapPreference(UserPreference preference)
         {
             return new UserPreferenceDTO
             {
                 UserId = preference.UserId,
                 NumberGroupingStyle = preference.NumberGroupingStyle,
+                FinancialYearMode = preference.FinancialYearMode,
+                CustomFinancialYearStartDate = preference.CustomFinancialYearStartDate,
                 UpdatedAt = preference.UpdatedAt,
             };
         }

@@ -10,6 +10,14 @@ function normalizeAccount(raw: Record<string, unknown>): Account {
   return {
     id: String(raw.id ?? raw.Id ?? ""),
     name: String(raw.name ?? raw.Name ?? "Unnamed account"),
+    accountNumber:
+      raw.accountNumber == null && raw.AccountNumber == null
+        ? null
+        : String(raw.accountNumber ?? raw.AccountNumber),
+    description:
+      raw.description == null && raw.Description == null
+        ? null
+        : String(raw.description ?? raw.Description),
     accountType: (raw.accountType ?? raw.AccountType ?? "Unknown") as
       | Account["accountType"]
       | string,
@@ -131,7 +139,12 @@ export async function deleteAccount(accountId: string): Promise<{
 
 export async function renameAccount(
   accountId: string,
-  input: { name: string; openingBalance: number },
+  input: {
+    name: string
+    accountNumber?: string | null
+    description?: string | null
+    openingBalance: number
+  },
 ): Promise<Account> {
   const response = await authFetch(`${API_BASE_URL}/Accounts/${accountId}`, {
     method: "PUT",
@@ -147,6 +160,32 @@ export async function renameAccount(
       await readErrorMessage(
         response,
         `Failed to rename account: ${response.status} ${response.statusText}`,
+      ),
+    )
+  }
+
+  const data = (await response.json()) as Record<string, unknown>
+  return normalizeAccount(data)
+}
+
+export async function updateAccountOwner(
+  accountId: string,
+  ownerUserId: string | null,
+): Promise<Account> {
+  const response = await authFetch(`${API_BASE_URL}/Accounts/${accountId}/owner`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ ownerUserId }),
+  })
+
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to update account owner: ${response.status} ${response.statusText}`,
       ),
     )
   }

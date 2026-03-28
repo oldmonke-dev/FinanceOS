@@ -10,5 +10,12 @@ namespace Finance.Domain.Interfaces
             Guid userId,
             string numberGroupingStyle,
             CancellationToken cancellationToken = default);
+
+        Task<UserPreference> UpdatePreferencesAsync(
+            Guid userId,
+            string numberGroupingStyle,
+            string financialYearMode,
+            DateTime? customFinancialYearStartDate,
+            CancellationToken cancellationToken = default);
     }
 }

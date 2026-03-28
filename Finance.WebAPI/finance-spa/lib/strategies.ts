@@ -40,6 +40,30 @@ export async function getBayesianStrategy(): Promise<BayesianStrategy> {
             destinationAccountPath: String(
               item.destinationAccountPath ?? item.DestinationAccountPath ?? "",
             ),
+            destinationAccountOwnerUserId:
+              item.destinationAccountOwnerUserId == null &&
+              item.DestinationAccountOwnerUserId == null
+                ? null
+                : String(
+                    item.destinationAccountOwnerUserId ??
+                      item.DestinationAccountOwnerUserId,
+                  ),
+            destinationAccountOwnerDisplayName:
+              item.destinationAccountOwnerDisplayName == null &&
+              item.DestinationAccountOwnerDisplayName == null
+                ? null
+                : String(
+                    item.destinationAccountOwnerDisplayName ??
+                      item.DestinationAccountOwnerDisplayName,
+                  ),
+            destinationAccountOwnerEmail:
+              item.destinationAccountOwnerEmail == null &&
+              item.DestinationAccountOwnerEmail == null
+                ? null
+                : String(
+                    item.destinationAccountOwnerEmail ??
+                      item.DestinationAccountOwnerEmail,
+                  ),
             totalLearnedCount: Number(
               item.totalLearnedCount ?? item.TotalLearnedCount ?? 0,
             ),

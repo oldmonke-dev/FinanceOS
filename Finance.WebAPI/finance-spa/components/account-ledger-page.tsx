@@ -22,12 +22,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { buildAccountPathLookup, buildAccountTree, formatAccountType } from "@/lib/accounts"
+import {
+  buildAccountPathLookup,
+  buildAccountTree,
+  formatAccountType,
+  renameAccount,
+} from "@/lib/accounts"
 import { deleteTransaction, getTransactions, updateTransaction } from "@/lib/transactions"
 import type { Transaction } from "@/models/transaction"
 
 export function AccountLedgerPage({ accountId }: { accountId: string }) {
-  const { accounts, isLoading, errorMessage } = useAccounts()
+  const { accounts, isLoading, errorMessage, updateAccount } = useAccounts()
   const { confirm } = useConfirmationDialog()
   const { showSnackbar } = useSnackbar()
   const { formatNumber } = useUserPreferences()
@@ -42,6 +47,11 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
   const [currentPage, setCurrentPage] = useState(1)
   const [showAllRows, setShowAllRows] = useState(false)
   const [rowsPerPage, setRowsPerPage] = useState<10 | 25 | 50>(25)
+  const [accountNameDraft, setAccountNameDraft] = useState("")
+  const [accountNumberDraft, setAccountNumberDraft] = useState("")
+  const [accountDescriptionDraft, setAccountDescriptionDraft] = useState("")
+  const [openingBalanceDraft, setOpeningBalanceDraft] = useState("0")
+  const [isSavingAccountDetails, setIsSavingAccountDetails] = useState(false)
   const account = accounts.find((item) => item.id === accountId) ?? null
   const resolvedAccountId = account?.id ?? null
   const tree = useMemo(() => buildAccountTree(accounts), [accounts])
@@ -110,6 +120,14 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
     () => serializeTransactions(savedTransactions) !== serializeTransactions(draftTransactions),
     [draftTransactions, savedTransactions],
   )
+  const hasAccountDetailChanges =
+    account != null &&
+    (
+      accountNameDraft !== account.name ||
+      accountNumberDraft !== (account.accountNumber ?? "") ||
+      accountDescriptionDraft !== (account.description ?? "") ||
+      openingBalanceDraft !== String(account.openingBalance)
+    )
   const canUndo = historyIndex > 0
   const canRedo = historyIndex >= 0 && historyIndex < history.length - 1
 
@@ -160,6 +178,17 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
   useEffect(() => {
     setCurrentPage(1)
   }, [accountId, rowsPerPage])
+
+  useEffect(() => {
+    if (!account) {
+      return
+    }
+
+    setAccountNameDraft(account.name)
+    setAccountNumberDraft(account.accountNumber ?? "")
+    setAccountDescriptionDraft(account.description ?? "")
+    setOpeningBalanceDraft(String(account.openingBalance))
+  }, [account])
 
   useEffect(() => {
     setCurrentPage((current) => Math.min(current, totalPages))
@@ -494,6 +523,33 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
     await saveChanges()
   }
 
+  async function handleSaveAccountDetails() {
+    if (!account) {
+      return
+    }
+
+    setIsSavingAccountDetails(true)
+
+    try {
+      const updatedAccount = await renameAccount(account.id, {
+        name: accountNameDraft,
+        accountNumber: accountNumberDraft.trim() || null,
+        description: accountDescriptionDraft.trim() || null,
+        openingBalance: Number(openingBalanceDraft) || 0,
+      })
+
+      updateAccount(updatedAccount)
+      showSnackbar({ message: "Account details saved.", tone: "success" })
+    } catch (error) {
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Failed to save account details.",
+        tone: "error",
+      })
+    } finally {
+      setIsSavingAccountDetails(false)
+    }
+  }
+
   return (
     <AppShell
       title="General Ledger"
@@ -530,6 +586,12 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
 
           <div className="mt-4 grid gap-2 md:grid-cols-4">
             <div className="rounded-xl border bg-background/70 px-3 py-2">
+              <p className="text-xs text-muted-foreground">Account number</p>
+              <p className="mt-1 text-sm font-semibold leading-tight">
+                {resolvedAccount.accountNumber?.trim() || "Not set"}
+              </p>
+            </div>
+            <div className="rounded-xl border bg-background/70 px-3 py-2">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <ReceiptText className="size-3.5" />
                 <span>Entries</span>
@@ -557,6 +619,84 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
               <p className="mt-1 text-sm font-semibold leading-tight">
                 {getParentAccountName(resolvedAccount.parentAccountId, accounts) ?? "Top level"}
               </p>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl border bg-background/55 p-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold">Account details</h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Update account metadata here without leaving the general ledger.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setAccountNameDraft(resolvedAccount.name)
+                    setAccountNumberDraft(resolvedAccount.accountNumber ?? "")
+                    setAccountDescriptionDraft(resolvedAccount.description ?? "")
+                    setOpeningBalanceDraft(String(resolvedAccount.openingBalance))
+                  }}
+                  disabled={!hasAccountDetailChanges || isSavingAccountDetails}
+                >
+                  Reset
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => void handleSaveAccountDetails()}
+                  disabled={!hasAccountDetailChanges || isSavingAccountDetails}
+                >
+                  <Save />
+                  {isSavingAccountDetails ? "Saving..." : "Save account details"}
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <label className="space-y-1 text-sm">
+                <span className="font-medium">Name</span>
+                <Input
+                  value={accountNameDraft}
+                  onChange={(event) => setAccountNameDraft(event.target.value)}
+                  placeholder="Account name"
+                  maxLength={200}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-medium">Account number</span>
+                <Input
+                  value={accountNumberDraft}
+                  onChange={(event) => setAccountNumberDraft(event.target.value)}
+                  placeholder="Optional"
+                  maxLength={50}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-medium">Opening balance</span>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={openingBalanceDraft}
+                  onChange={(event) => setOpeningBalanceDraft(event.target.value)}
+                  placeholder="0.00"
+                />
+              </label>
+              <label className="space-y-1 text-sm md:col-span-2">
+                <span className="font-medium">Description</span>
+                <textarea
+                  value={accountDescriptionDraft}
+                  onChange={(event) => setAccountDescriptionDraft(event.target.value)}
+                  placeholder="Optional notes for this account"
+                  maxLength={500}
+                  rows={3}
+                  className="flex min-h-[5rem] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                />
+              </label>
             </div>
           </div>
         </section>

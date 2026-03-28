@@ -1,7 +1,9 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import { BarChart3, PieChart, Waypoints } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { ResponsiveSankey } from "@nivo/sankey"
+import type { SankeyLinkDatum, SankeyNodeDatum } from "@nivo/sankey"
+import { BarChart3, ChevronDown, PieChart, Waypoints, X } from "lucide-react"
 
 import { AppShell } from "@/components/app-shell"
 import { useAccounts } from "@/components/providers/accounts-provider"
@@ -23,11 +25,18 @@ import type { AccountNode } from "@/models/account"
 import type { Transaction } from "@/models/transaction"
 
 type ImportSessionFilter = "all" | "archived" | "active" | "none"
+type DateRangeMode = "custom" | "fy" | "ay"
 
 type FlowLink = {
   source: string
   target: string
   value: number
+}
+
+type SankeyNodeData = {
+  id: string
+  label: string
+  kind: "source" | "target"
 }
 
 export function ReportsPage() {
@@ -37,11 +46,16 @@ export function ReportsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [isLoadingTransactions, setIsLoadingTransactions] = useState(true)
   const [transactionsError, setTransactionsError] = useState<string | null>(null)
-  const [dateFrom, setDateFrom] = useState("")
-  const [dateTo, setDateTo] = useState("")
+  const [dateRangeMode, setDateRangeMode] = useState<DateRangeMode>("custom")
+  const [customDateFrom, setCustomDateFrom] = useState("")
+  const [customDateTo, setCustomDateTo] = useState("")
+  const [selectedFiscalYearStart, setSelectedFiscalYearStart] = useState("")
+  const [isAccountPopupOpen, setIsAccountPopupOpen] = useState(false)
+  const accountPopupRef = useRef<HTMLDivElement | null>(null)
   const [accountQuery, setAccountQuery] = useState("")
   const [selectedAccountIds, setSelectedAccountIds] = useState<Set<string>>(new Set())
   const [importSessionFilter, setImportSessionFilter] = useState<ImportSessionFilter>("all")
+  const [monthlyTrendPage, setMonthlyTrendPage] = useState(1)
 
   const accountPathLookup = useMemo(() => {
     const accountById = new Map(accounts.map((account) => [account.id, account]))
@@ -160,24 +174,104 @@ export function ReportsPage() {
       return
     }
 
-    setDateFrom((current) => current || transactionDateRange.earliest)
-    setDateTo((current) => current || transactionDateRange.latest)
+    setCustomDateFrom((current) => current || transactionDateRange.earliest)
+    setCustomDateTo((current) => current || transactionDateRange.latest)
   }, [transactionDateRange.earliest, transactionDateRange.latest])
+
+  useEffect(() => {
+    if (!isAccountPopupOpen) {
+      return
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      const popup = accountPopupRef.current
+      if (!popup) {
+        return
+      }
+
+      if (!popup.contains(event.target as Node)) {
+        setIsAccountPopupOpen(false)
+      }
+    }
+
+    window.addEventListener("mousedown", handlePointerDown)
+
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown)
+    }
+  }, [isAccountPopupOpen])
+
+  const fiscalYearOptions = useMemo(() => {
+    if (!transactionDateRange.earliest || !transactionDateRange.latest) {
+      return []
+    }
+
+    const earliestDate = new Date(transactionDateRange.earliest)
+    const latestDate = new Date(transactionDateRange.latest)
+
+    if (Number.isNaN(earliestDate.getTime()) || Number.isNaN(latestDate.getTime())) {
+      return []
+    }
+
+    const startYear = getIndianFiscalYearStart(earliestDate)
+    const endYear = getIndianFiscalYearStart(latestDate)
+    const options: Array<{ value: string; fyLabel: string; ayLabel: string }> = []
+
+    for (let year = endYear; year >= startYear; year -= 1) {
+      options.push({
+        value: String(year),
+        fyLabel: formatFiscalYearLabel(year),
+        ayLabel: formatAssessmentYearLabel(year),
+      })
+    }
+
+    return options
+  }, [transactionDateRange.earliest, transactionDateRange.latest])
+
+  useEffect(() => {
+    if (selectedFiscalYearStart || fiscalYearOptions.length === 0) {
+      return
+    }
+
+    setSelectedFiscalYearStart(fiscalYearOptions[0].value)
+  }, [fiscalYearOptions, selectedFiscalYearStart])
+
+  const effectiveDateRange = useMemo(() => {
+    if (dateRangeMode === "custom") {
+      return {
+        from: customDateFrom,
+        to: customDateTo,
+      }
+    }
+
+    if (!selectedFiscalYearStart) {
+      return {
+        from: "",
+        to: "",
+      }
+    }
+
+    const startYear = Number(selectedFiscalYearStart)
+    return {
+      from: `${startYear}-04-01`,
+      to: `${startYear + 1}-03-31`,
+    }
+  }, [customDateFrom, customDateTo, dateRangeMode, selectedFiscalYearStart])
 
   const filteredTransactions = useMemo(() => {
     return transactions.filter((transaction) => {
       const transactionDate = new Date(transaction.transactionDate)
       const transactionTime = transactionDate.getTime()
 
-      if (dateFrom) {
-        const fromTime = new Date(`${dateFrom}T00:00:00`).getTime()
+      if (effectiveDateRange.from) {
+        const fromTime = new Date(`${effectiveDateRange.from}T00:00:00`).getTime()
         if (transactionTime < fromTime) {
           return false
         }
       }
 
-      if (dateTo) {
-        const toTime = new Date(`${dateTo}T23:59:59.999`).getTime()
+      if (effectiveDateRange.to) {
+        const toTime = new Date(`${effectiveDateRange.to}T23:59:59.999`).getTime()
         if (transactionTime > toTime) {
           return false
         }
@@ -197,7 +291,7 @@ export function ReportsPage() {
 
       return true
     })
-  }, [dateFrom, dateTo, importSessionFilter, importSessionStatusByTransactionId, selectedAccountIds, transactions])
+  }, [effectiveDateRange.from, effectiveDateRange.to, importSessionFilter, importSessionStatusByTransactionId, selectedAccountIds, transactions])
 
   const expenseByAccount = useMemo(() => {
     const totals = new Map<string, number>()
@@ -270,6 +364,17 @@ export function ReportsPage() {
       .sort((left, right) => left.month.localeCompare(right.month))
   }, [accounts, filteredTransactions])
 
+  useEffect(() => {
+    setMonthlyTrendPage(1)
+  }, [monthlyTotals.length, dateRangeMode, selectedFiscalYearStart, customDateFrom, customDateTo])
+
+  const monthlyTrendPageSize = 10
+  const monthlyTrendTotalPages = Math.max(1, Math.ceil(monthlyTotals.length / monthlyTrendPageSize))
+  const pagedMonthlyTotals = useMemo(() => {
+    const startIndex = (monthlyTrendPage - 1) * monthlyTrendPageSize
+    return monthlyTotals.slice(startIndex, startIndex + monthlyTrendPageSize)
+  }, [monthlyTotals, monthlyTrendPage])
+
   const sankeyLinks = useMemo(() => {
     const links = new Map<string, number>()
 
@@ -318,27 +423,71 @@ export function ReportsPage() {
       <section className="rounded-2xl border bg-card p-4 shadow-sm">
         <div className="flex flex-wrap items-end gap-3">
           <label className="min-w-[10rem] space-y-1 text-xs">
+            <span className="font-medium text-muted-foreground">Date mode</span>
+            <Select value={dateRangeMode} onValueChange={(value) => setDateRangeMode(value as DateRangeMode)}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="custom">Custom</SelectItem>
+                <SelectItem value="fy">Financial Year</SelectItem>
+                <SelectItem value="ay">Assessment Year</SelectItem>
+              </SelectContent>
+            </Select>
+          </label>
+          {dateRangeMode === "custom" ? (
+          <label className="min-w-[10rem] space-y-1 text-xs">
             <span className="font-medium text-muted-foreground">From</span>
             <Input
               type="date"
-              value={dateFrom}
-              onChange={(event) => setDateFrom(event.target.value)}
+              value={customDateFrom}
+              onChange={(event) => setCustomDateFrom(event.target.value)}
               min={transactionDateRange.earliest || undefined}
               max={transactionDateRange.latest || undefined}
               className="h-8"
             />
           </label>
+          ) : (
+            <label className="min-w-[12rem] space-y-1 text-xs">
+              <span className="font-medium text-muted-foreground">
+                {dateRangeMode === "fy" ? "Financial Year" : "Assessment Year"}
+              </span>
+              <Select value={selectedFiscalYearStart} onValueChange={setSelectedFiscalYearStart}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Select year" />
+                </SelectTrigger>
+                <SelectContent>
+                  {fiscalYearOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {dateRangeMode === "fy" ? option.fyLabel : option.ayLabel}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+          )}
+          {dateRangeMode === "custom" ? (
           <label className="min-w-[10rem] space-y-1 text-xs">
             <span className="font-medium text-muted-foreground">To</span>
             <Input
               type="date"
-              value={dateTo}
-              onChange={(event) => setDateTo(event.target.value)}
+              value={customDateTo}
+              onChange={(event) => setCustomDateTo(event.target.value)}
               min={transactionDateRange.earliest || undefined}
               max={transactionDateRange.latest || undefined}
               className="h-8"
             />
           </label>
+          ) : (
+            <div className="min-w-[16rem] space-y-1 text-xs">
+              <span className="font-medium text-muted-foreground">Range</span>
+              <div className="flex h-8 items-center rounded-lg border border-input bg-background px-2.5 text-xs text-muted-foreground">
+                {effectiveDateRange.from && effectiveDateRange.to
+                  ? `${effectiveDateRange.from} to ${effectiveDateRange.to}`
+                  : "No range selected"}
+              </div>
+            </div>
+          )}
           <label className="min-w-[12rem] space-y-1 text-xs">
             <span className="font-medium text-muted-foreground">Import session</span>
             <Select value={importSessionFilter} onValueChange={(value) => setImportSessionFilter(value as ImportSessionFilter)}>
@@ -353,55 +502,80 @@ export function ReportsPage() {
               </SelectContent>
             </Select>
           </label>
-          <label className="min-w-[18rem] flex-1 space-y-1 text-xs">
-            <span className="font-medium text-muted-foreground">Account search</span>
-            <Input
-              value={accountQuery}
-              onChange={(event) => setAccountQuery(event.target.value)}
-              placeholder="Search accounts"
-              className="h-8"
-            />
-          </label>
-        </div>
-
-        <div className="mt-3 rounded-xl border bg-background/70 p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">Account scope</p>
-              <p className="text-xs text-muted-foreground">
-                {selectedAccountIds.size === 0
-                  ? "Showing all accounts"
-                  : `${selectedAccountIds.size} account${selectedAccountIds.size === 1 ? "" : "s"} selected`}
-              </p>
-            </div>
+          <div ref={accountPopupRef} className="relative min-w-[14rem] flex-1 space-y-1 text-xs md:max-w-[18rem]">
+            <span className="font-medium text-muted-foreground">Accounts</span>
             <button
               type="button"
-              onClick={() => setSelectedAccountIds(new Set())}
-              className="text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => setIsAccountPopupOpen((current) => !current)}
+              className="flex h-8 w-full items-center justify-between rounded-lg border border-input bg-background px-2.5 text-left text-xs hover:bg-muted"
+              disabled={isLoadingAccounts}
             >
-              Clear all
+              <span className="truncate">
+                {selectedAccountIds.size === 0
+                  ? "All accounts"
+                  : `${selectedAccountIds.size} account${selectedAccountIds.size === 1 ? "" : "s"} selected`}
+              </span>
+              <ChevronDown className={cn("size-4 opacity-60 transition", isAccountPopupOpen && "rotate-180")} />
             </button>
-          </div>
-          <div className="mt-3 max-h-48 overflow-y-auto pr-1">
-            {filteredAccountTree.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No accounts match.</p>
-            ) : (
-              <AccountTreeMultiSelect
-                nodes={filteredAccountTree}
-                selectedAccountIds={selectedAccountIds}
-                onToggle={(accountId, checked) =>
-                  setSelectedAccountIds((current) => {
-                    const next = new Set(current)
-                    if (checked) {
-                      next.add(accountId)
-                    } else {
-                      next.delete(accountId)
-                    }
-                    return next
-                  })
-                }
-              />
-            )}
+
+            {isAccountPopupOpen ? (
+              <div className="absolute left-0 top-full z-30 mt-2 w-[28rem] max-w-[calc(100vw-2rem)] rounded-xl border bg-popover p-3 text-popover-foreground shadow-lg">
+                <div className="relative">
+                  <Input
+                    value={accountQuery}
+                    onChange={(event) => setAccountQuery(event.target.value)}
+                    placeholder="Search accounts"
+                    className="h-8 pr-8"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setAccountQuery("")}
+                    disabled={accountQuery.length === 0}
+                    aria-label="Clear account search"
+                    className="absolute right-2 top-1/2 inline-flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+                <div className="mt-2 flex items-center justify-between">
+                  <p className="text-[11px] text-muted-foreground">
+                    Compact tree multi-select
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAccountIds(new Set())}
+                    className="text-xs text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                    disabled={selectedAccountIds.size === 0}
+                  >
+                    Clear all
+                  </button>
+                </div>
+                <div className="mt-2 max-h-72 overflow-y-auto pr-1">
+                  {filteredAccountTree.length === 0 ? (
+                    <p className="px-2 py-3 text-xs text-muted-foreground">No accounts match.</p>
+                  ) : (
+                    <AccountTreeMultiSelect
+                      nodes={filteredAccountTree}
+                      selectedAccountIds={selectedAccountIds}
+                      onToggle={(node, checked) =>
+                        setSelectedAccountIds((current) => {
+                          const next = new Set(current)
+                          const accountIds = collectAccountNodeIds(node)
+
+                          if (checked) {
+                            accountIds.forEach((accountId) => next.add(accountId))
+                          } else {
+                            accountIds.forEach((accountId) => next.delete(accountId))
+                          }
+
+                          return next
+                        })
+                      }
+                    />
+                  )}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -447,15 +621,36 @@ export function ReportsPage() {
           </article>
 
           <article className="rounded-2xl border bg-card p-5 shadow-sm">
-            <div className="flex items-center gap-2">
-              <BarChart3 className="size-4 text-primary" />
-              <h2 className="text-base font-semibold">Monthly Trend</h2>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="size-4 text-primary" />
+                <h2 className="text-base font-semibold">Monthly Trend</h2>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <button
+                  type="button"
+                  onClick={() => setMonthlyTrendPage((current) => Math.max(1, current - 1))}
+                  className="rounded-md border bg-background px-2 py-1 hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+                  disabled={monthlyTrendPage === 1}
+                >
+                  Previous
+                </button>
+                <span>{monthlyTrendPage} / {monthlyTrendTotalPages}</span>
+                <button
+                  type="button"
+                  onClick={() => setMonthlyTrendPage((current) => Math.min(monthlyTrendTotalPages, current + 1))}
+                  className="rounded-md border bg-background px-2 py-1 hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+                  disabled={monthlyTrendPage === monthlyTrendTotalPages}
+                >
+                  Next
+                </button>
+              </div>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              Income and expense movement by month.
+              Income and expense movement by month, with Indian FY and AY period controls.
             </p>
-            <div className="mt-4">
-              <MonthlyBarChart items={monthlyTotals} formatNumber={formatNumber} />
+            <div className="mt-4 h-[19rem] w-full overflow-hidden">
+              <MonthlyTrendChart items={pagedMonthlyTotals} formatNumber={formatNumber} />
             </div>
           </article>
 
@@ -547,7 +742,7 @@ function ExpensePieChart({ items }: { items: Array<{ id: string; label: string; 
   )
 }
 
-function MonthlyBarChart({
+function MonthlyTrendChart({
   items,
   formatNumber,
 }: {
@@ -559,44 +754,79 @@ function MonthlyBarChart({
   }
 
   const maxValue = Math.max(...items.flatMap((item) => [item.income, item.expense]), 1)
+  const chartHeight = 180
+  const chartWidth = Math.max(items.length * 96, 760)
+  const barWidth = 18
+  const chartStartX = 52
+  const chartEndX = chartWidth - 20
+  const usableWidth = chartEndX - chartStartX
+  const groupSpacing = usableWidth / items.length
+  const groupInnerWidth = Math.max(barWidth * 2 + 8, groupSpacing * 0.7)
 
   return (
-    <div className="space-y-3">
-      {items.map((item) => (
-        <div key={item.month} className="grid gap-2 md:grid-cols-[6rem_1fr] md:items-center">
-          <div className="text-sm font-medium">{item.month}</div>
-          <div className="space-y-2">
-            <BarRow label="Income" value={item.income} maxValue={maxValue} color="bg-emerald-500" formatNumber={formatNumber} />
-            <BarRow label="Expense" value={item.expense} maxValue={maxValue} color="bg-rose-500" formatNumber={formatNumber} />
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function BarRow({
-  label,
-  value,
-  maxValue,
-  color,
-  formatNumber,
-}: {
-  label: string
-  value: number
-  maxValue: number
-  color: string
-  formatNumber: (value: number, fractionDigits?: number) => string
-}) {
-  const width = `${(value / maxValue) * 100}%`
-
-  return (
-    <div className="grid grid-cols-[4.5rem_1fr_auto] items-center gap-2 text-xs">
-      <span className="text-muted-foreground">{label}</span>
-      <div className="h-3 overflow-hidden rounded-full bg-muted">
-        <div className={cn("h-full rounded-full", color)} style={{ width }} />
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="mb-2 flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
+        <span className="inline-flex items-center gap-2">
+          <span className="size-2.5 rounded-sm bg-emerald-500" />
+          Income
+        </span>
+        <span className="inline-flex items-center gap-2">
+          <span className="size-2.5 rounded-sm bg-rose-500" />
+          Expense
+        </span>
       </div>
-      <span className="font-medium">{formatNumber(value)}</span>
+      <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
+        <svg
+          viewBox={`0 0 ${chartWidth} ${chartHeight + 36}`}
+          className="h-[13.5rem] w-[26rem] min-w-full"
+          preserveAspectRatio="none"
+        >
+          <line x1={chartStartX} y1={chartHeight} x2={chartEndX} y2={chartHeight} stroke="#cbd5e1" strokeWidth="1" />
+          {items.map((item, index) => {
+            const groupX = chartStartX + index * groupSpacing + (groupSpacing - groupInnerWidth) / 2
+            const incomeHeight = (item.income / maxValue) * (chartHeight - 32)
+            const expenseHeight = (item.expense / maxValue) * (chartHeight - 32)
+            const incomeX = groupX
+            const expenseX = groupX + groupInnerWidth - barWidth
+            const incomeLabelX = incomeX + barWidth / 2
+            const expenseLabelX = expenseX + barWidth / 2
+            const centerX = groupX + groupInnerWidth / 2
+
+            return (
+              <g key={item.month}>
+                <rect
+                  x={incomeX}
+                  y={chartHeight - incomeHeight}
+                  width={barWidth}
+                  height={incomeHeight}
+                  rx="5"
+                  fill="#22c55e"
+                />
+                <rect
+                  x={expenseX}
+                  y={chartHeight - expenseHeight}
+                  width={barWidth}
+                  height={expenseHeight}
+                  rx="5"
+                  fill="#f43f5e"
+                />
+                <text x={incomeLabelX} y={chartHeight - incomeHeight - 6} textAnchor="middle" className="fill-zinc-600 text-[9px]">
+                  {compactNumber(item.income)}
+                </text>
+                <text x={expenseLabelX} y={chartHeight - expenseHeight - 6} textAnchor="middle" className="fill-zinc-600 text-[9px]">
+                  {compactNumber(item.expense)}
+                </text>
+                <text x={centerX} y={chartHeight + 14} textAnchor="middle" className="fill-zinc-700 text-[10px] font-medium">
+                  {formatMonthLabel(item.month)}
+                </text>
+                <text x={centerX} y={chartHeight + 26} textAnchor="middle" className="fill-zinc-500 text-[9px]">
+                  {formatNumber(item.income, 0)} / {formatNumber(item.expense, 0)}
+                </text>
+              </g>
+            )
+          })}
+        </svg>
+      </div>
     </div>
   )
 }
@@ -608,59 +838,123 @@ function SankeyChart({
   links: FlowLink[]
   formatNumber: (value: number, fractionDigits?: number) => string
 }) {
-  if (links.length === 0) {
+  const sanitizedLinks = useMemo(
+    () =>
+      links.filter(
+        (link) =>
+          link.source.trim().length > 0 &&
+          link.target.trim().length > 0 &&
+          Number.isFinite(link.value) &&
+          link.value > 0 &&
+          link.source !== link.target,
+      ),
+    [links],
+  )
+
+  if (sanitizedLinks.length === 0) {
     return <EmptyChartState message="No source-to-destination flow available." />
   }
 
-  const sources = [...new Set(links.map((link) => link.source))]
-  const targets = [...new Set(links.map((link) => link.target))]
-  const sourceY = new Map(sources.map((item, index) => [item, 40 + index * 48]))
-  const targetY = new Map(targets.map((item, index) => [item, 40 + index * 48]))
-  const maxValue = Math.max(...links.map((link) => link.value), 1)
-  const height = Math.max(sources.length, targets.length) * 48 + 40
+  const sourceNodeIds = [...new Set(sanitizedLinks.map((link) => link.source))]
+  const targetNodeIds = [...new Set(sanitizedLinks.map((link) => link.target))]
+  const sourceIdByLabel = new Map(
+    sourceNodeIds.map((label, index) => [label, `source-${index}`] as const),
+  )
+  const targetIdByLabel = new Map(
+    targetNodeIds.map((label, index) => [label, `target-${index}`] as const),
+  )
+  const nodes: SankeyNodeData[] = [
+    ...sourceNodeIds.map((label) => ({
+      id: sourceIdByLabel.get(label) ?? label,
+      label,
+      kind: "source" as const,
+    })),
+    ...targetNodeIds.map((label) => ({
+      id: targetIdByLabel.get(label) ?? label,
+      label,
+      kind: "target" as const,
+    })),
+  ]
+  const sankeyData = {
+    nodes,
+    links: sanitizedLinks.map((link) => ({
+      source: sourceIdByLabel.get(link.source) ?? link.source,
+      target: targetIdByLabel.get(link.target) ?? link.target,
+      value: link.value,
+    })),
+  }
 
   return (
-    <div className="overflow-x-auto">
-      <svg viewBox={`0 0 860 ${height}`} className="min-w-[52rem]">
-        {links.map((link, index) => {
-          const fromY = sourceY.get(link.source) ?? 40
-          const toY = targetY.get(link.target) ?? 40
-          const thickness = 8 + (link.value / maxValue) * 18
+    <div>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">
+          Showing top {sanitizedLinks.length} aggregated source-to-destination account links.
+        </p>
+      </div>
 
-          return (
-            <path
-              key={`${link.source}-${link.target}-${index}`}
-              d={`M 180 ${fromY} C 330 ${fromY}, 530 ${toY}, 680 ${toY}`}
-              fill="none"
-              stroke={chartColors[index % chartColors.length]}
-              strokeOpacity="0.55"
-              strokeWidth={thickness}
-              strokeLinecap="round"
-            />
-          )
-        })}
-
-        {sources.map((source) => (
-          <g key={source}>
-            <rect x="20" y={(sourceY.get(source) ?? 40) - 12} width="150" height="24" rx="8" fill="#e2e8f0" />
-            <text x="28" y={(sourceY.get(source) ?? 40) + 4} className="fill-zinc-700 text-[11px]">
-              {truncateLabel(source)}
-            </text>
-          </g>
-        ))}
-
-        {targets.map((target) => (
-          <g key={target}>
-            <rect x="690" y={(targetY.get(target) ?? 40) - 12} width="150" height="24" rx="8" fill="#e2e8f0" />
-            <text x="698" y={(targetY.get(target) ?? 40) + 4} className="fill-zinc-700 text-[11px]">
-              {truncateLabel(target)}
-            </text>
-          </g>
-        ))}
-      </svg>
+      <div className="rounded-xl border bg-[linear-gradient(180deg,#ffffff_0%,#fafaf9_100%)] p-2">
+        <div className="h-[34rem] min-h-[34rem]">
+          <ResponsiveSankey
+            data={sankeyData}
+            margin={{ top: 24, right: 180, bottom: 24, left: 180 }}
+            align="justify"
+            sort="descending"
+            colors={chartColors}
+            nodeOpacity={1}
+            nodeThickness={22}
+            nodeSpacing={18}
+            nodeBorderWidth={0}
+            linkOpacity={0.38}
+            linkHoverOpacity={0.62}
+            linkContract={3}
+            enableLinkGradient
+            enableLabels
+            label="label"
+            labelPosition="inside"
+            labelOrientation="horizontal"
+            labelPadding={10}
+            labelTextColor="#ffffff"
+            animate
+            motionConfig="gentle"
+            theme={{
+              text: {
+                fontSize: 11,
+                fill: "#334155",
+              },
+              tooltip: {
+                container: {
+                  background: "#ffffff",
+                  color: "#0f172a",
+                  fontSize: "12px",
+                  borderRadius: "12px",
+                  boxShadow: "0 10px 30px rgba(15, 23, 42, 0.12)",
+                  padding: "10px 12px",
+                },
+              },
+            }}
+            nodeTooltip={({ node }: { node: SankeyNodeDatum<SankeyNodeData, FlowLink> }) => (
+              <div className="space-y-1">
+                <p className="font-medium">{node.label}</p>
+                <p className="text-muted-foreground">
+                  Role: {node.kind === "source" ? "Source flow" : "Target flow"}
+                </p>
+                <p className="text-muted-foreground">Total flow: {formatNumber(node.value ?? 0)}</p>
+              </div>
+            )}
+            linkTooltip={({ link }: { link: SankeyLinkDatum<SankeyNodeData, FlowLink> }) => (
+              <div className="space-y-1">
+                <p className="font-medium">
+                  {String(link.source.id)} to {String(link.target.id)}
+                </p>
+                <p className="text-muted-foreground">Value: {formatNumber(link.value)}</p>
+              </div>
+            )}
+          />
+        </div>
+      </div>
 
       <div className="mt-3 grid gap-2 md:grid-cols-2">
-        {links.map((link, index) => (
+        {sanitizedLinks.map((link, index) => (
           <div key={`${link.source}-${link.target}-${index}`} className="rounded-lg border bg-background/70 px-3 py-2 text-sm">
             <div className="flex items-center gap-2">
               <span className="size-3 rounded-full" style={{ backgroundColor: chartColors[index % chartColors.length] }} />
@@ -692,7 +986,7 @@ function AccountTreeMultiSelect({
 }: {
   nodes: AccountNode[]
   selectedAccountIds: Set<string>
-  onToggle: (accountId: string, checked: boolean) => void
+  onToggle: (node: AccountNode, checked: boolean) => void
   depth?: number
 }) {
   return (
@@ -711,7 +1005,7 @@ function AccountTreeMultiSelect({
             >
               <Checkbox
                 checked={isChecked}
-                onCheckedChange={(checked) => onToggle(node.id, Boolean(checked))}
+                onCheckedChange={(checked) => onToggle(node, Boolean(checked))}
                 aria-label={`Select account ${node.name}`}
               />
               <span className="min-w-0">
@@ -734,6 +1028,10 @@ function AccountTreeMultiSelect({
       })}
     </div>
   )
+}
+
+function collectAccountNodeIds(node: AccountNode): string[] {
+  return [node.id, ...node.children.flatMap((child) => collectAccountNodeIds(child))]
 }
 
 function filterAccountTree(nodes: AccountNode[], searchTerm: string): AccountNode[] {
@@ -764,6 +1062,28 @@ function filterAccountTree(nodes: AccountNode[], searchTerm: string): AccountNod
     .filter((node): node is AccountNode => node != null)
 }
 
-function truncateLabel(value: string) {
-  return value.length > 28 ? `${value.slice(0, 28)}...` : value
+function getIndianFiscalYearStart(date: Date) {
+  return date.getMonth() >= 3 ? date.getFullYear() : date.getFullYear() - 1
+}
+
+function formatFiscalYearLabel(startYear: number) {
+  return `FY ${startYear}-${String((startYear + 1) % 100).padStart(2, "0")}`
+}
+
+function formatAssessmentYearLabel(startYear: number) {
+  const assessmentStart = startYear + 1
+  return `AY ${assessmentStart}-${String((assessmentStart + 1) % 100).padStart(2, "0")}`
+}
+
+function formatMonthLabel(monthKey: string) {
+  const [year, month] = monthKey.split("-").map(Number)
+  const date = new Date(year, (month ?? 1) - 1, 1)
+  return date.toLocaleDateString("en-IN", { month: "short", year: "2-digit" })
+}
+
+function compactNumber(value: number) {
+  return new Intl.NumberFormat("en-IN", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value)
 }

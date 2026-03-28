@@ -98,6 +98,7 @@ using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     dbContext.Database.Migrate();
+    await AppDbContextSeed.EnsureAccountMetadataColumnsAsync(dbContext);
     await AppDbContextSeed.SeedBootstrapUsersAsync(
         dbContext,
         authOptions.BootstrapUsers.Select(user => (user.Email, user.Password)));

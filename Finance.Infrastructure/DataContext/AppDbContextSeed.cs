@@ -7,6 +7,21 @@ namespace Finance.Infrastructure.Data
 {
     public static class AppDbContextSeed
     {
+        public static async Task EnsureAccountMetadataColumnsAsync(
+            AppDbContext dbContext,
+            CancellationToken cancellationToken = default)
+        {
+            const string sql = """
+                ALTER TABLE "Accounts"
+                ADD COLUMN IF NOT EXISTS "AccountNumber" character varying(50);
+
+                ALTER TABLE "Accounts"
+                ADD COLUMN IF NOT EXISTS "Description" character varying(500);
+                """;
+
+            await dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
+        }
+
         public static async Task SeedBootstrapUsersAsync(
             AppDbContext dbContext,
             IEnumerable<(string Email, string Password)> bootstrapUsers,

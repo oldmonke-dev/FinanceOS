@@ -28,6 +28,8 @@ namespace Finance.Infrastructure.Repositories
             {
                 UserId = userId,
                 NumberGroupingStyle = "international",
+                FinancialYearMode = "indian",
+                CustomFinancialYearStartDate = null,
                 UpdatedAt = DateTime.UtcNow,
             };
 
@@ -44,6 +46,23 @@ namespace Finance.Infrastructure.Repositories
         {
             var preference = await GetOrCreateAsync(userId, cancellationToken);
             preference.NumberGroupingStyle = numberGroupingStyle;
+            preference.UpdatedAt = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync(cancellationToken);
+            return preference;
+        }
+
+        public async Task<UserPreference> UpdatePreferencesAsync(
+            Guid userId,
+            string numberGroupingStyle,
+            string financialYearMode,
+            DateTime? customFinancialYearStartDate,
+            CancellationToken cancellationToken = default)
+        {
+            var preference = await GetOrCreateAsync(userId, cancellationToken);
+            preference.NumberGroupingStyle = numberGroupingStyle;
+            preference.FinancialYearMode = financialYearMode;
+            preference.CustomFinancialYearStartDate = customFinancialYearStartDate?.Date;
             preference.UpdatedAt = DateTime.UtcNow;
 
             await _context.SaveChangesAsync(cancellationToken);

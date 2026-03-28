@@ -3,14 +3,22 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react"
 
 import { getUserPreference, updateUserPreference } from "@/lib/user-preferences"
-import { type NumberGroupingStyle, type UserPreference } from "@/models/user-preference"
+import {
+  type FinancialYearMode,
+  type NumberGroupingStyle,
+  type UserPreference,
+} from "@/models/user-preference"
 
 type UserPreferencesContextValue = {
   preference: UserPreference | null
   isLoading: boolean
   errorMessage: string | null
   refreshPreference: () => Promise<void>
-  updateNumberGroupingStyle: (value: NumberGroupingStyle) => Promise<void>
+  updatePreferences: (input: {
+    numberGroupingStyle: NumberGroupingStyle
+    financialYearMode: FinancialYearMode
+    customFinancialYearStartDate: string | null
+  }) => Promise<void>
   formatNumber: (value: number, fractionDigits?: number) => string
 }
 
@@ -37,8 +45,12 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
     }
   }
 
-  async function updateNumberGroupingStyle(value: NumberGroupingStyle) {
-    const updatedPreference = await updateUserPreference(value)
+  async function updatePreferences(input: {
+    numberGroupingStyle: NumberGroupingStyle
+    financialYearMode: FinancialYearMode
+    customFinancialYearStartDate: string | null
+  }) {
+    const updatedPreference = await updateUserPreference(input)
     setPreference(updatedPreference)
     setErrorMessage(null)
   }
@@ -55,7 +67,7 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
       isLoading,
       errorMessage,
       refreshPreference,
-      updateNumberGroupingStyle,
+      updatePreferences,
       formatNumber: (value: number, fractionDigits = 2) =>
         new Intl.NumberFormat(locale, {
           minimumFractionDigits: fractionDigits,
