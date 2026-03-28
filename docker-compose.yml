@@ -45,8 +45,8 @@ services:
 
   spa:
     build:
-      context: Finance.WebAPI/finance-spa
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: Finance.WebAPI/finance-spa/Dockerfile
       provenance: false
       sbom: false
       args:

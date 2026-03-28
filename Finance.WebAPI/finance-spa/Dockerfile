@@ -1,7 +1,7 @@
 FROM node:22-alpine AS deps
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+COPY Finance.WebAPI/finance-spa/package.json Finance.WebAPI/finance-spa/package-lock.json ./
 RUN npm ci
 
 FROM node:22-alpine AS builder
@@ -13,7 +13,8 @@ ENV NEXT_PUBLIC_FINANCE_API_BASE_URL=${NEXT_PUBLIC_FINANCE_API_BASE_URL}
 ENV FINANCE_API_SERVER_BASE_URL=${FINANCE_API_SERVER_BASE_URL}
 
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY Finance.WebAPI/finance-spa/ ./
+COPY USER_MANUAL.md ./USER_MANUAL.md
 
 RUN npm run build
 
@@ -29,6 +30,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/next.config.mjs ./next.config.mjs
+COPY --from=builder /app/USER_MANUAL.md ./USER_MANUAL.md
 
 EXPOSE 3000
 
