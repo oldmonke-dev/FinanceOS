@@ -44,7 +44,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { getDisplayBalanceForAccount, getSignedSplitAmount } from "@/lib/accounting"
+import { getBalanceDeltaForAccount, getDisplayBalanceForAccount } from "@/lib/accounting"
 import {
   buildAccountTree,
   createAccount,
@@ -137,6 +137,10 @@ export function AccountTree() {
   const [isLoadingUsers, setIsLoadingUsers] = useState(false)
 
   const nodes = buildAccountTree(accounts)
+  const accountTypeById = useMemo(
+    () => new Map(accounts.map((account) => [account.id, account.accountType])),
+    [accounts],
+  )
   const normalizedSearchTerm = searchTerm.trim().toLowerCase()
   const searchResult = useMemo(
     () => filterAccountTree(nodes, normalizedSearchTerm),
@@ -219,7 +223,9 @@ export function AccountTree() {
 
         for (const transaction of transactions) {
           for (const split of transaction.splits) {
-            nextLookup[split.accountId] = (nextLookup[split.accountId] ?? 0) + getSignedSplitAmount(split)
+            nextLookup[split.accountId] =
+              (nextLookup[split.accountId] ?? 0) +
+              getBalanceDeltaForAccount(accountTypeById.get(split.accountId), split)
           }
         }
 
@@ -242,7 +248,7 @@ export function AccountTree() {
     return () => {
       isCancelled = true
     }
-  }, [])
+  }, [accountTypeById])
 
   useEffect(() => {
     if (!user?.isAdmin) {

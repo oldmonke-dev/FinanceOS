@@ -2,6 +2,18 @@ import type { Account } from "@/models/account"
 import type { Split } from "@/models/transaction"
 
 export type SplitSide = "debit" | "credit"
+export type AccountEffect = "increase" | "decrease"
+
+export function isDebitNormalAccount(
+  accountType: Account["accountType"] | null | undefined,
+) {
+  return (
+    accountType === 1 ||
+    accountType === 5 ||
+    accountType === "Asset" ||
+    accountType === "Expense"
+  )
+}
 
 export function normalizeSplitSide(value: unknown, fallbackAmount = 0): SplitSide {
   if (typeof value === "string") {
@@ -27,6 +39,14 @@ export function getOppositeSide(side: SplitSide): SplitSide {
   return side === "debit" ? "credit" : "debit"
 }
 
+export function getSplitSideLabel(side: SplitSide, format: "short" | "long" = "long") {
+  if (format === "short") {
+    return side === "debit" ? "Dr" : "Cr"
+  }
+
+  return side === "debit" ? "Debit" : "Credit"
+}
+
 export function getDebitTotal(splits: Array<Pick<Split, "amount" | "side">>) {
   return splits.reduce((sum, split) => sum + (split.side === "debit" ? split.amount : 0), 0)
 }
@@ -39,13 +59,7 @@ export function getBalanceDeltaForAccount(
   accountType: Account["accountType"] | null | undefined,
   split: Pick<Split, "amount" | "side">,
 ) {
-  const isDebitNormal =
-    accountType === 1 ||
-    accountType === 5 ||
-    accountType === "Asset" ||
-    accountType === "Expense"
-
-  if (isDebitNormal) {
+  if (isDebitNormalAccount(accountType)) {
     return split.side === "debit" ? split.amount : -split.amount
   }
 
@@ -88,4 +102,28 @@ export function getDisplaySplitAmountForAccount(
   split: Pick<Split, "amount" | "side">,
 ) {
   return getDisplayBalanceForAccount(accountType, getBalanceDeltaForAccount(accountType, split))
+}
+
+export function getAccountEffectForSplitSide(
+  accountType: Account["accountType"] | null | undefined,
+  side: SplitSide,
+): AccountEffect {
+  return getBalanceDeltaForAccount(accountType, { amount: 1, side }) >= 0
+    ? "increase"
+    : "decrease"
+}
+
+export function getSplitSideForAccountEffect(
+  accountType: Account["accountType"] | null | undefined,
+  effect: AccountEffect,
+): SplitSide {
+  return getAccountEffectForSplitSide(accountType, "debit") === effect ? "debit" : "credit"
+}
+
+export function getTwoSplitAccountLabel(index: number, primarySide: SplitSide) {
+  if (primarySide === "credit") {
+    return index === 0 ? "From account" : "To account"
+  }
+
+  return index === 0 ? "To account" : "From account"
 }

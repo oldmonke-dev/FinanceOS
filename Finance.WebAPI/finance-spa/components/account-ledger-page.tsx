@@ -29,10 +29,11 @@ import {
   renameAccount,
 } from "@/lib/accounts"
 import {
+  getAccountEffectForSplitSide,
   getBalanceDeltaForAccount,
   getDisplayBalanceForAccount,
   getDisplaySplitAmountForAccount,
-  getSignedSplitAmount,
+  getSplitSideForAccountEffect,
   getStoredBalanceFromDisplay,
   type SplitSide,
 } from "@/lib/accounting"
@@ -65,6 +66,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
   const account = accounts.find((item) => item.id === accountId) ?? null
   const resolvedAccountId = account?.id ?? null
   const tree = useMemo(() => buildAccountTree(accounts), [accounts])
+  const accountById = useMemo(() => new Map(accounts.map((item) => [item.id, item])), [accounts])
   const accountPathLookup = useMemo(() => buildAccountPathLookup(accounts), [accounts])
   const availableDestinationAccounts = useMemo(
     () =>
@@ -450,7 +452,12 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
     )
   }
 
-  function updateSplitSign(transactionId: string, splitId: string, sign: "dr" | "cr") {
+  function updateSplitEffect(
+    transactionId: string,
+    splitId: string,
+    accountType: number | string | null | undefined,
+    effect: "increase" | "decrease",
+  ) {
     commitDraft((current) =>
       current.map((transaction) => {
         if (transaction.id !== transactionId) {
@@ -462,7 +469,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
           return transaction
         }
 
-        const nextSide: SplitSide = sign === "dr" ? "debit" : "credit"
+        const nextSide = getSplitSideForAccountEffect(accountType, effect)
 
         return {
           ...transaction,
@@ -827,10 +834,10 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                     <th className="w-24 border-b pl-9 pr-2 py-2 text-left font-medium sm:w-28 sm:pl-12 sm:pr-3">Date</th>
                     <th className="w-[13rem] border-b px-2 py-2 text-left font-medium sm:w-[15rem]">Description</th>
                     <th className="w-24 border-b px-2 py-2 text-left font-medium sm:w-28">Reference</th>
-                    <th className="w-[16rem] border-b px-2 py-2 text-left font-medium sm:w-[20rem] lg:w-[22rem]">Destination</th>
+                    <th className="w-[16rem] border-b px-2 py-2 text-left font-medium sm:w-[20rem] lg:w-[22rem]">Other Account</th>
                     <th className="w-28 border-b px-2 py-2 text-left font-medium sm:w-32">Memo</th>
                     <th className="w-28 border-b px-2 py-2 text-right font-medium sm:w-32 sm:px-3">Amount</th>
-                    <th className="w-32 border-b px-2 py-2 text-right font-medium sm:w-36 sm:px-3">Trailing Balance</th>
+                    <th className="w-32 border-b px-2 py-2 text-right font-medium sm:w-36 sm:px-3">Running Balance</th>
                     <th className="w-14 border-b px-2 py-2 text-right font-medium sm:w-16 sm:px-3">Actions</th>
                   </tr>
                 </thead>
@@ -903,7 +910,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                               onValueChange={(value) =>
                                 value ? updateDestinationAccount(transaction.id, value) : undefined
                               }
-                              placeholder="Select destination account"
+                              placeholder="Select other account"
                               className="w-full min-w-0"
                               triggerClassName="h-8 px-1.5 text-xs"
                               getAccountLabel={(account) =>
@@ -957,15 +964,16 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                               <div className="rounded-xl border border-border/70 bg-background/55 shadow-sm">
                                 <div className="flex items-center justify-between gap-3 border-b px-3 py-2">
                                   <h4 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                                    Split breakdown
+                                    Split Details
                                   </h4>
                                   <span className="text-[11px] text-muted-foreground">
                                     {transaction.splits.length} split{transaction.splits.length === 1 ? "" : "s"}
                                   </span>
                                 </div>
                                 <div data-horizontal-scroll-region className="horizontal-scroll-region">
-                                  {orderSplitsForDisplay(transaction.splits).map((split, splitIndex) => {
-                                    const splitSignedAmount = getSignedSplitAmount(split)
+                                  {orderSplitsForDisplay(transaction.splits, resolvedAccount.id).map((split, splitIndex) => {
+                                    const splitAccountType = accountById.get(split.accountId)?.accountType
+                                    const splitDisplayAmount = getDisplaySplitAmountForAccount(splitAccountType, split)
 
                                     return (
                                     <div
@@ -1009,15 +1017,16 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                                           rows={1}
                                         />
                                       </div>
-                                      <div className="pr-1 text-[11px] text-muted-foreground">Sign</div>
+                                      <div className="pr-1 text-[11px] text-muted-foreground">Balance Change</div>
                                       <div>
                                         <Select
-                                          value={getSplitSign(split.side)}
+                                          value={getAccountEffectForSplitSide(splitAccountType, split.side)}
                                           onValueChange={(value) =>
-                                            updateSplitSign(
+                                            updateSplitEffect(
                                               transaction.id,
                                               split.id,
-                                              value as "dr" | "cr",
+                                              splitAccountType,
+                                              value as "increase" | "decrease",
                                             )
                                           }
                                         >
@@ -1025,13 +1034,13 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                                             <SelectValue />
                                           </SelectTrigger>
                                           <SelectContent>
-                                            <SelectItem value="dr">Dr</SelectItem>
-                                            <SelectItem value="cr">Cr</SelectItem>
+                                            <SelectItem value="increase">Increase</SelectItem>
+                                            <SelectItem value="decrease">Decrease</SelectItem>
                                           </SelectContent>
                                         </Select>
                                       </div>
-                                      <div className="pr-1 text-[11px] text-muted-foreground">Amount</div>
-                                      <div className={getAmountToneClass(splitSignedAmount)}>
+                                      <div className="pr-1 text-[11px] text-muted-foreground">Posted Amount</div>
+                                      <div className={getAmountToneClass(splitDisplayAmount)}>
                                         <Input
                                           type="number"
                                           step="0.01"
@@ -1043,7 +1052,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                                               event.target.value,
                                             )
                                           }
-                                          className={`${inlineNumberInputClassName} ${getAmountToneClass(splitSignedAmount)}`}
+                                          className={`${inlineNumberInputClassName} ${getAmountToneClass(splitDisplayAmount)}`}
                                         />
                                       </div>
                                     </div>
@@ -1152,12 +1161,26 @@ function formatSignedNumber(
 
 function orderSplitsForDisplay(
   splits: Transaction["splits"],
+  currentAccountId?: string,
 ) {
-  return [...splits]
-}
+  return [...splits].sort((left, right) => {
+    const leftIsCurrent = currentAccountId != null && left.accountId === currentAccountId
+    const rightIsCurrent = currentAccountId != null && right.accountId === currentAccountId
 
-function getSplitSign(side: "debit" | "credit"): "dr" | "cr" {
-  return side === "debit" ? "dr" : "cr"
+    if (leftIsCurrent && !rightIsCurrent) {
+      return -1
+    }
+
+    if (!leftIsCurrent && rightIsCurrent) {
+      return 1
+    }
+
+    if (left.side !== right.side) {
+      return left.side === "debit" ? -1 : 1
+    }
+
+    return left.accountId.localeCompare(right.accountId)
+  })
 }
 
 function applyBalancedSplitEdit(
