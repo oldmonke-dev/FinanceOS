@@ -38,6 +38,7 @@ import {
   type SplitSide,
 } from "@/lib/accounting"
 import { deleteTransaction, getTransactions, updateTransaction } from "@/lib/transactions"
+import type { Account } from "@/models/account"
 import type { Transaction } from "@/models/transaction"
 
 const ACCOUNT_TREE_RESTORE_PENDING_KEY = "finance.account-tree.restore-pending"
@@ -455,7 +456,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
   function updateSplitEffect(
     transactionId: string,
     splitId: string,
-    accountType: number | string | null | undefined,
+    accountType: Account["accountType"] | null | undefined,
     effect: "increase" | "decrease",
   ) {
     commitDraft((current) =>

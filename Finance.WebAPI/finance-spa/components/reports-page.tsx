@@ -32,7 +32,7 @@ import { buildAccountTree, formatAccountType } from "@/lib/accounts"
 import { getBalanceDeltaForAccount } from "@/lib/accounting"
 import { getTransactions } from "@/lib/transactions"
 import { cn } from "@/lib/utils"
-import type { AccountNode } from "@/models/account"
+import type { Account, AccountNode } from "@/models/account"
 import type { Transaction } from "@/models/transaction"
 
 type ImportSessionFilter = "all" | "archived" | "active" | "none"
@@ -1493,7 +1493,7 @@ function formatCompactUnit(value: number) {
 function buildDistributedSankeyLinks(
   transactions: Transaction[],
   accountPathLookup: Map<string, string>,
-  accountById: Map<string, { accountType: number | string; name?: string; parentAccountId?: string | null }>,
+  accountById: Map<string, Account>,
 ) {
   const links = new Map<string, number>()
   const directTransactionAccountIds = new Set(
@@ -1633,7 +1633,7 @@ function alignSankeyLinksToExpenseBalances(
   links: FlowLink[],
   expenseBalancesByAccount: Map<string, number>,
   accountPathLookup: Map<string, string>,
-  accountById: Map<string, { accountType: number | string }>,
+  accountById: Map<string, Account>,
 ) {
   const adjustedLinks = [...links]
 
