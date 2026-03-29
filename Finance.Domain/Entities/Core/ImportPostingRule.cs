@@ -16,7 +16,9 @@ namespace Finance.Domain.Entities.Core
             }
 
             var absoluteAmount = Math.Abs(sourceAmount);
-            var sourceSide = sourceAmount < 0 ? SplitSide.Debit : SplitSide.Credit;
+            // Import amounts are normalized from the source account's perspective:
+            // negative means money left the source account, positive means money entered it.
+            var sourceSide = sourceAmount < 0 ? SplitSide.Credit : SplitSide.Debit;
             var destinationSide = sourceSide == SplitSide.Debit ? SplitSide.Credit : SplitSide.Debit;
 
             return new List<Split>

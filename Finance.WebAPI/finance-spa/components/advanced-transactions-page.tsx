@@ -28,6 +28,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import {
+  getAccountEffectForSplitSide,
   getCreditTotal as getSplitCreditTotal,
   getDebitTotal as getSplitDebitTotal,
   getSignedSplitAmount,
@@ -134,6 +135,10 @@ export function AdvancedTransactionsPage() {
   }, [accounts])
 
   const accountTree = useMemo(() => buildAccountTree(accounts), [accounts])
+  const accountTypeById = useMemo(
+    () => new Map(accounts.map((account) => [account.id, account.accountType])),
+    [accounts],
+  )
   const filteredAccountTree = useMemo(
     () => filterAccountTree(accountTree, deferredAccountQuery.trim().toLowerCase()),
     [accountTree, deferredAccountQuery],
@@ -1163,7 +1168,7 @@ export function AdvancedTransactionsPage() {
                     className="w-36"
                   />
                   <th className="w-[24rem] px-2 py-2 text-left font-medium">Split account</th>
-                  <th className="w-16 px-2 py-2 text-left font-medium">Side</th>
+                  <th className="w-28 px-2 py-2 text-left font-medium">Balance Change</th>
                   <SortableHeader
                     label="Debits"
                     sortKey="debitTotal"
@@ -1205,7 +1210,11 @@ export function AdvancedTransactionsPage() {
                     <Fragment key={transaction.id}>
                       {orderSplitsForDisplay(transaction.splits).map((split, splitIndex) => {
                         const splitAccountLabel = accountPathLookup.get(split.accountId) ?? split.accountId
-                        const isDebit = split.side === "debit"
+                        const splitEffect = getAccountEffectForSplitSide(
+                          accountTypeById.get(split.accountId),
+                          split.side,
+                        )
+                        const isIncrease = splitEffect === "increase"
 
                         return (
                           <tr
@@ -1273,14 +1282,14 @@ export function AdvancedTransactionsPage() {
                             <td className="px-2 py-2 break-words">{splitAccountLabel}</td>
                             <td
                               className={cn(
-                                "px-2 py-2 font-medium uppercase",
-                                isDebit ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400",
+                                "px-2 py-2 font-medium",
+                                isIncrease ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400",
                               )}
                             >
-                              {isDebit ? "Dr" : "Cr"}
+                              {isIncrease ? "Increase" : "Decrease"}
                             </td>
                             <td className="px-2 py-2 text-right tabular-nums">
-                              {isDebit ? (
+                              {split.side === "debit" ? (
                                 <span className="text-rose-600 dark:text-rose-400">
                                   {formatNumber(Math.abs(split.amount))}
                                 </span>
@@ -1289,7 +1298,7 @@ export function AdvancedTransactionsPage() {
                               )}
                             </td>
                             <td className="px-2 py-2 text-right tabular-nums">
-                              {!isDebit ? (
+                              {split.side === "credit" ? (
                                 <span className="text-emerald-600 dark:text-emerald-400">
                                   {formatNumber(split.amount)}
                                 </span>
