@@ -87,6 +87,8 @@ export function AccountPermissionsPage({ accountId }: { accountId: string }) {
     return details.availableUsers.filter((user) => !assignedUserIds.has(user.id))
   }, [details])
 
+  const isOwnerlessShared = details?.ownerUserId == null
+
   function updateEntry(
     userId: string,
     updater: (entry: AccountAccessEntry) => AccountAccessEntry,
@@ -193,7 +195,7 @@ export function AccountPermissionsPage({ accountId }: { accountId: string }) {
       subtitle="Manage reporting mode, ownership, and per-user access"
       badge={details ? details.accountName : "Loading"}
     >
-      <div className="space-y-4">
+      <div className="mx-auto w-full space-y-4 xl:w-[75%]">
         <Button asChild type="button" variant="outline">
           <Link href="/accounts">
             <ArrowLeft />
@@ -255,6 +257,8 @@ export function AccountPermissionsPage({ accountId }: { accountId: string }) {
                           : {
                               ...current,
                               ownerUserId: value === "__none__" ? null : value,
+                              isGloballyShared:
+                                value === "__none__" ? true : current.isGloballyShared,
                             },
                       )
                     }
@@ -279,9 +283,14 @@ export function AccountPermissionsPage({ accountId }: { accountId: string }) {
                     <span>Globally shared</span>
                     <InfoTooltip content="When enabled, every non-admin user can view, post, edit, and delete transactions on this account. Manage access still stays with admins and the owner." />
                   </span>
-                  <label className="flex min-h-10 items-center gap-3 rounded-md border px-3">
+                  <label
+                    className={`flex min-h-10 items-center gap-3 rounded-md border px-3 ${
+                      isOwnerlessShared ? "cursor-not-allowed opacity-60" : ""
+                    }`}
+                  >
                     <Checkbox
                       checked={details.isGloballyShared}
+                      disabled={isOwnerlessShared}
                       onCheckedChange={(checked) =>
                         setDetails((current) =>
                           current == null
@@ -294,7 +303,9 @@ export function AccountPermissionsPage({ accountId }: { accountId: string }) {
                       }
                     />
                     <span className="text-sm text-muted-foreground">
-                      Allow all users to use this account
+                      {isOwnerlessShared
+                        ? "All users can use ownerless accounts by default"
+                        : "Allow all users to use this account"}
                     </span>
                   </label>
                 </div>

@@ -55,6 +55,7 @@ type SortState = {
 }
 
 type ImportSessionFilter = "all" | "archived" | "active" | "none"
+type DateRangeMode = "custom" | "fy" | "ay"
 
 type TransactionImportSessionStatus = "archived" | "active"
 
@@ -88,8 +89,10 @@ export function AdvancedTransactionsPage() {
   const [bulkTargetAccountId, setBulkTargetAccountId] = useState<string | null>(null)
   const [descriptionQuery, setDescriptionQuery] = useState("")
   const [memoQuery, setMemoQuery] = useState("")
-  const [dateFrom, setDateFrom] = useState("")
-  const [dateTo, setDateTo] = useState("")
+  const [dateRangeMode, setDateRangeMode] = useState<DateRangeMode>("custom")
+  const [customDateFrom, setCustomDateFrom] = useState("")
+  const [customDateTo, setCustomDateTo] = useState("")
+  const [selectedFiscalYearStart, setSelectedFiscalYearStart] = useState("")
   const [importSessionFilter, setImportSessionFilter] = useState<ImportSessionFilter>("all")
   const [selectedArchivedSessionIds, setSelectedArchivedSessionIds] = useState<Set<string>>(new Set())
   const [sortState, setSortState] = useState<SortState>(defaultSort)
@@ -97,6 +100,8 @@ export function AdvancedTransactionsPage() {
   const [isDeleting, setIsDeleting] = useState(false)
   const [isSavingChanges, setIsSavingChanges] = useState(false)
   const [hiddenColumns, setHiddenColumns] = useState<Set<HiddenColumn>>(new Set())
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(50)
   const deferredDescriptionQuery = useDeferredValue(descriptionQuery)
   const deferredMemoQuery = useDeferredValue(memoQuery)
   const deferredAccountQuery = useDeferredValue(accountQuery)
@@ -261,6 +266,110 @@ export function AdvancedTransactionsPage() {
     }
   }, [isAccountPopupOpen])
 
+  const transactionDateRange = useMemo(() => {
+    if (draftTransactions.length === 0) {
+      return { earliest: "", latest: "" }
+    }
+
+    const sortedDates = draftTransactions
+      .map((transaction) => transaction.transactionDate)
+      .map((value) => {
+        const date = new Date(value)
+        return Number.isNaN(date.getTime()) ? null : date
+      })
+      .filter((value): value is Date => value != null)
+      .sort((left, right) => left.getTime() - right.getTime())
+
+    if (sortedDates.length === 0) {
+      return { earliest: "", latest: "" }
+    }
+
+    return {
+      earliest: sortedDates[0].toISOString().slice(0, 10),
+      latest: sortedDates[sortedDates.length - 1].toISOString().slice(0, 10),
+    }
+  }, [draftTransactions])
+
+  useEffect(() => {
+    setSelectedTransactionIds((current) => {
+      const next = new Set<string>()
+
+      current.forEach((id) => {
+        if (draftTransactions.some((transaction) => transaction.id === id)) {
+          next.add(id)
+        }
+      })
+
+      return next
+    })
+  }, [draftTransactions])
+
+  useEffect(() => {
+    if (!transactionDateRange.earliest || !transactionDateRange.latest) {
+      return
+    }
+
+    setCustomDateFrom((current) => current || transactionDateRange.earliest)
+    setCustomDateTo((current) => current || transactionDateRange.latest)
+  }, [transactionDateRange.earliest, transactionDateRange.latest])
+
+  const fiscalYearOptions = useMemo(() => {
+    if (!transactionDateRange.earliest || !transactionDateRange.latest) {
+      return []
+    }
+
+    const earliestDate = new Date(transactionDateRange.earliest)
+    const latestDate = new Date(transactionDateRange.latest)
+
+    if (Number.isNaN(earliestDate.getTime()) || Number.isNaN(latestDate.getTime())) {
+      return []
+    }
+
+    const startYear = getIndianFiscalYearStart(earliestDate)
+    const endYear = getIndianFiscalYearStart(latestDate)
+    const options: Array<{ value: string; fyLabel: string; ayLabel: string }> = []
+
+    for (let year = endYear; year >= startYear; year -= 1) {
+      options.push({
+        value: String(year),
+        fyLabel: formatFiscalYearLabel(year),
+        ayLabel: formatAssessmentYearLabel(year),
+      })
+    }
+
+    return options
+  }, [transactionDateRange.earliest, transactionDateRange.latest])
+
+  useEffect(() => {
+    if (selectedFiscalYearStart || fiscalYearOptions.length === 0) {
+      return
+    }
+
+    setSelectedFiscalYearStart(fiscalYearOptions[0].value)
+  }, [fiscalYearOptions, selectedFiscalYearStart])
+
+  const effectiveDateRange = useMemo(() => {
+    if (dateRangeMode === "custom") {
+      return {
+        from: customDateFrom,
+        to: customDateTo,
+      }
+    }
+
+    if (!selectedFiscalYearStart) {
+      return {
+        from: "",
+        to: "",
+      }
+    }
+
+    const startYear = Number(selectedFiscalYearStart)
+    return {
+      from: `${startYear}-04-01`,
+      to: `${startYear + 1}-03-31`,
+    }
+  }, [customDateFrom, customDateTo, dateRangeMode, selectedFiscalYearStart])
+
   const filteredTransactions = useMemo(() => {
     const normalizedDescription = deferredDescriptionQuery.trim().toLowerCase()
     const normalizedMemo = deferredMemoQuery.trim().toLowerCase()
@@ -268,15 +377,15 @@ export function AdvancedTransactionsPage() {
     return draftTransactions.filter((transaction) => {
       const transactionDate = getComparableDateValue(transaction.transactionDate)
 
-      if (dateFrom) {
-        const fromDate = new Date(`${dateFrom}T00:00:00`)
+      if (effectiveDateRange.from) {
+        const fromDate = new Date(`${effectiveDateRange.from}T00:00:00`)
         if (Number.isFinite(transactionDate) && transactionDate < fromDate.getTime()) {
           return false
         }
       }
 
-      if (dateTo) {
-        const toDate = new Date(`${dateTo}T23:59:59.999`)
+      if (effectiveDateRange.to) {
+        const toDate = new Date(`${effectiveDateRange.to}T23:59:59.999`)
         if (Number.isFinite(transactionDate) && transactionDate > toDate.getTime()) {
           return false
         }
@@ -323,11 +432,11 @@ export function AdvancedTransactionsPage() {
       return true
     })
   }, [
-    dateFrom,
-    dateTo,
     deferredDescriptionQuery,
     deferredMemoQuery,
     draftTransactions,
+    effectiveDateRange.from,
+    effectiveDateRange.to,
     importSessionFilter,
     importSessionMetaByTransactionId,
     selectedAccountIds,
@@ -346,51 +455,39 @@ export function AdvancedTransactionsPage() {
     })
   }, [filteredTransactions, sortState])
 
-  const transactionDateRange = useMemo(() => {
-    if (draftTransactions.length === 0) {
-      return { earliest: "", latest: "" }
-    }
-
-    const sortedDates = draftTransactions
-      .map((transaction) => transaction.transactionDate)
-      .map((value) => {
-        const date = new Date(value)
-        return Number.isNaN(date.getTime()) ? null : date
-      })
-      .filter((value): value is Date => value != null)
-      .sort((left, right) => left.getTime() - right.getTime())
-
-    if (sortedDates.length === 0) {
-      return { earliest: "", latest: "" }
-    }
-
-    return {
-      earliest: sortedDates[0].toISOString().slice(0, 10),
-      latest: sortedDates[sortedDates.length - 1].toISOString().slice(0, 10),
-    }
-  }, [draftTransactions])
+  const totalPages = Math.max(1, Math.ceil(sortedTransactions.length / pageSize))
+  const pagedTransactions = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize
+    return sortedTransactions.slice(startIndex, startIndex + pageSize)
+  }, [currentPage, pageSize, sortedTransactions])
 
   const visibleTransactionIds = useMemo(
-    () => sortedTransactions.map((transaction) => transaction.id),
-    [sortedTransactions],
+    () => pagedTransactions.map((transaction) => transaction.id),
+    [pagedTransactions],
   )
   const visibleSelectionCount = visibleTransactionIds.filter((id) => selectedTransactionIds.has(id)).length
   const areAllVisibleSelected =
     visibleTransactionIds.length > 0 && visibleSelectionCount === visibleTransactionIds.length
 
   useEffect(() => {
-    setSelectedTransactionIds((current) => {
-      const next = new Set<string>()
+    setCurrentPage(1)
+  }, [
+    customDateFrom,
+    customDateTo,
+    dateRangeMode,
+    deferredDescriptionQuery,
+    deferredMemoQuery,
+    importSessionFilter,
+    selectedFiscalYearStart,
+    selectedAccountIds,
+    selectedArchivedSessionIds,
+    sortState,
+    pageSize,
+  ])
 
-      current.forEach((id) => {
-        if (draftTransactions.some((transaction) => transaction.id === id)) {
-          next.add(id)
-        }
-      })
-
-      return next
-    })
-  }, [draftTransactions])
+  useEffect(() => {
+    setCurrentPage((current) => Math.min(current, totalPages))
+  }, [totalPages])
 
   const hasUnsavedChanges = useMemo(
     () => serializeTransactions(savedTransactions) !== serializeTransactions(draftTransactions),
@@ -847,28 +944,64 @@ export function AdvancedTransactionsPage() {
           </div>
 
           <label className="min-w-[10rem] space-y-1 text-xs">
-            <span className="font-medium text-muted-foreground">From</span>
-            <Input
-              type="date"
-              value={dateFrom}
-              onChange={(event) => setDateFrom(event.target.value)}
-              min={transactionDateRange.earliest || undefined}
-              max={transactionDateRange.latest || undefined}
-              className="h-8"
-            />
+            <span className="font-medium text-muted-foreground">Date mode</span>
+            <Select value={dateRangeMode} onValueChange={(value) => setDateRangeMode(value as DateRangeMode)}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="custom">Custom</SelectItem>
+                <SelectItem value="fy">Financial Year</SelectItem>
+                <SelectItem value="ay">Assessment Year</SelectItem>
+              </SelectContent>
+            </Select>
           </label>
 
-          <label className="min-w-[10rem] space-y-1 text-xs">
-            <span className="font-medium text-muted-foreground">To</span>
-            <Input
-              type="date"
-              value={dateTo}
-              onChange={(event) => setDateTo(event.target.value)}
-              min={transactionDateRange.earliest || undefined}
-              max={transactionDateRange.latest || undefined}
-              className="h-8"
-            />
-          </label>
+          {dateRangeMode === "custom" ? (
+            <>
+              <label className="min-w-[10rem] space-y-1 text-xs">
+                <span className="font-medium text-muted-foreground">From</span>
+                <Input
+                  type="date"
+                  value={customDateFrom}
+                  onChange={(event) => setCustomDateFrom(event.target.value)}
+                  min={transactionDateRange.earliest || undefined}
+                  max={transactionDateRange.latest || undefined}
+                  className="h-8"
+                />
+              </label>
+
+              <label className="min-w-[10rem] space-y-1 text-xs">
+                <span className="font-medium text-muted-foreground">To</span>
+                <Input
+                  type="date"
+                  value={customDateTo}
+                  onChange={(event) => setCustomDateTo(event.target.value)}
+                  min={transactionDateRange.earliest || undefined}
+                  max={transactionDateRange.latest || undefined}
+                  className="h-8"
+                />
+              </label>
+            </>
+          ) : (
+            <label className="min-w-[12rem] space-y-1 text-xs">
+              <span className="font-medium text-muted-foreground">
+                {dateRangeMode === "fy" ? "Financial Year" : "Assessment Year"}
+              </span>
+              <Select value={selectedFiscalYearStart} onValueChange={setSelectedFiscalYearStart}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Select year" />
+                </SelectTrigger>
+                <SelectContent>
+                  {fiscalYearOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {dateRangeMode === "fy" ? option.fyLabel : option.ayLabel}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+          )}
 
           <label className="min-w-[11rem] space-y-1 text-xs">
             <span className="font-medium text-muted-foreground">Import session</span>
@@ -927,8 +1060,10 @@ export function AdvancedTransactionsPage() {
                 setMemoQuery("")
                 setAccountQuery("")
                 setIsAccountPopupOpen(false)
-                setDateFrom("")
-                setDateTo("")
+                setDateRangeMode("custom")
+                setCustomDateFrom(transactionDateRange.earliest)
+                setCustomDateTo(transactionDateRange.latest)
+                setSelectedFiscalYearStart(fiscalYearOptions[0]?.value ?? "")
                 setImportSessionFilter("all")
                 setSelectedArchivedSessionIds(new Set())
                 setSelectedAccountIds(new Set())
@@ -1135,7 +1270,53 @@ export function AdvancedTransactionsPage() {
         ) : sortedTransactions.length === 0 ? (
           <div className="p-6 text-sm text-muted-foreground">No transactions match the current filters.</div>
         ) : (
-          <div data-horizontal-scroll-region className="horizontal-scroll-region overflow-x-auto">
+          <>
+            <div className="flex flex-col gap-3 border-b px-4 py-3 md:flex-row md:items-center md:justify-between">
+              <p className="text-sm text-muted-foreground">
+                Showing{" "}
+                <span className="font-medium text-foreground">
+                  {(currentPage - 1) * pageSize + 1}-{Math.min(currentPage * pageSize, sortedTransactions.length)}
+                </span>{" "}
+                of <span className="font-medium text-foreground">{sortedTransactions.length}</span> transactions
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select
+                  value={String(pageSize)}
+                  onValueChange={(value) => setPageSize(Number(value))}
+                >
+                  <SelectTrigger className="h-8 w-[8.5rem]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="25">25 / page</SelectItem>
+                    <SelectItem value="50">50 / page</SelectItem>
+                    <SelectItem value="100">100 / page</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </Button>
+                <div className="rounded-md border bg-background px-3 py-1.5 text-xs text-muted-foreground">
+                  Page <span className="font-medium text-foreground">{currentPage}</span> / {totalPages}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                  disabled={currentPage === totalPages}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+            <div data-horizontal-scroll-region className="horizontal-scroll-region overflow-x-auto">
             <table className="min-w-[96rem] w-full border-collapse text-xs">
               <thead className="bg-muted/40">
                 <tr className="border-b">
@@ -1199,7 +1380,7 @@ export function AdvancedTransactionsPage() {
                 </tr>
               </thead>
               <tbody>
-                {sortedTransactions.map((transaction) => {
+                {pagedTransactions.map((transaction) => {
                   const isSelected = selectedTransactionIds.has(transaction.id)
                   const splitTotal = getDebitTotal(transaction)
                   const savedSnapshot = savedTransactions.find((item) => item.id === transaction.id)
@@ -1344,6 +1525,7 @@ export function AdvancedTransactionsPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </section>
     </AppShell>
@@ -1609,6 +1791,19 @@ function orderSplitsForDisplay(transactionSplits: Transaction["splits"]) {
 function formatDate(value: string) {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString()
+}
+
+function getIndianFiscalYearStart(date: Date) {
+  return date.getMonth() >= 3 ? date.getFullYear() : date.getFullYear() - 1
+}
+
+function formatFiscalYearLabel(startYear: number) {
+  return `FY ${startYear}-${String((startYear + 1) % 100).padStart(2, "0")}`
+}
+
+function formatAssessmentYearLabel(startYear: number) {
+  const assessmentStart = startYear + 1
+  return `AY ${assessmentStart}-${String((assessmentStart + 1) % 100).padStart(2, "0")}`
 }
 
 function cloneTransactions(transactions: Transaction[]) {

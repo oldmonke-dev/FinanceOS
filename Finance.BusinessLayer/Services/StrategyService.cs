@@ -17,10 +17,13 @@ namespace Finance.BusinessLayer.Services
             _importLearningRepository = importLearningRepository;
         }
 
-        public async Task<BayesianStrategyDTO> GetBayesianStrategyAsync(Guid userId, CancellationToken cancellationToken = default)
+        public async Task<BayesianStrategyDTO> GetBayesianStrategyAsync(Guid userId, bool isAdmin, CancellationToken cancellationToken = default)
         {
-            var accounts = await _accountRepository.GetAllAccountsAsync(userId, isAdmin: false);
-            var stats = await _importLearningRepository.GetGlobalStatsAsync(userId, cancellationToken);
+            var accounts = await _accountRepository.GetAllAccountsAsync(userId, isAdmin);
+            var accountIds = accounts.Select(account => account.Id).ToHashSet();
+            var stats = (await _importLearningRepository.GetGlobalStatsAsync(cancellationToken))
+                .Where(stat => accountIds.Contains(stat.DestinationAccountId))
+                .ToList();
 
             var accountById = accounts.ToDictionary(account => account.Id);
             var pathById = new Dictionary<Guid, string>();
@@ -66,6 +69,9 @@ namespace Finance.BusinessLayer.Services
                         DestinationAccountId = group.Key,
                         DestinationAccountName = account?.Name ?? group.Key.ToString(),
                         DestinationAccountPath = BuildPath(group.Key),
+                        DestinationAccountOwnerUserId = account?.OwnerUserId,
+                        DestinationAccountOwnerDisplayName = account?.OwnerUser?.DisplayName,
+                        DestinationAccountOwnerEmail = account?.OwnerUser?.Email,
                         TotalLearnedCount = group
                             .Where(stat => stat.FeatureKey == "__prior__")
                             .Sum(stat => stat.Count),
@@ -97,10 +103,11 @@ namespace Finance.BusinessLayer.Services
 
         public async Task<ImportBayesianTrainingResultDTO> ImportBayesianTrainingDataAsync(
             Guid userId,
+            bool isAdmin,
             ImportBayesianTrainingDataDTO request,
             CancellationToken cancellationToken = default)
         {
-            var accounts = await _accountRepository.GetAllAccountsAsync(userId, isAdmin: false);
+            var accounts = await _accountRepository.GetAllAccountsAsync(userId, isAdmin);
             var accountByNormalizedPath = accounts.ToDictionary(
                 account => NormalizeAccountPath(BuildPath(account, accounts)),
                 account => account);
@@ -168,6 +175,7 @@ namespace Finance.BusinessLayer.Services
 
         public async Task DeleteBayesianLearningForAccountAsync(
             Guid userId,
+            bool isAdmin,
             Guid destinationAccountId,
             CancellationToken cancellationToken = default)
         {
@@ -176,8 +184,12 @@ namespace Finance.BusinessLayer.Services
                 throw new InvalidOperationException("Destination account is required.");
             }
 
+            if (!isAdmin)
+            {
+                throw new InvalidOperationException("Only admins can delete shared Bayesian learning.");
+            }
+
             var deletedCount = await _importLearningRepository.DeleteGlobalStatsByDestinationAccountAsync(
-                userId,
                 destinationAccountId,
                 cancellationToken);
 

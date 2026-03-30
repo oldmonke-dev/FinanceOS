@@ -411,7 +411,7 @@ export function getAccountOwnerLabel(account: Account) {
   }
 
   if (!account.ownerUserId) {
-    return "Admin"
+    return "Globally Shared"
   }
 
   return account.ownerDisplayName?.trim() || account.ownerEmail?.trim() || account.ownerUserId

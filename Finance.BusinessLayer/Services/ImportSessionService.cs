@@ -367,7 +367,7 @@ namespace Finance.BusinessLayer.Services
             }
 
             var columnMappings = DeserializeColumnMappings(session.ColumnMappingsJson);
-            var globalStats = await _importLearningRepository.GetGlobalStatsAsync(userId, cancellationToken);
+            var globalStats = await _importLearningRepository.GetGlobalStatsAsync(cancellationToken);
             var sessionEntries = await _importLearningRepository.GetSessionEntriesAsync(sessionId, userId, cancellationToken);
 
             if (globalStats.Count == 0 && sessionEntries.Count == 0)

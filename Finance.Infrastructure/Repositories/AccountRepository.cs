@@ -20,28 +20,52 @@ namespace Finance.Infrastructure.Repositories
 
         public async Task<List<Account>> GetAllAccountsAsync(Guid userId, bool isAdmin)
         {
-            var query = _context.Accounts
+            var accounts = await _context.Accounts
                 .Include(account => account.OwnerUser)
                 .Include(account => account.AccessEntries)
-                .AsQueryable();
+                .ToListAsync();
 
-            if (!isAdmin)
+            if (isAdmin)
             {
-                query = query.Where(account =>
-                    !account.IsCore
-                    && (
-                    account.OwnerUserId == userId
-                    || account.IsGloballyShared
-                    || account.AccessEntries.Any(access =>
-                        access.UserId == userId
-                        && (access.CanView
-                            || access.CanPost
-                            || access.CanEditTransaction
-                            || access.CanDeleteTransaction
-                            || access.CanManageAccess))));
+                return accounts;
             }
 
-            return await query.ToListAsync();
+            var accountById = accounts.ToDictionary(account => account.Id);
+            var visibleIds = accounts
+                .Where(account =>
+                    !account.IsCore
+                    && (
+                        account.OwnerUserId == userId
+                        || account.IsGloballyShared
+                        || account.AccessEntries.Any(access =>
+                            access.UserId == userId
+                            && (access.CanView
+                                || access.CanPost
+                                || access.CanEditTransaction
+                                || access.CanDeleteTransaction
+                                || access.CanManageAccess))))
+                .Select(account => account.Id)
+                .ToHashSet();
+
+            var requiredIds = new HashSet<Guid>(visibleIds);
+            foreach (var accountId in visibleIds.ToList())
+            {
+                var current = accountById[accountId];
+                while (current.ParentAccountId.HasValue
+                    && accountById.TryGetValue(current.ParentAccountId.Value, out var parent))
+                {
+                    if (!requiredIds.Add(parent.Id))
+                    {
+                        break;
+                    }
+
+                    current = parent;
+                }
+            }
+
+            return accounts
+                .Where(account => requiredIds.Contains(account.Id))
+                .ToList();
         }
 
         public async Task<HashSet<Guid>> GetExistingAccountIdsAsync(IEnumerable<Guid> accountIds, CancellationToken cancellationToken = default)
@@ -65,7 +89,8 @@ namespace Finance.Infrastructure.Repositories
                 throw new InvalidOperationException("Only admins can create top-level accounts.");
             }
 
-            Guid? ownerUserId = isAdmin ? null : userId;
+            Guid? ownerUserId = userId;
+            var isGloballyShared = false;
 
             if (parentAccountId.HasValue)
             {
@@ -94,7 +119,7 @@ namespace Finance.Infrastructure.Repositories
                 OpeningBalance = accountDto.OpeningBalance ?? 0m,
                 ParentAccountId = parentAccountId,
                 OwnerUserId = ownerUserId,
-                IsGloballyShared = false,
+                IsGloballyShared = isGloballyShared,
             };
 
             _context.Accounts.Add(account);
@@ -175,6 +200,7 @@ namespace Finance.Infrastructure.Repositories
                 ownerUserId);
 
             account.OwnerUserId = ownerUserId;
+            account.IsGloballyShared = ownerUserId is null || account.IsGloballyShared;
             await _context.SaveChangesAsync();
 
             return await GetAccountWithOwnerAsync(account.Id);

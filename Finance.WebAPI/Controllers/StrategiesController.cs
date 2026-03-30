@@ -23,6 +23,7 @@ namespace Finance.WebAPI.Controllers
         {
             var strategy = await _strategyService.GetBayesianStrategyAsync(
                 User.GetRequiredUserId(),
+                User.IsAdmin(),
                 cancellationToken);
             return Ok(strategy);
         }
@@ -34,6 +35,7 @@ namespace Finance.WebAPI.Controllers
         {
             var result = await _strategyService.ImportBayesianTrainingDataAsync(
                 User.GetRequiredUserId(),
+                User.IsAdmin(),
                 request,
                 cancellationToken);
             return Ok(result);
@@ -48,6 +50,7 @@ namespace Finance.WebAPI.Controllers
             {
                 await _strategyService.DeleteBayesianLearningForAccountAsync(
                     User.GetRequiredUserId(),
+                    User.IsAdmin(),
                     destinationAccountId,
                     cancellationToken);
 

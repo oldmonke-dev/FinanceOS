@@ -13,6 +13,7 @@ import {
   FolderPlus,
   FolderTree,
   Landmark,
+  ListTree,
   LoaderCircle,
   Pencil,
   Plus,
@@ -130,6 +131,7 @@ export function AccountTree() {
   const [openActionsAccountId, setOpenActionsAccountId] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [balanceLookup, setBalanceLookup] = useState<Record<string, number>>({})
+  const [directTransactionAccountIds, setDirectTransactionAccountIds] = useState<Set<string>>(new Set())
   const [balanceError, setBalanceError] = useState<string | null>(null)
   const [isImportOpen, setIsImportOpen] = useState(false)
   const [deletingAccountId, setDeletingAccountId] = useState<string | null>(null)
@@ -220,9 +222,11 @@ export function AccountTree() {
         }
 
         const nextLookup: Record<string, number> = {}
+        const nextDirectTransactionAccountIds = new Set<string>()
 
         for (const transaction of transactions) {
           for (const split of transaction.splits) {
+            nextDirectTransactionAccountIds.add(split.accountId)
             nextLookup[split.accountId] =
               (nextLookup[split.accountId] ?? 0) +
               getBalanceDeltaForAccount(accountTypeById.get(split.accountId), split)
@@ -230,6 +234,7 @@ export function AccountTree() {
         }
 
         setBalanceLookup(nextLookup)
+        setDirectTransactionAccountIds(nextDirectTransactionAccountIds)
         setBalanceError(null)
       } catch (error) {
         if (isCancelled) {
@@ -237,6 +242,7 @@ export function AccountTree() {
         }
 
         setBalanceLookup({})
+        setDirectTransactionAccountIds(new Set())
         setBalanceError(
           error instanceof Error ? error.message : "Failed to load account balances.",
         )
@@ -492,6 +498,7 @@ export function AccountTree() {
           depth={0}
           formatNumber={formatNumber}
           balanceLookup={rolledUpBalanceLookup}
+          directTransactionAccountIds={directTransactionAccountIds}
           collapsedIds={collapsedIds}
           forcedExpandedIds={searchResult.forcedExpandedIds}
           activeParentId={activeParentId}
@@ -871,6 +878,7 @@ type TreeListProps = {
   depth: number
   formatNumber: (value: number, fractionDigits?: number) => string
   balanceLookup: Record<string, number>
+  directTransactionAccountIds: Set<string>
   collapsedIds: Set<string>
   forcedExpandedIds: Set<string>
   activeParentId: string | "root" | null
@@ -903,6 +911,7 @@ function TreeList({
   depth,
   formatNumber,
   balanceLookup,
+  directTransactionAccountIds,
   collapsedIds,
   forcedExpandedIds,
   activeParentId,
@@ -936,6 +945,8 @@ function TreeList({
         const isRenameOpen = renamingAccountId === node.id
         const isOpeningBalanceOpen = editingOpeningBalanceAccountId === node.id
         const presentation = getAccountTypePresentation(node.accountType)
+        const hasDirectTransactions = directTransactionAccountIds.has(node.id)
+        const canOpenLedger = node.currentUserPermissions.canView
 
         return (
           <li key={node.id}>
@@ -948,7 +959,7 @@ function TreeList({
                   <button
                     type="button"
                     onClick={() => onToggleCollapsed(node.id)}
-                    className="mt-0.5 rounded-md bg-muted p-1 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                    className="mt-0.5 rounded-md border bg-background p-1 text-foreground transition hover:bg-accent hover:text-foreground"
                     aria-label={isCollapsed ? `Expand ${node.name}` : `Collapse ${node.name}`}
                   >
                     <ChevronRight
@@ -957,11 +968,21 @@ function TreeList({
                   </button>
                   <button
                     type="button"
-                    onClick={() => onOpenLedger(node.id)}
-                    className="min-w-0 text-left"
+                    onClick={() => {
+                      if (canOpenLedger) {
+                        onOpenLedger(node.id)
+                      }
+                    }}
+                    className={`min-w-0 text-left ${canOpenLedger ? "" : "cursor-not-allowed opacity-60"}`}
+                    disabled={!canOpenLedger}
+                    title={
+                      canOpenLedger
+                        ? undefined
+                        : "Ledger is unavailable for hierarchy-only parent accounts."
+                    }
                   >
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <p className="text-sm font-medium leading-tight transition hover:text-primary">{node.name}</p>
+                      <p className={`text-sm font-medium leading-tight transition ${canOpenLedger ? "hover:text-primary" : ""}`}>{node.name}</p>
                       {node.accountNumber ? (
                         <span className="rounded-full border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground">
                           #{node.accountNumber}
@@ -998,13 +1019,20 @@ function TreeList({
                   <div className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                     {node.children.length} subaccount{node.children.length === 1 ? "" : "s"}
                   </div>
-                  {node.currentUserPermissions.canManageAccess || node.isCore ? (
+                  {canOpenLedger || node.currentUserPermissions.canManageAccess || (isAdmin && node.isCore) ? (
                     <AccountActionsMenu
                       account={node}
                       isOpen={openActionsAccountId === node.id}
                       isDeleting={deletingAccountId === node.id}
                       onToggle={() => onToggleActionsMenu(node.id)}
                       onClose={onCloseActionsMenu}
+                      onViewLedger={() => onOpenLedger(node.id)}
+                      canViewLedger={canOpenLedger}
+                      viewLedgerTitle={
+                        canOpenLedger
+                          ? undefined
+                          : "Ledger is unavailable for hierarchy-only parent accounts."
+                      }
                       onAddSubAccount={() => onActivateCreate(isCreateOpen ? null : node.id)}
                       onRename={() => onActivateRename(isRenameOpen ? null : node.id)}
                       onEditOpeningBalance={() =>
@@ -1060,6 +1088,7 @@ function TreeList({
                   depth={depth + 1}
                   formatNumber={formatNumber}
                   balanceLookup={balanceLookup}
+                  directTransactionAccountIds={directTransactionAccountIds}
                   collapsedIds={collapsedIds}
                   forcedExpandedIds={forcedExpandedIds}
                   activeParentId={activeParentId}
@@ -1240,7 +1269,7 @@ function RenameAccountForm({
   const [name, setName] = useState(account.name)
   const [accountNumber, setAccountNumber] = useState(account.accountNumber ?? "")
   const [description, setDescription] = useState(account.description ?? "")
-  const [selectedOwnerId, setSelectedOwnerId] = useState(account.ownerUserId ?? "admin")
+  const [selectedOwnerId, setSelectedOwnerId] = useState(account.ownerUserId ?? "__none__")
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -1256,7 +1285,7 @@ function RenameAccountForm({
       })
 
       if (isAdmin) {
-        const nextOwnerUserId = selectedOwnerId === "admin" ? null : selectedOwnerId
+        const nextOwnerUserId = selectedOwnerId === "__none__" ? null : selectedOwnerId
         if (nextOwnerUserId !== account.ownerUserId) {
           updatedAccount = await updateAccountOwner(account.id, nextOwnerUserId)
         }
@@ -1319,7 +1348,7 @@ function RenameAccountForm({
                 <SelectValue placeholder={isLoadingUsers ? "Loading users..." : "Select user"} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="admin">Admin</SelectItem>
+                <SelectItem value="__none__">No owner</SelectItem>
                 {users.map((item) => (
                   <SelectItem key={item.id} value={item.id}>
                     {item.displayName} ({item.email})
@@ -1427,6 +1456,9 @@ type AccountActionsMenuProps = {
   isDeleting: boolean
   onToggle: () => void
   onClose: () => void
+  onViewLedger: () => void
+  canViewLedger: boolean
+  viewLedgerTitle?: string
   onAddSubAccount: () => void
   onRename: () => void
   onEditOpeningBalance: () => void
@@ -1440,6 +1472,9 @@ function AccountActionsMenu({
   isDeleting,
   onToggle,
   onClose,
+  onViewLedger,
+  canViewLedger,
+  viewLedgerTitle,
   onAddSubAccount,
   onRename,
   onEditOpeningBalance,
@@ -1483,6 +1518,19 @@ function AccountActionsMenu({
 
       {isOpen ? (
         <div className="absolute right-0 top-9 z-20 min-w-44 rounded-xl border bg-popover p-1.5 shadow-lg">
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => {
+              onViewLedger()
+              onClose()
+            }}
+            disabled={!canViewLedger}
+            title={viewLedgerTitle}
+          >
+            <ListTree className="size-4" />
+            <span>View Ledger</span>
+          </button>
           <button
             type="button"
             className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition hover:bg-muted"

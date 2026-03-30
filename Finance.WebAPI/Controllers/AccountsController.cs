@@ -275,7 +275,7 @@ namespace Finance.WebAPI.Controllers
             }
 
             account.OwnerUserId = request.OwnerUserId;
-            account.IsGloballyShared = request.IsGloballyShared;
+            account.IsGloballyShared = request.OwnerUserId is null || request.IsGloballyShared;
             account.ReportingMode = request.ReportingMode;
 
             var existingAccessEntries = account.AccessEntries.ToList();

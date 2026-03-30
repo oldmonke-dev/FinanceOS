@@ -8,6 +8,12 @@ namespace Finance.BusinessLayer.DTOs.Strategies
 
         public string DestinationAccountPath { get; set; } = string.Empty;
 
+        public Guid? DestinationAccountOwnerUserId { get; set; }
+
+        public string? DestinationAccountOwnerDisplayName { get; set; }
+
+        public string? DestinationAccountOwnerEmail { get; set; }
+
         public int TotalLearnedCount { get; set; }
 
         public List<BayesianMapEntryDTO> Entries { get; set; } = new();

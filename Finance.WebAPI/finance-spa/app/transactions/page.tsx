@@ -210,6 +210,7 @@ export default function TransactionsPage() {
       subtitle="Create a balanced transaction with split lines"
       badge={isLoading ? "Loading accounts" : `${postableAccounts.length} postable accounts`}
     >
+      <div className="mx-auto w-full space-y-4 xl:w-[65%]">
       <section>
         <form onSubmit={handleSubmit} className="rounded-3xl border bg-card p-6 shadow-sm">
           <div className="grid gap-4 md:grid-cols-2">
@@ -275,8 +276,8 @@ export default function TransactionsPage() {
                     />
                   </label>
                   <label className="space-y-2 text-sm">
-                    <span className="flex h-5 items-center gap-1.5 font-medium leading-none">
-                      <span>Balance Change</span>
+                    <span className="flex h-5 items-center gap-1.5 font-medium leading-none whitespace-nowrap">
+                      <span className="whitespace-nowrap">Balance Change</span>
                       <FieldInfoTooltip content={signTooltip} />
                     </span>
                     <Select
@@ -386,6 +387,7 @@ export default function TransactionsPage() {
           </p>
         )}
       </section>
+      </div>
     </AppShell>
   )
 }

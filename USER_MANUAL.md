@@ -218,16 +218,57 @@ This affects:
 
 ## Permissions And Multi-User Behavior
 
-The codebase includes multi-user/admin-aware behavior.
+The application supports account-level access control.
 
-Examples:
+Core concepts:
 
-- account ownership
-- admin visibility and management
-- user-specific preference storage
-- user-bound import/session logic
+- `Primary owner`
+  - the main responsible user for an account
+- `Explicit access`
+  - per-user permissions granted on an account
+- `Globally shared`
+  - the account is visible and operationally accessible to all users
+- `Core account`
+  - protected system account such as `Assets`, `Liability`, `Equity`, `Income`, or `Expenses`
+- `Reporting mode`
+  - controls whether an account appears in reports
+- shared Bayesian learning
+  - import-mapping learning is common across the app, then filtered by accessible accounts
 
-The exact RBAC model is still evolving, but the application already contains owner/admin concepts in core screens.
+Current permissions matrix:
+
+| Actor / Account State | Tree | Ledger | Post | Edit | Delete | Manage | Reports | Bayesian |
+| :--- | :---: | :---: | :---: | :--- | :--- | :--- | :--- | :--- |
+| Owner | Yes | Yes | Yes | Yes | Yes | Yes | Yes if `Included` | Yes, shared pool |
+| Explicit access: `CanView` only | Yes | Yes | No | No | No | No | Yes if `Included` | Limited by accessible accounts |
+| Explicit access: `CanPost` | Yes | Yes | Yes | No | No | No | Yes if `Included` | Yes, shared pool |
+| Explicit access: `CanEditTransaction` | Yes | Yes | No | Yes, if all transaction accounts are editable | No | No | Yes if `Included` | Shared pool |
+| Explicit access: `CanDeleteTransaction` | Yes | Yes | No | No | Yes, if all transaction accounts are deletable | No | Yes if `Included` | Shared pool |
+| Explicit access: `CanManageAccess` | Yes | Yes | No, unless also granted | No, unless also granted | No, unless also granted | Yes | Yes if `Included` | No extra Bayesian privilege |
+| Globally shared user | Yes | Yes | Yes | Yes | Yes | No | Yes if `Included` | Yes, shared pool |
+| Admin on normal account | Yes | Yes | Yes | Yes | Yes | Yes | Yes if `Included` | Yes, shared pool |
+| Admin on core account | Yes | Yes | Yes | Yes | Yes | Restricted | Yes if `Included` | Yes, shared pool |
+| Ancestor shell only | Yes | No | No | No | No | No | Context-dependent | No direct use |
+
+Reporting mode behavior:
+
+| Reporting Mode | Tree | Ledger | Transactions | Reports | Bayesian |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| `Included` | Yes | Yes | Yes | Yes | Yes, if accessible |
+| `OperationalOnly` | Yes | Yes | Yes | No | Yes, if accessible |
+| `Excluded` | Yes | Yes | Yes | No | Yes, if accessible |
+
+Important notes:
+
+- seeing an account in the tree does not always mean the ledger is openable
+  - ancestor accounts can be shown to preserve hierarchy
+- seeing a transaction does not always mean it can be edited
+  - edit and delete require permission on every account touched by that transaction
+- `Globally shared` currently means operational access, not just visibility
+- reports are account-driven
+  - `OperationalOnly` and `Excluded` stay usable in workflows but are omitted from reporting
+- Bayesian suggestions come from one shared learning pool
+  - candidate destination accounts are still limited by the current user's accessible accounts
 
 ## Typical Workflows
 
@@ -239,7 +280,7 @@ The exact RBAC model is still evolving, but the application already contains own
 - optionally set account number and description
 - set opening balance if needed
 
-### 2. Record A Manual Transaction
+### 2. Add Transactions Manually
 
 - open `Transactions`
 - enter date, description, and optional reference
@@ -248,21 +289,25 @@ The exact RBAC model is still evolving, but the application already contains own
 - enter amounts
 - submit a balanced transaction
 
-### 3. Review One Account
+### 3. Import Transactions Through Import Sessions
+
+- use `Importer` to prepare rows from file data
+- choose the source account and create an import session
+- open `Import Sessions`
+- review suggested destination mappings
+- inspect candidate ledger matches before posting
+- apply session suggestions and shared Bayesian learning
+- correct rows where needed and post reviewed rows into transactions
+
+Import sessions actively reuse prior confirmed learning and current-session mapping behavior to improve destination suggestions over time.
+
+### 4. Review One Account
 
 - open `Account Tree`
 - click an account
 - inspect the account ledger
 - edit split details if needed
 - save draft changes
-
-### 4. Review Imported Data
-
-- use `Importer` to prepare rows
-- open `Import Sessions`
-- review suggested mappings
-- inspect candidate ledger matches
-- post reviewed rows into transactions
 
 ### 5. Review Trends
 
@@ -287,6 +332,5 @@ Examples:
 
 - screenshots for each page
 - import-session lifecycle documentation
-- admin vs regular-user behavior
 - accounting examples with sample transactions
 - troubleshooting guide for balancing and import mismatches

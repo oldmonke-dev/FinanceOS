@@ -13,6 +13,7 @@ import {
   PieChart,
   Receipt,
   Settings,
+  ShieldCheck,
   SlidersHorizontal,
   TableOfContents,
   Wallet,
@@ -171,6 +172,14 @@ export function AppShell({ title, subtitle, badge, children }: AppShellProps) {
         <SidebarFooter className="p-3">
           {user ? (
             <div className="mb-3 rounded-xl border border-sidebar-border bg-sidebar-accent/50 px-3 py-2 text-xs text-sidebar-foreground/80">
+              {user.isAdmin ? (
+                <div className="mb-2">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-sidebar-border bg-sidebar px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-sidebar-foreground">
+                    <ShieldCheck className="size-3" />
+                    Admin
+                  </span>
+                </div>
+              ) : null}
               <p className="truncate font-medium text-sidebar-foreground">{user.displayName}</p>
               <p className="truncate opacity-70">{user.email}</p>
             </div>

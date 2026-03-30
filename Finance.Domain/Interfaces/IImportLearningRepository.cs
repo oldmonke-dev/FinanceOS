@@ -4,7 +4,7 @@ namespace Finance.Domain.Interfaces
 {
     public interface IImportLearningRepository
     {
-        Task<List<ImportLearningStat>> GetGlobalStatsAsync(Guid userId, CancellationToken cancellationToken = default);
+        Task<List<ImportLearningStat>> GetGlobalStatsAsync(CancellationToken cancellationToken = default);
 
         Task IncrementGlobalStatsAsync(
             Guid userId,
@@ -12,7 +12,6 @@ namespace Finance.Domain.Interfaces
             CancellationToken cancellationToken = default);
 
         Task<int> DeleteGlobalStatsByDestinationAccountAsync(
-            Guid userId,
             Guid destinationAccountId,
             CancellationToken cancellationToken = default);
 
