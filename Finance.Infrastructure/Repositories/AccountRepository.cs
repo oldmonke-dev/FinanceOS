@@ -1,4 +1,5 @@
 using Finance.BusinessLayer.DTOs;
+using Finance.BusinessLayer.Interfaces;
 using Finance.Domain.Entities.Core;
 using Finance.Domain.Interfaces;
 using Finance.Infrastructure.Data;
@@ -9,21 +10,35 @@ namespace Finance.Infrastructure.Repositories
     public class AccountRepository : IAccountRepository
     {
         private readonly AppDbContext _context;
+        private readonly IAccountAccessService _accountAccessService;
 
-        public AccountRepository(AppDbContext context)
+        public AccountRepository(AppDbContext context, IAccountAccessService accountAccessService)
         {
             _context = context;
+            _accountAccessService = accountAccessService;
         }
 
         public async Task<List<Account>> GetAllAccountsAsync(Guid userId, bool isAdmin)
         {
             var query = _context.Accounts
                 .Include(account => account.OwnerUser)
+                .Include(account => account.AccessEntries)
                 .AsQueryable();
 
             if (!isAdmin)
             {
-                query = query.Where(account => account.OwnerUserId == null || account.OwnerUserId == userId);
+                query = query.Where(account =>
+                    !account.IsCore
+                    && (
+                    account.OwnerUserId == userId
+                    || account.IsGloballyShared
+                    || account.AccessEntries.Any(access =>
+                        access.UserId == userId
+                        && (access.CanView
+                            || access.CanPost
+                            || access.CanEditTransaction
+                            || access.CanDeleteTransaction
+                            || access.CanManageAccess))));
             }
 
             return await query.ToListAsync();
@@ -61,9 +76,9 @@ namespace Finance.Infrastructure.Repositories
                     throw new KeyNotFoundException("Parent account was not found.");
                 }
 
-                if (!isAdmin && parentAccount.OwnerUserId.HasValue && parentAccount.OwnerUserId != userId)
+                if (!isAdmin)
                 {
-                    throw new InvalidOperationException("You cannot create an account under another user's private account.");
+                    await _accountAccessService.EnsureCanManageAccountAsync(parentAccount.Id, userId, isAdmin);
                 }
             }
 
@@ -79,6 +94,7 @@ namespace Finance.Infrastructure.Repositories
                 OpeningBalance = accountDto.OpeningBalance ?? 0m,
                 ParentAccountId = parentAccountId,
                 OwnerUserId = ownerUserId,
+                IsGloballyShared = false,
             };
 
             _context.Accounts.Add(account);
@@ -96,9 +112,14 @@ namespace Finance.Infrastructure.Repositories
                 throw new KeyNotFoundException("Account was not found.");
             }
 
-            if (!isAdmin && account.OwnerUserId != userId)
+            if (account.IsCore)
             {
-                throw new InvalidOperationException("You can only rename your own accounts.");
+                throw new InvalidOperationException("Core accounts cannot be renamed or edited.");
+            }
+
+            if (!isAdmin)
+            {
+                await _accountAccessService.EnsureCanManageAccountAsync(account.Id, userId, isAdmin);
             }
 
             var normalizedName = NormalizeAccountName(request.Name);
@@ -122,7 +143,7 @@ namespace Finance.Infrastructure.Repositories
         {
             if (!isAdmin)
             {
-                throw new InvalidOperationException("Only admins can change account ownership.");
+                await _accountAccessService.EnsureCanManageAccountAsync(accountId, userId, isAdmin);
             }
 
             var account = await _context.Accounts.FirstOrDefaultAsync(item => item.Id == accountId);
@@ -130,6 +151,11 @@ namespace Finance.Infrastructure.Repositories
             if (account is null)
             {
                 throw new KeyNotFoundException("Account was not found.");
+            }
+
+            if (account.IsCore)
+            {
+                throw new InvalidOperationException("Core accounts use fixed global admin ownership.");
             }
 
             if (ownerUserId.HasValue)

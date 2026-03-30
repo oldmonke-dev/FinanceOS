@@ -31,11 +31,27 @@ namespace Finance.Infrastructure.Repositories
             return transactionList;
         }
 
-        public async Task<List<Transaction>> GetTransactionsAsync(Guid? accountId = null, CancellationToken cancellationToken = default)
+        public async Task<List<Transaction>> GetTransactionsAsync(
+            IEnumerable<Guid> accessibleAccountIds,
+            Guid? accountId = null,
+            CancellationToken cancellationToken = default)
         {
+            var accessibleAccountIdSet = accessibleAccountIds
+                .Where(accountIdValue => accountIdValue != Guid.Empty)
+                .Distinct()
+                .ToArray();
+
             var query = _context.Transactions
                 .Include(transaction => transaction.Splits)
                 .AsQueryable();
+
+            if (accessibleAccountIdSet.Length == 0)
+            {
+                return new List<Transaction>();
+            }
+
+            query = query.Where(transaction =>
+                transaction.Splits.Any(split => accessibleAccountIdSet.Contains(split.AccountId)));
 
             if (accountId.HasValue)
             {

@@ -265,8 +265,20 @@ function getBayesianGroupOwnerLabel(group: BayesianMapGroup) {
     accountType: "Unknown",
     parentAccountId: null,
     openingBalance: 0,
+    isCore: false,
+    isGloballyShared: false,
     ownerUserId: group.destinationAccountOwnerUserId,
     ownerDisplayName: group.destinationAccountOwnerDisplayName,
     ownerEmail: group.destinationAccountOwnerEmail,
+    reportingMode: "Included",
+    currentUserPermissions: {
+      canView: true,
+      canPost: false,
+      canEditTransaction: false,
+      canDeleteTransaction: false,
+      canManageAccess: false,
+      canChangeOwner: false,
+      isOwner: false,
+    },
   })
 }

@@ -10,7 +10,10 @@ namespace Finance.Domain.Interfaces
             IEnumerable<Transaction> transactions,
             CancellationToken cancellationToken = default);
 
-        Task<List<Transaction>> GetTransactionsAsync(Guid? accountId = null, CancellationToken cancellationToken = default);
+        Task<List<Transaction>> GetTransactionsAsync(
+            IEnumerable<Guid> accessibleAccountIds,
+            Guid? accountId = null,
+            CancellationToken cancellationToken = default);
 
         Task<Transaction?> GetByIdAsync(Guid transactionId, CancellationToken cancellationToken = default);
 

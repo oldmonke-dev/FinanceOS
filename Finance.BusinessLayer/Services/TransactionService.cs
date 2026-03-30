@@ -9,15 +9,24 @@ namespace Finance.BusinessLayer.Services
     public class TransactionService : ITransactionService
     {
         private readonly IAccountRepository _accountRepository;
+        private readonly IAccountAccessService _accountAccessService;
         private readonly ITransactionRepository _transactionRepository;
 
-        public TransactionService(IAccountRepository accountRepository, ITransactionRepository transactionRepository)
+        public TransactionService(
+            IAccountRepository accountRepository,
+            IAccountAccessService accountAccessService,
+            ITransactionRepository transactionRepository)
         {
             _accountRepository = accountRepository;
+            _accountAccessService = accountAccessService;
             _transactionRepository = transactionRepository;
         }
 
-        public async Task<TransactionDTO> CreateTransactionAsync(CreateTransactionDTO transactionDto, CancellationToken cancellationToken = default)
+        public async Task<TransactionDTO> CreateTransactionAsync(
+            Guid userId,
+            bool isAdmin,
+            CreateTransactionDTO transactionDto,
+            CancellationToken cancellationToken = default)
         {
             ValidateTransaction(transactionDto);
 
@@ -35,6 +44,12 @@ namespace Finance.BusinessLayer.Services
             {
                 throw new InvalidOperationException($"One or more accounts do not exist: {string.Join(", ", missingAccountIds)}");
             }
+
+            await _accountAccessService.EnsureCanPostAccountsAsync(
+                requestedAccountIds,
+                userId,
+                isAdmin,
+                cancellationToken);
 
             var transaction = new Transaction
             {
@@ -60,18 +75,32 @@ namespace Finance.BusinessLayer.Services
             return MapTransaction(createdTransaction);
         }
 
-        public async Task<List<TransactionDTO>> GetTransactionsAsync(Guid? accountId = null, CancellationToken cancellationToken = default)
+        public async Task<List<TransactionDTO>> GetTransactionsAsync(
+            Guid userId,
+            bool isAdmin,
+            Guid? accountId = null,
+            CancellationToken cancellationToken = default)
         {
             if (accountId.HasValue)
             {
                 await ValidateAccountsExistAsync(new[] { accountId.Value }, cancellationToken);
+                await _accountAccessService.EnsureCanViewAccountAsync(accountId.Value, userId, isAdmin, cancellationToken);
             }
 
-            var transactions = await _transactionRepository.GetTransactionsAsync(accountId, cancellationToken);
+            var accessibleAccountIds = await _accountAccessService.GetViewableAccountIdsAsync(
+                userId,
+                isAdmin,
+                cancellationToken);
+            var transactions = await _transactionRepository.GetTransactionsAsync(
+                accessibleAccountIds,
+                accountId,
+                cancellationToken);
             return transactions.Select(MapTransaction).ToList();
         }
 
         public async Task<TransactionDTO> UpdateTransactionAsync(
+            Guid userId,
+            bool isAdmin,
             Guid transactionId,
             UpdateTransactionDTO transactionDto,
             CancellationToken cancellationToken = default)
@@ -91,6 +120,12 @@ namespace Finance.BusinessLayer.Services
                 .ToArray();
 
             await ValidateAccountsExistAsync(requestedAccountIds, cancellationToken);
+            await _accountAccessService.EnsureCanEditTransactionAsync(
+                transaction,
+                requestedAccountIds,
+                userId,
+                isAdmin,
+                cancellationToken);
 
             var existingSplitIds = transaction.Splits.Select(split => split.Id).OrderBy(id => id).ToArray();
             var requestedSplitIds = transactionDto.Splits.Select(split => split.Id).OrderBy(id => id).ToArray();
@@ -118,8 +153,25 @@ namespace Finance.BusinessLayer.Services
             return MapTransaction(updatedTransaction);
         }
 
-        public async Task DeleteTransactionAsync(Guid transactionId, CancellationToken cancellationToken = default)
+        public async Task DeleteTransactionAsync(
+            Guid userId,
+            bool isAdmin,
+            Guid transactionId,
+            CancellationToken cancellationToken = default)
         {
+            var transaction = await _transactionRepository.GetByIdAsync(transactionId, cancellationToken);
+
+            if (transaction is null)
+            {
+                throw new KeyNotFoundException("Transaction was not found.");
+            }
+
+            await _accountAccessService.EnsureCanDeleteTransactionAsync(
+                transaction,
+                userId,
+                isAdmin,
+                cancellationToken);
+
             var deleted = await _transactionRepository.DeleteAsync(transactionId, cancellationToken);
 
             if (!deleted)

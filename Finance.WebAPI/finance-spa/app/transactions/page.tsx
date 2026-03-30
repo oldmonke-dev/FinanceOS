@@ -60,8 +60,12 @@ export default function TransactionsPage() {
   const [referenceNumber, setReferenceNumber] = useState("")
   const [splits, setSplits] = useState<SplitDraft[]>([emptySplit("debit"), emptySplit("credit")])
   const hasTwoSplitMirrorMode = splits.length === 2
+  const postableAccounts = useMemo(
+    () => accounts.filter((account) => account.currentUserPermissions.canPost),
+    [accounts],
+  )
   const accountPathLookup = useMemo(() => {
-    const accountById = new Map(accounts.map((account) => [account.id, account]))
+    const accountById = new Map(postableAccounts.map((account) => [account.id, account]))
     const pathById = new Map<string, string>()
 
     function buildPath(accountId: string): string {
@@ -86,15 +90,15 @@ export default function TransactionsPage() {
       return path
     }
 
-    accounts.forEach((account) => {
+    postableAccounts.forEach((account) => {
       buildPath(account.id)
     })
 
     return pathById
-  }, [accounts])
+  }, [postableAccounts])
   const accountTypeById = useMemo(
-    () => new Map(accounts.map((account) => [account.id, account.accountType])),
-    [accounts],
+    () => new Map(postableAccounts.map((account) => [account.id, account.accountType])),
+    [postableAccounts],
   )
 
   const splitTotal = splits.reduce(
@@ -204,7 +208,7 @@ export default function TransactionsPage() {
     <AppShell
       title="Transactions"
       subtitle="Create a balanced transaction with split lines"
-      badge={isLoading ? "Loading accounts" : `${accounts.length} accounts available`}
+      badge={isLoading ? "Loading accounts" : `${postableAccounts.length} postable accounts`}
     >
       <section>
         <form onSubmit={handleSubmit} className="rounded-3xl border bg-card p-6 shadow-sm">
@@ -263,7 +267,7 @@ export default function TransactionsPage() {
                         : "Account"}
                     </span>
                     <AccountSearchSelect
-                      accounts={accounts}
+                      accounts={postableAccounts}
                       value={split.accountId}
                       onValueChange={(value) => updateSplit(index, "accountId", value ?? "")}
                       placeholder="Select account"

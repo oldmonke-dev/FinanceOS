@@ -12,6 +12,7 @@ TestResults/
 
 # Local SDK and tooling
 .dotnet/
+.nuget/
 build.log
 
 # Node / frontend

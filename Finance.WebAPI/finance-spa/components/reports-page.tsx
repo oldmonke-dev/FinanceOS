@@ -108,6 +108,15 @@ export function ReportsPage() {
   }, [accounts])
 
   const accountTree = useMemo(() => buildAccountTree(accounts), [accounts])
+  const reportableAccountIds = useMemo(
+    () =>
+      new Set(
+        accounts
+          .filter((account) => account.reportingMode === "Included")
+          .map((account) => account.id),
+      ),
+    [accounts],
+  )
   const filteredAccountTree = useMemo(
     () => filterAccountTree(accountTree, accountQuery.trim().toLowerCase()),
     [accountQuery, accountTree],
@@ -310,9 +319,13 @@ export function ReportsPage() {
         return false
       }
 
+      if (!transaction.splits.some((split) => reportableAccountIds.has(split.accountId))) {
+        return false
+      }
+
       return true
     })
-  }, [effectiveDateRange.from, effectiveDateRange.to, importSessionFilter, importSessionStatusByTransactionId, selectedAccountIds, transactions])
+  }, [effectiveDateRange.from, effectiveDateRange.to, importSessionFilter, importSessionStatusByTransactionId, reportableAccountIds, selectedAccountIds, transactions])
 
   const expenseBalancesByAccount = useMemo(() => {
     const totals = new Map<string, number>()
@@ -323,6 +336,10 @@ export function ReportsPage() {
     accounts.forEach((account) => {
       const isExpense = account.accountType === 5 || account.accountType === "Expense"
       if (!isExpense) {
+        return
+      }
+
+      if (!reportableAccountIds.has(account.id)) {
         return
       }
 
@@ -362,7 +379,7 @@ export function ReportsPage() {
     })
 
     return totals
-  }, [accounts, effectiveDateRange.to, importSessionFilter, importSessionStatusByTransactionId, selectedAccountIds, transactions])
+  }, [accounts, effectiveDateRange.to, importSessionFilter, importSessionStatusByTransactionId, reportableAccountIds, selectedAccountIds, transactions])
 
   const expenseByAccount = useMemo(() => {
     return [...expenseBalancesByAccount.entries()]
@@ -394,6 +411,10 @@ export function ReportsPage() {
           return
         }
 
+        if (!reportableAccountIds.has(account.id)) {
+          return
+        }
+
         const isExpense = account.accountType === 5 || account.accountType === "Expense"
         const isIncome = account.accountType === 4 || account.accountType === "Income"
         const delta = getBalanceDeltaForAccount(account.accountType, split)
@@ -417,7 +438,7 @@ export function ReportsPage() {
         expense: value.expense,
       }))
       .sort((left, right) => left.month.localeCompare(right.month))
-  }, [accounts, filteredTransactions])
+  }, [accounts, filteredTransactions, reportableAccountIds])
 
   useEffect(() => {
     setMonthlyTrendPage(1)
@@ -454,9 +475,13 @@ export function ReportsPage() {
         return false
       }
 
+      if (!transaction.splits.some((split) => reportableAccountIds.has(split.accountId))) {
+        return false
+      }
+
       return true
     })
-  }, [effectiveDateRange.to, importSessionFilter, importSessionStatusByTransactionId, selectedAccountIds, transactions])
+  }, [effectiveDateRange.to, importSessionFilter, importSessionStatusByTransactionId, reportableAccountIds, selectedAccountIds, transactions])
 
   const compactSankeyLinks = useMemo(() => {
     const accountById = new Map(accounts.map((account) => [account.id, account]))

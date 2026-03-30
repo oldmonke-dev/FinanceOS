@@ -1,11 +1,12 @@
 using Finance.Domain.Entities.Core;
 using Finance.Domain.Entities.UserSession;
 using Finance.Domain.Enums;
+using Finance.BusinessLayer.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace Finance.Infrastructure.Data
 {
-    public class AppDbContext : DbContext
+    public class AppDbContext : DbContext, IAppDbContext
     {
         public AppDbContext(DbContextOptions<AppDbContext> options)
             : base(options)
@@ -13,6 +14,7 @@ namespace Finance.Infrastructure.Data
         }
 
         public DbSet<Account> Accounts => Set<Account>();
+        public DbSet<AccountAccess> AccountAccesses => Set<AccountAccess>();
         public DbSet<Split> Splits => Set<Split>();
         public DbSet<Transaction> Transactions => Set<Transaction>();
         public DbSet<User> Users => Set<User>();
@@ -45,6 +47,38 @@ namespace Finance.Infrastructure.Data
             modelBuilder.Entity<Account>()
                 .Property(a => a.Description)
                 .HasMaxLength(500);
+
+            modelBuilder.Entity<Account>()
+                .Property(a => a.IsCore)
+                .HasDefaultValue(false);
+
+            modelBuilder.Entity<Account>()
+                .Property(a => a.IsGloballyShared)
+                .HasDefaultValue(false);
+
+            modelBuilder.Entity<Account>()
+                .Property(a => a.ReportingMode)
+                .HasConversion<string>()
+                .HasMaxLength(40)
+                .HasDefaultValue(AccountReportingMode.Included);
+
+            modelBuilder.Entity<AccountAccess>(entity =>
+            {
+                entity.HasKey(access => access.Id);
+
+                entity.HasIndex(access => new { access.AccountId, access.UserId })
+                    .IsUnique();
+
+                entity.HasOne(access => access.Account)
+                    .WithMany(account => account.AccessEntries)
+                    .HasForeignKey(access => access.AccountId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(access => access.User)
+                    .WithMany(user => user.AccountAccessEntries)
+                    .HasForeignKey(access => access.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
 
             modelBuilder.Entity<Split>()
                 .HasOne(s => s.Account)

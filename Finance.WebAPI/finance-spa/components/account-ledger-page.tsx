@@ -588,19 +588,29 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
     >
       <div className="space-y-4">
         <div>
-          <Button asChild type="button" variant="outline">
-            <Link
-              href="/accounts"
-              onClick={() => {
-                if (typeof window !== "undefined") {
-                  window.sessionStorage.setItem(ACCOUNT_TREE_RESTORE_PENDING_KEY, "1")
-                }
-              }}
-            >
-              <ArrowLeft />
-              Back to account tree
-            </Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild type="button" variant="outline">
+              <Link
+                href="/accounts"
+                onClick={() => {
+                  if (typeof window !== "undefined") {
+                    window.sessionStorage.setItem(ACCOUNT_TREE_RESTORE_PENDING_KEY, "1")
+                  }
+                }}
+              >
+                <ArrowLeft />
+                Back to account tree
+              </Link>
+            </Button>
+            {account.currentUserPermissions.canManageAccess ? (
+              <Button asChild type="button" variant="outline">
+                <Link href={`/accounts/${account.id}/permissions`}>
+                  <Scale />
+                  Permissions
+                </Link>
+              </Button>
+            ) : null}
+          </div>
         </div>
 
         <section className="rounded-3xl border bg-card p-5 shadow-sm">

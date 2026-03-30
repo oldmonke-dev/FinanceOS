@@ -502,6 +502,12 @@ export function AccountTree() {
             }
             router.push(`/accounts/${accountId}`)
           }}
+          onOpenPermissions={(accountId) => {
+            if (typeof window !== "undefined") {
+              window.sessionStorage.setItem(ACCOUNT_TREE_COLLAPSED_STATE_KEY, JSON.stringify([...collapsedIds]))
+            }
+            router.push(`/accounts/${accountId}/permissions`)
+          }}
           onActivateCreate={(parentId) => {
             setRenamingAccountId(null)
             setEditingOpeningBalanceAccountId(null)
@@ -870,6 +876,7 @@ type TreeListProps = {
   activeParentId: string | "root" | null
   onToggleCollapsed: (accountId: string) => void
   onOpenLedger: (accountId: string) => void
+  onOpenPermissions: (accountId: string) => void
   onActivateCreate: (parentId: string | "root" | null) => void
   renamingAccountId: string | null
   editingOpeningBalanceAccountId: string | null
@@ -901,6 +908,7 @@ function TreeList({
   activeParentId,
   onToggleCollapsed,
   onOpenLedger,
+  onOpenPermissions,
   onActivateCreate,
   renamingAccountId,
   editingOpeningBalanceAccountId,
@@ -990,19 +998,22 @@ function TreeList({
                   <div className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                     {node.children.length} subaccount{node.children.length === 1 ? "" : "s"}
                   </div>
-                  <AccountActionsMenu
-                    account={node}
-                    isOpen={openActionsAccountId === node.id}
-                    isDeleting={deletingAccountId === node.id}
-                    onToggle={() => onToggleActionsMenu(node.id)}
-                    onClose={onCloseActionsMenu}
-                    onAddSubAccount={() => onActivateCreate(isCreateOpen ? null : node.id)}
-                    onRename={() => onActivateRename(isRenameOpen ? null : node.id)}
-                    onEditOpeningBalance={() =>
-                      onActivateOpeningBalanceEdit(isOpeningBalanceOpen ? null : node.id)
-                    }
-                    onDelete={() => onDeleteAccount(node)}
-                  />
+                  {node.currentUserPermissions.canManageAccess || node.isCore ? (
+                    <AccountActionsMenu
+                      account={node}
+                      isOpen={openActionsAccountId === node.id}
+                      isDeleting={deletingAccountId === node.id}
+                      onToggle={() => onToggleActionsMenu(node.id)}
+                      onClose={onCloseActionsMenu}
+                      onAddSubAccount={() => onActivateCreate(isCreateOpen ? null : node.id)}
+                      onRename={() => onActivateRename(isRenameOpen ? null : node.id)}
+                      onEditOpeningBalance={() =>
+                        onActivateOpeningBalanceEdit(isOpeningBalanceOpen ? null : node.id)
+                      }
+                      onManagePermissions={() => onOpenPermissions(node.id)}
+                      onDelete={() => onDeleteAccount(node)}
+                    />
+                  ) : null}
                 </div>
               </div>
 
@@ -1054,6 +1065,7 @@ function TreeList({
                   activeParentId={activeParentId}
                   onToggleCollapsed={onToggleCollapsed}
                   onOpenLedger={onOpenLedger}
+                  onOpenPermissions={onOpenPermissions}
                   onActivateCreate={onActivateCreate}
                   renamingAccountId={renamingAccountId}
                   editingOpeningBalanceAccountId={editingOpeningBalanceAccountId}
@@ -1418,6 +1430,7 @@ type AccountActionsMenuProps = {
   onAddSubAccount: () => void
   onRename: () => void
   onEditOpeningBalance: () => void
+  onManagePermissions: () => void
   onDelete: () => void
 }
 
@@ -1430,10 +1443,11 @@ function AccountActionsMenu({
   onAddSubAccount,
   onRename,
   onEditOpeningBalance,
+  onManagePermissions,
   onDelete,
 }: AccountActionsMenuProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const canDelete = account.children.length === 0 && !isDeleting
+  const canDelete = !account.isCore && account.children.length === 0 && !isDeleting
 
   useEffect(() => {
     if (!isOpen) {
@@ -1487,6 +1501,7 @@ function AccountActionsMenu({
               onRename()
               onClose()
             }}
+            disabled={account.isCore}
           >
             <Pencil className="size-4" />
             <span>Edit Account</span>
@@ -1498,9 +1513,22 @@ function AccountActionsMenu({
               onEditOpeningBalance()
               onClose()
             }}
+            disabled={account.isCore}
           >
             <Pencil className="size-4" />
             <span>Edit Opening Balance</span>
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition hover:bg-muted"
+            onClick={() => {
+              onManagePermissions()
+              onClose()
+            }}
+            disabled={account.isCore}
+          >
+            <UserRound className="size-4" />
+            <span>Permissions</span>
           </button>
           <button
             type="button"

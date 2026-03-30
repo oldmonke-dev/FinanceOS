@@ -3,7 +3,6 @@ using Finance.BusinessLayer.Services;
 using Finance.Domain.Interfaces;
 using Finance.Infrastructure.Data;
 using Finance.Infrastructure.Repositories;
-using Finance.Infrastructure.Services;
 using Finance.WebAPI.Configuration;
 using Finance.WebAPI.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -82,7 +81,9 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString));
+builder.Services.AddScoped<IAppDbContext>(serviceProvider => serviceProvider.GetRequiredService<AppDbContext>());
 builder.Services.AddScoped<AccountRepository>();
+builder.Services.AddScoped<IAccountAccessService, AccountAccessService>();
 builder.Services.AddScoped<IAccountRepository>(serviceProvider => serviceProvider.GetRequiredService<AccountRepository>());
 builder.Services.AddScoped<IAccountWorkflowService, AccountWorkflowService>();
 builder.Services.AddScoped<IImportSessionRepository, ImportSessionRepository>();
