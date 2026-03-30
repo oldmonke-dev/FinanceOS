@@ -566,6 +566,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
           account.accountType,
           Number(openingBalanceDraft) || 0,
         ),
+        parentAccountId: account.parentAccountId,
       })
 
       updateAccount(updatedAccount)
@@ -674,7 +675,9 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
               <div>
                 <h3 className="text-sm font-semibold">Account details</h3>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Update account metadata here without leaving the general ledger.
+                  {resolvedAccount.isCore
+                    ? "Core accounts are fixed and cannot be edited from the ledger."
+                    : "Update account metadata here without leaving the general ledger."}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -695,7 +698,9 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                       ),
                     )
                   }}
-                  disabled={!hasAccountDetailChanges || isSavingAccountDetails}
+                  disabled={
+                    resolvedAccount.isCore || !hasAccountDetailChanges || isSavingAccountDetails
+                  }
                 >
                   Reset
                 </Button>
@@ -703,7 +708,9 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                   type="button"
                   size="sm"
                   onClick={() => void handleSaveAccountDetails()}
-                  disabled={!hasAccountDetailChanges || isSavingAccountDetails}
+                  disabled={
+                    resolvedAccount.isCore || !hasAccountDetailChanges || isSavingAccountDetails
+                  }
                 >
                   <Save />
                   {isSavingAccountDetails ? "Saving..." : "Save account details"}
@@ -719,6 +726,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                   onChange={(event) => setAccountNameDraft(event.target.value)}
                   placeholder="Account name"
                   maxLength={200}
+                  disabled={resolvedAccount.isCore}
                 />
               </label>
               <label className="space-y-1 text-sm">
@@ -728,6 +736,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                   onChange={(event) => setAccountNumberDraft(event.target.value)}
                   placeholder="Optional"
                   maxLength={50}
+                  disabled={resolvedAccount.isCore}
                 />
               </label>
               <label className="space-y-1 text-sm">
@@ -738,6 +747,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                   value={openingBalanceDraft}
                   onChange={(event) => setOpeningBalanceDraft(event.target.value)}
                   placeholder="0.00"
+                  disabled={resolvedAccount.isCore}
                 />
               </label>
               <label className="space-y-1 text-sm md:col-span-2">
@@ -748,6 +758,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                   placeholder="Optional notes for this account"
                   maxLength={500}
                   rows={3}
+                  disabled={resolvedAccount.isCore}
                   className="flex min-h-[5rem] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 />
               </label>

@@ -195,6 +195,7 @@ export async function renameAccount(
     accountNumber?: string | null
     description?: string | null
     openingBalance: number
+    parentAccountId: string | null
   },
 ): Promise<Account> {
   const response = await authFetch(`${API_BASE_URL}/Accounts/${accountId}`, {

@@ -9,5 +9,7 @@ namespace Finance.BusinessLayer.DTOs
         public string? Description { get; set; }
 
         public decimal? OpeningBalance { get; set; }
+
+        public Guid? ParentAccountId { get; set; }
     }
 }

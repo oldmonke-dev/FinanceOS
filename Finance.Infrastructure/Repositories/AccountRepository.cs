@@ -148,8 +148,45 @@ namespace Finance.Infrastructure.Repositories
             }
 
             var normalizedName = NormalizeAccountName(request.Name);
+            var nextParentAccountId = request.ParentAccountId;
+
+            if (!isAdmin && nextParentAccountId is null)
+            {
+                throw new InvalidOperationException("Only admins can move accounts to the top level.");
+            }
+
+            if (nextParentAccountId == account.Id)
+            {
+                throw new InvalidOperationException("An account cannot be moved under itself.");
+            }
+
+            if (nextParentAccountId.HasValue)
+            {
+                var parentAccount = await _context.Accounts.FirstOrDefaultAsync(item => item.Id == nextParentAccountId.Value);
+
+                if (parentAccount is null)
+                {
+                    throw new KeyNotFoundException("Parent account was not found.");
+                }
+
+                if (parentAccount.IsCore)
+                {
+                    throw new InvalidOperationException("Core accounts cannot be used as editable targets.");
+                }
+
+                if (await IsDescendantOfAsync(nextParentAccountId.Value, account.Id))
+                {
+                    throw new InvalidOperationException("An account cannot be moved under one of its descendants.");
+                }
+
+                if (!isAdmin)
+                {
+                    await _accountAccessService.EnsureCanManageAccountAsync(parentAccount.Id, userId, isAdmin);
+                }
+            }
+
             await EnsureNoDuplicateAsync(
-                account.ParentAccountId,
+                nextParentAccountId,
                 account.AccountType,
                 normalizedName,
                 account.Id,
@@ -159,6 +196,7 @@ namespace Finance.Infrastructure.Repositories
             account.AccountNumber = NormalizeOptionalText(request.AccountNumber, 50);
             account.Description = NormalizeOptionalText(request.Description, 500);
             account.OpeningBalance = request.OpeningBalance ?? 0m;
+            account.ParentAccountId = nextParentAccountId;
             await _context.SaveChangesAsync();
 
             return await GetAccountWithOwnerAsync(account.Id);
@@ -260,6 +298,32 @@ namespace Finance.Infrastructure.Repositories
             {
                 throw new InvalidOperationException(
                     "An account with the same name, account type, and level already exists.");
+            }
+        }
+
+        private async Task<bool> IsDescendantOfAsync(Guid candidateParentId, Guid accountId)
+        {
+            var currentParentId = candidateParentId;
+
+            while (true)
+            {
+                var currentAccount = await _context.Accounts
+                    .AsNoTracking()
+                    .Where(item => item.Id == currentParentId)
+                    .Select(item => new { item.Id, item.ParentAccountId })
+                    .FirstOrDefaultAsync();
+
+                if (currentAccount is null || currentAccount.ParentAccountId is null)
+                {
+                    return false;
+                }
+
+                if (currentAccount.ParentAccountId.Value == accountId)
+                {
+                    return true;
+                }
+
+                currentParentId = currentAccount.ParentAccountId.Value;
             }
         }
     }

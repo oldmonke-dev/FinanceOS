@@ -81,6 +81,14 @@ type RenameAccountFormProps = {
   onRenamed: (account: Account) => void
 }
 
+type MoveAccountFormProps = {
+  account: Account
+  availableParents: Account[]
+  isAdmin: boolean
+  onCancel: () => void
+  onMoved: (account: Account) => void
+}
+
 type OpeningBalanceFormProps = {
   account: Account
   onCancel: () => void
@@ -127,6 +135,7 @@ export function AccountTree() {
   const hasInitializedCollapsedIdsRef = useRef(false)
   const [activeParentId, setActiveParentId] = useState<string | "root" | null>(null)
   const [renamingAccountId, setRenamingAccountId] = useState<string | null>(null)
+  const [movingAccountId, setMovingAccountId] = useState<string | null>(null)
   const [editingOpeningBalanceAccountId, setEditingOpeningBalanceAccountId] = useState<string | null>(null)
   const [openActionsAccountId, setOpenActionsAccountId] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
@@ -349,6 +358,7 @@ export function AccountTree() {
     addAccount(account)
     setActiveParentId(null)
     setRenamingAccountId(null)
+    setMovingAccountId(null)
     setEditingOpeningBalanceAccountId(null)
     setOpenActionsAccountId(null)
     showSnackbar({ message: `Created account ${account.name}.`, tone: "success" })
@@ -357,6 +367,7 @@ export function AccountTree() {
   function handleRenamed(account: Account) {
     updateAccount(account)
     setRenamingAccountId(null)
+    setMovingAccountId(null)
     setEditingOpeningBalanceAccountId(null)
     setOpenActionsAccountId(null)
     showSnackbar({ message: `Updated account ${account.name}.`, tone: "success" })
@@ -366,6 +377,7 @@ export function AccountTree() {
     updateAccount(account)
     setEditingOpeningBalanceAccountId(null)
     setRenamingAccountId(null)
+    setMovingAccountId(null)
     setOpenActionsAccountId(null)
     showSnackbar({ message: `Updated opening balance for ${account.name}.`, tone: "success" })
   }
@@ -494,6 +506,7 @@ export function AccountTree() {
         ) : null}
         <TreeList
           nodes={visibleNodes}
+          allAccounts={accounts}
           isAdmin={Boolean(user?.isAdmin)}
           depth={0}
           formatNumber={formatNumber}
@@ -517,11 +530,13 @@ export function AccountTree() {
           }}
           onActivateCreate={(parentId) => {
             setRenamingAccountId(null)
+            setMovingAccountId(null)
             setEditingOpeningBalanceAccountId(null)
             setOpenActionsAccountId(null)
             setActiveParentId(parentId)
           }}
           renamingAccountId={renamingAccountId}
+          movingAccountId={movingAccountId}
           editingOpeningBalanceAccountId={editingOpeningBalanceAccountId}
           openActionsAccountId={openActionsAccountId}
           users={users}
@@ -532,13 +547,22 @@ export function AccountTree() {
           onCloseActionsMenu={() => setOpenActionsAccountId(null)}
           onActivateRename={(accountId) => {
             setActiveParentId(null)
+            setMovingAccountId(null)
             setEditingOpeningBalanceAccountId(null)
             setOpenActionsAccountId(null)
             setRenamingAccountId(accountId)
           }}
+          onActivateMove={(accountId) => {
+            setActiveParentId(null)
+            setRenamingAccountId(null)
+            setEditingOpeningBalanceAccountId(null)
+            setOpenActionsAccountId(null)
+            setMovingAccountId(accountId)
+          }}
           onActivateOpeningBalanceEdit={(accountId) => {
             setActiveParentId(null)
             setRenamingAccountId(null)
+            setMovingAccountId(null)
             setOpenActionsAccountId(null)
             setEditingOpeningBalanceAccountId(accountId)
           }}
@@ -549,6 +573,7 @@ export function AccountTree() {
           onOpeningBalanceSaved={handleOpeningBalanceSaved}
           onCancelCreate={() => setActiveParentId(null)}
           onCancelRename={() => setRenamingAccountId(null)}
+          onCancelMove={() => setMovingAccountId(null)}
           onCancelOpeningBalanceEdit={() => setEditingOpeningBalanceAccountId(null)}
         />
       </div>
@@ -874,6 +899,7 @@ function ImportedTreeList({ nodes }: { nodes: ImportedAccountNode[] }) {
 
 type TreeListProps = {
   nodes: AccountNode[]
+  allAccounts: Account[]
   isAdmin: boolean
   depth: number
   formatNumber: (value: number, fractionDigits?: number) => string
@@ -887,6 +913,7 @@ type TreeListProps = {
   onOpenPermissions: (accountId: string) => void
   onActivateCreate: (parentId: string | "root" | null) => void
   renamingAccountId: string | null
+  movingAccountId: string | null
   editingOpeningBalanceAccountId: string | null
   openActionsAccountId: string | null
   users: User[]
@@ -894,6 +921,7 @@ type TreeListProps = {
   onToggleActionsMenu: (accountId: string) => void
   onCloseActionsMenu: () => void
   onActivateRename: (accountId: string | null) => void
+  onActivateMove: (accountId: string | null) => void
   onActivateOpeningBalanceEdit: (accountId: string | null) => void
   deletingAccountId: string | null
   onDeleteAccount: (account: Account) => void
@@ -902,11 +930,13 @@ type TreeListProps = {
   onOpeningBalanceSaved: (account: Account) => void
   onCancelCreate: () => void
   onCancelRename: () => void
+  onCancelMove: () => void
   onCancelOpeningBalanceEdit: () => void
 }
 
 function TreeList({
   nodes,
+  allAccounts,
   isAdmin,
   depth,
   formatNumber,
@@ -920,6 +950,7 @@ function TreeList({
   onOpenPermissions,
   onActivateCreate,
   renamingAccountId,
+  movingAccountId,
   editingOpeningBalanceAccountId,
   openActionsAccountId,
   users,
@@ -927,6 +958,7 @@ function TreeList({
   onToggleActionsMenu,
   onCloseActionsMenu,
   onActivateRename,
+  onActivateMove,
   onActivateOpeningBalanceEdit,
   deletingAccountId,
   onDeleteAccount,
@@ -935,6 +967,7 @@ function TreeList({
   onOpeningBalanceSaved,
   onCancelCreate,
   onCancelRename,
+  onCancelMove,
   onCancelOpeningBalanceEdit,
 }: TreeListProps) {
   return (
@@ -943,9 +976,9 @@ function TreeList({
         const isCollapsed = forcedExpandedIds.has(node.id) ? false : collapsedIds.has(node.id)
         const isCreateOpen = activeParentId === node.id
         const isRenameOpen = renamingAccountId === node.id
+        const isMoveOpen = movingAccountId === node.id
         const isOpeningBalanceOpen = editingOpeningBalanceAccountId === node.id
         const presentation = getAccountTypePresentation(node.accountType)
-        const hasDirectTransactions = directTransactionAccountIds.has(node.id)
         const canOpenLedger = node.currentUserPermissions.canView
 
         return (
@@ -1035,6 +1068,7 @@ function TreeList({
                       }
                       onAddSubAccount={() => onActivateCreate(isCreateOpen ? null : node.id)}
                       onRename={() => onActivateRename(isRenameOpen ? null : node.id)}
+                      onMove={() => onActivateMove(isMoveOpen ? null : node.id)}
                       onEditOpeningBalance={() =>
                         onActivateOpeningBalanceEdit(isOpeningBalanceOpen ? null : node.id)
                       }
@@ -1069,6 +1103,18 @@ function TreeList({
                 </div>
               ) : null}
 
+              {isMoveOpen ? (
+                <div className="mt-2 border-t pt-2">
+                  <MoveAccountForm
+                    account={node}
+                    availableParents={allAccounts}
+                    isAdmin={isAdmin}
+                    onCancel={onCancelMove}
+                    onMoved={onRenamed}
+                  />
+                </div>
+              ) : null}
+
               {isOpeningBalanceOpen ? (
                 <div className="mt-2 border-t pt-2">
                   <OpeningBalanceForm
@@ -1084,6 +1130,7 @@ function TreeList({
               <div className="mt-1.5 border-l border-dashed pl-2.5">
                 <TreeList
                   nodes={node.children}
+                  allAccounts={allAccounts}
                   isAdmin={isAdmin}
                   depth={depth + 1}
                   formatNumber={formatNumber}
@@ -1097,6 +1144,7 @@ function TreeList({
                   onOpenPermissions={onOpenPermissions}
                   onActivateCreate={onActivateCreate}
                   renamingAccountId={renamingAccountId}
+                  movingAccountId={movingAccountId}
                   editingOpeningBalanceAccountId={editingOpeningBalanceAccountId}
                   openActionsAccountId={openActionsAccountId}
                   users={users}
@@ -1104,6 +1152,7 @@ function TreeList({
                   onToggleActionsMenu={onToggleActionsMenu}
                   onCloseActionsMenu={onCloseActionsMenu}
                   onActivateRename={onActivateRename}
+                  onActivateMove={onActivateMove}
                   onActivateOpeningBalanceEdit={onActivateOpeningBalanceEdit}
                   deletingAccountId={deletingAccountId}
                   onDeleteAccount={onDeleteAccount}
@@ -1112,6 +1161,7 @@ function TreeList({
                   onOpeningBalanceSaved={onOpeningBalanceSaved}
                   onCancelCreate={onCancelCreate}
                   onCancelRename={onCancelRename}
+                  onCancelMove={onCancelMove}
                   onCancelOpeningBalanceEdit={onCancelOpeningBalanceEdit}
                 />
               </div>
@@ -1282,6 +1332,7 @@ function RenameAccountForm({
         accountNumber: accountNumber.trim() || null,
         description: description.trim() || null,
         openingBalance: account.openingBalance,
+        parentAccountId: account.parentAccountId,
       })
 
       if (isAdmin) {
@@ -1359,7 +1410,7 @@ function RenameAccountForm({
           </label>
         ) : null}
 
-        <label className="space-y-1 text-sm md:col-span-2">
+        <label className="space-y-1 text-sm md:col-span-3">
           <span className="font-medium">Description</span>
           <Input
             className="h-8"
@@ -1374,6 +1425,95 @@ function RenameAccountForm({
           <Button type="submit" size="sm" disabled={isSubmitting}>
             <Pencil />
             {isSubmitting ? "Saving..." : "Save"}
+          </Button>
+          <Button type="button" size="sm" variant="ghost" onClick={onCancel} disabled={isSubmitting}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    </form>
+  )
+}
+
+function MoveAccountForm({
+  account,
+  availableParents,
+  isAdmin,
+  onCancel,
+  onMoved,
+}: MoveAccountFormProps) {
+  const { showSnackbar } = useSnackbar()
+  const [selectedParentId, setSelectedParentId] = useState(account.parentAccountId ?? "__root__")
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const movableParentOptions = useMemo(
+    () => buildMoveParentOptions(availableParents, account, isAdmin),
+    [account, availableParents, isAdmin],
+  )
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setIsSubmitting(true)
+
+    try {
+      const updatedAccount = await renameAccount(account.id, {
+        name: account.name,
+        accountNumber: account.accountNumber,
+        description: account.description,
+        openingBalance: account.openingBalance,
+        parentAccountId: selectedParentId === "__root__" ? null : selectedParentId,
+      })
+
+      onMoved(updatedAccount)
+    } catch (error) {
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Unknown error while moving account.",
+        tone: "error",
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="rounded-xl border bg-card p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-medium">Move account</h3>
+          <p className="text-xs text-muted-foreground">
+            Move {account.name} under another parent without changing its type or transactions.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
+        <label className="space-y-1 text-sm">
+          <span className="font-medium">Parent account</span>
+          <Select value={selectedParentId} onValueChange={setSelectedParentId}>
+            <SelectTrigger className="h-8">
+              <SelectValue placeholder="Select parent" />
+            </SelectTrigger>
+            <SelectContent>
+              {isAdmin ? <SelectItem value="__root__">Top level</SelectItem> : null}
+              {movableParentOptions.map((option) => (
+                <SelectItem key={option.id} value={option.id}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </label>
+
+        <div className="flex items-end gap-2">
+          <Button
+            type="submit"
+            size="sm"
+            disabled={
+              isSubmitting ||
+              (selectedParentId === "__root__" ? null : selectedParentId) === account.parentAccountId
+            }
+          >
+            <FolderTree />
+            {isSubmitting ? "Moving..." : "Move"}
           </Button>
           <Button type="button" size="sm" variant="ghost" onClick={onCancel} disabled={isSubmitting}>
             Cancel
@@ -1399,6 +1539,7 @@ function OpeningBalanceForm({ account, onCancel, onSaved }: OpeningBalanceFormPr
         accountNumber: account.accountNumber,
         description: account.description,
         openingBalance: Number(openingBalance) || 0,
+        parentAccountId: account.parentAccountId,
       })
       onSaved(updatedAccount)
     } catch (error) {
@@ -1461,6 +1602,7 @@ type AccountActionsMenuProps = {
   viewLedgerTitle?: string
   onAddSubAccount: () => void
   onRename: () => void
+  onMove: () => void
   onEditOpeningBalance: () => void
   onManagePermissions: () => void
   onDelete: () => void
@@ -1477,6 +1619,7 @@ function AccountActionsMenu({
   viewLedgerTitle,
   onAddSubAccount,
   onRename,
+  onMove,
   onEditOpeningBalance,
   onManagePermissions,
   onDelete,
@@ -1542,30 +1685,45 @@ function AccountActionsMenu({
             <FolderPlus className="size-4" />
             <span>Add SubAccount</span>
           </button>
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition hover:bg-muted"
-            onClick={() => {
-              onRename()
-              onClose()
-            }}
-            disabled={account.isCore}
-          >
-            <Pencil className="size-4" />
-            <span>Edit Account</span>
-          </button>
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition hover:bg-muted"
-            onClick={() => {
-              onEditOpeningBalance()
-              onClose()
-            }}
-            disabled={account.isCore}
-          >
-            <Pencil className="size-4" />
-            <span>Edit Opening Balance</span>
-          </button>
+          {!account.isCore ? (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition hover:bg-muted"
+              onClick={() => {
+                onRename()
+                onClose()
+              }}
+            >
+              <Pencil className="size-4" />
+              <span>Edit Account</span>
+            </button>
+          ) : null}
+          {!account.isCore ? (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition hover:bg-muted"
+              onClick={() => {
+                onMove()
+                onClose()
+              }}
+            >
+              <FolderTree className="size-4" />
+              <span>Move Account</span>
+            </button>
+          ) : null}
+          {!account.isCore ? (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition hover:bg-muted"
+              onClick={() => {
+                onEditOpeningBalance()
+                onClose()
+              }}
+            >
+              <Pencil className="size-4" />
+              <span>Edit Opening Balance</span>
+            </button>
+          ) : null}
           <button
             type="button"
             className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition hover:bg-muted"
@@ -1926,4 +2084,60 @@ function filterAccountTree(nodes: AccountNode[], searchTerm: string) {
       .filter((node): node is AccountNode => node != null),
     forcedExpandedIds,
   }
+}
+
+function buildMoveParentOptions(accounts: Account[], account: Account, isAdmin: boolean) {
+  const accountById = new Map(accounts.map((item) => [item.id, item]))
+  const excludedIds = new Set<string>([account.id])
+  const stack = [account.id]
+
+  while (stack.length > 0) {
+    const currentId = stack.pop()
+    if (!currentId) {
+      continue
+    }
+
+    for (const candidate of accounts) {
+      if (candidate.parentAccountId !== currentId || excludedIds.has(candidate.id)) {
+        continue
+      }
+
+      excludedIds.add(candidate.id)
+      stack.push(candidate.id)
+    }
+  }
+
+  return accounts
+    .filter((candidate) => {
+      if (excludedIds.has(candidate.id) || candidate.isCore) {
+        return false
+      }
+
+      if (candidate.accountType !== account.accountType) {
+        return false
+      }
+
+      if (!isAdmin && !candidate.currentUserPermissions.canManageAccess) {
+        return false
+      }
+
+      return true
+    })
+    .map((candidate) => ({
+      id: candidate.id,
+      label: buildAccountPathForMove(candidate.id, accountById),
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label))
+}
+
+function buildAccountPathForMove(accountId: string, accountById: Map<string, Account>) {
+  const segments: string[] = []
+  let current = accountById.get(accountId)
+
+  while (current) {
+    segments.unshift(current.name)
+    current = current.parentAccountId ? accountById.get(current.parentAccountId) : undefined
+  }
+
+  return segments.join(" / ")
 }
