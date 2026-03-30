@@ -747,13 +747,23 @@ function AccountHierarchyImportPanel({
           })
 
           if (index === segments.length - 1) {
-            createdAccount = await updateAccountPermissions(createdAccount.id, {
+            const permissions = await updateAccountPermissions(createdAccount.id, {
               ownerUserId:
                 draft.ownerUserId === undefined ? createdAccount.ownerUserId : draft.ownerUserId,
               isGloballyShared: draft.isGloballyShared ?? createdAccount.isGloballyShared,
               reportingMode: draft.reportingMode ?? createdAccount.reportingMode,
               entries: [],
             })
+
+            createdAccount = {
+              ...createdAccount,
+              ownerUserId: permissions.ownerUserId,
+              ownerDisplayName: permissions.ownerDisplayName,
+              ownerEmail: permissions.ownerEmail,
+              isGloballyShared: permissions.isGloballyShared,
+              reportingMode: permissions.reportingMode,
+              currentUserPermissions: permissions.currentUserPermissions,
+            }
           }
 
           addAccount(createdAccount)
