@@ -11,6 +11,7 @@ import { type BayesianStrategy } from "@/models/strategy"
 export default function BayesianStrategyPage() {
   const [strategy, setStrategy] = useState<BayesianStrategy | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [reloadToken, setReloadToken] = useState(0)
 
   useEffect(() => {
     let isMounted = true
@@ -36,7 +37,7 @@ export default function BayesianStrategyPage() {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [reloadToken])
 
   return (
     <AppShell
@@ -44,7 +45,7 @@ export default function BayesianStrategyPage() {
       subtitle="DB-backed map editor for learned mappings"
       badge={strategy ? `${strategy.learnedAccountCount} learned accounts` : "Loading..."}
     >
-      <BayesianTrainingImportPanel />
+      <BayesianTrainingImportPanel onImported={() => setReloadToken((current) => current + 1)} />
 
       <section className="grid gap-3 md:grid-cols-3">
         <div className="rounded-2xl border bg-card p-4 shadow-sm">

@@ -35,3 +35,23 @@ export type ImportBayesianTrainingResult = {
   skippedExampleCount: number
   missingAccountPaths: string[]
 }
+
+export type BayesianStatisticsExportEntry = {
+  destinationAccountPath: string
+  destinationAccountOwnerUserId: string | null
+  featureKey: string
+  count: number
+}
+
+export type BayesianStatisticsExport = {
+  format: "finance.bayesian_statistics"
+  version: 1
+  exportedAt: string
+  entries: BayesianStatisticsExportEntry[]
+}
+
+export type ImportBayesianStatisticsResult = {
+  importedEntryCount: number
+  skippedEntryCount: number
+  missingAccountPaths: string[]
+}

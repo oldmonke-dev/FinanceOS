@@ -8,6 +8,7 @@ import {
   Briefcase,
   ChevronRight,
   CircleDashed,
+  Download,
   EllipsisVertical,
   FileSpreadsheet,
   FolderPlus,
@@ -53,6 +54,7 @@ import {
   formatAccountType,
   getAccountOwnerLabel,
   renameAccount,
+  updateAccountPermissions,
   updateAccountOwner,
 } from "@/lib/accounts"
 import { getTransactions } from "@/lib/transactions"
@@ -60,6 +62,7 @@ import { getUsers } from "@/lib/users"
 import {
   type Account,
   type AccountNode,
+  type AccountReportingMode,
   type AccountType,
   type CreateAccountInput,
 } from "@/models/account"
@@ -100,8 +103,35 @@ type ImportedAccountDraft = {
   id: string
   fullPath: string
   accountType: AccountType
+  sourceAccountId?: string | null
+  ownerUserId?: string | null
+  accountNumber?: string | null
+  description?: string | null
+  openingBalance?: number
+  reportingMode?: AccountReportingMode
+  isGloballyShared?: boolean
   include: boolean
   isExisting: boolean
+}
+
+type ExportedAccountHierarchyNode = {
+  id: string
+  name: string
+  accountType: AccountType
+  ownerUserId: string | null
+  accountNumber: string | null
+  description: string | null
+  openingBalance: number
+  reportingMode: AccountReportingMode
+  isGloballyShared: boolean
+  children: ExportedAccountHierarchyNode[]
+}
+
+type ExportedAccountHierarchy = {
+  format: "finance.account_hierarchy"
+  version: 1
+  exportedAt: string
+  tree: ExportedAccountHierarchyNode[]
 }
 
 type ImportedAccountNode = {
@@ -625,7 +655,10 @@ function AccountHierarchyImportPanel({
     const text = await file.text()
 
     try {
-      const nextDrafts = parseGnuCashAccountCsv(text, existingAccountPathLookup)
+      const nextDrafts =
+        file.name.toLowerCase().endsWith(".json")
+          ? parseExportedAccountHierarchy(text, existingAccountPathLookup)
+          : parseGnuCashAccountCsv(text, existingAccountPathLookup)
       setDrafts(nextDrafts)
       setFileName(file.name)
       showSnackbar({ message: `Parsed account hierarchy from ${file.name}.`, tone: "success" })
@@ -637,6 +670,14 @@ function AccountHierarchyImportPanel({
         tone: "error",
       })
     }
+  }
+
+  function handleExport() {
+    downloadJsonFile(
+      `account-hierarchy-${new Date().toISOString().slice(0, 10)}.json`,
+      buildAccountHierarchyExport(accounts),
+    )
+    showSnackbar({ message: "Exported account hierarchy JSON.", tone: "success" })
   }
 
   function updateDraft(draftId: string, updater: (draft: ImportedAccountDraft) => ImportedAccountDraft) {
@@ -695,12 +736,25 @@ function AccountHierarchyImportPanel({
               ? draft.accountType
               : inferAccountTypeFromPath(currentPath, draft.accountType)
 
-          const createdAccount = await createAccount({
+          let createdAccount = await createAccount({
+            id: index === segments.length - 1 ? (draft.sourceAccountId ?? undefined) : undefined,
             name: segment,
             accountType,
             parentAccountId,
-            openingBalance: 0,
+            accountNumber: index === segments.length - 1 ? (draft.accountNumber ?? null) : null,
+            description: index === segments.length - 1 ? (draft.description ?? null) : null,
+            openingBalance: index === segments.length - 1 ? (draft.openingBalance ?? 0) : 0,
           })
+
+          if (index === segments.length - 1) {
+            createdAccount = await updateAccountPermissions(createdAccount.id, {
+              ownerUserId:
+                draft.ownerUserId === undefined ? createdAccount.ownerUserId : draft.ownerUserId,
+              isGloballyShared: draft.isGloballyShared ?? createdAccount.isGloballyShared,
+              reportingMode: draft.reportingMode ?? createdAccount.reportingMode,
+              entries: [],
+            })
+          }
 
           addAccount(createdAccount)
           accountByPath.set(normalizedPath, createdAccount)
@@ -731,14 +785,20 @@ function AccountHierarchyImportPanel({
         <div>
           <h3 className="text-base font-semibold">Source file</h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Choose a GnuCash account export and review the parsed hierarchy before importing.
+            Choose a GnuCash account CSV or an exported hierarchy JSON and review it before importing.
           </p>
         </div>
-        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border bg-background px-3 py-2 text-sm font-medium shadow-sm">
-          <Upload className="size-4" />
-          <span>Choose CSV</span>
-          <input type="file" accept=".csv,text/csv" className="sr-only" onChange={handleFileChange} />
-        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="outline" onClick={handleExport} disabled={accounts.length === 0}>
+            <Download className="size-4" />
+            Export JSON
+          </Button>
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border bg-background px-3 py-2 text-sm font-medium shadow-sm">
+            <Upload className="size-4" />
+            <span>Choose File</span>
+            <input type="file" accept=".csv,text/csv,.json,application/json" className="sr-only" onChange={handleFileChange} />
+          </label>
+        </div>
       </div>
 
       <div className="rounded-xl border bg-card px-4 py-3 text-sm text-muted-foreground">
@@ -2044,6 +2104,119 @@ function buildImportedAccountTree(drafts: ImportedAccountDraft[]) {
   }
 
   return roots
+}
+
+function buildAccountHierarchyExport(accounts: Account[]): ExportedAccountHierarchy {
+  const tree = buildAccountTree(accounts)
+
+  function mapNode(node: AccountNode): ExportedAccountHierarchyNode {
+    return {
+      id: node.id,
+      name: node.name,
+      accountType: normalizeExportedAccountType(node.accountType),
+      ownerUserId: node.ownerUserId,
+      accountNumber: node.accountNumber,
+      description: node.description,
+      openingBalance: node.openingBalance,
+      reportingMode: node.reportingMode,
+      isGloballyShared: node.isGloballyShared,
+      children: node.children.map(mapNode),
+    }
+  }
+
+  return {
+    format: "finance.account_hierarchy",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    tree: tree.map(mapNode),
+  }
+}
+
+function normalizeExportedAccountType(accountType: Account["accountType"]): AccountType {
+  if (accountType === 2 || accountType === "Liability") {
+    return 2
+  }
+
+  if (accountType === 3 || accountType === "Equity") {
+    return 3
+  }
+
+  if (accountType === 4 || accountType === "Income") {
+    return 4
+  }
+
+  if (accountType === 5 || accountType === "Expense") {
+    return 5
+  }
+
+  return 1
+}
+
+function parseExportedAccountHierarchy(
+  source: string,
+  existingAccountPathLookup: Map<string, Account>,
+) {
+  let parsed: unknown
+
+  try {
+    parsed = JSON.parse(source)
+  } catch {
+    throw new Error("Account hierarchy JSON is not valid.")
+  }
+
+  const value = parsed as Partial<ExportedAccountHierarchy> | null
+  if (
+    value == null
+    || value.format !== "finance.account_hierarchy"
+    || value.version !== 1
+    || !Array.isArray(value.tree)
+  ) {
+    throw new Error("Unsupported account hierarchy export format.")
+  }
+
+  const drafts: ImportedAccountDraft[] = []
+  let index = 0
+
+  function visit(nodes: ExportedAccountHierarchyNode[], parentPath: string) {
+    for (const node of nodes) {
+      const fullPath = normalizeImportedFullPath(
+        parentPath ? `${parentPath}:${node.name}` : node.name,
+      )
+
+      drafts.push({
+        id: `imported-account-${index}`,
+        fullPath,
+        accountType: node.accountType,
+        description: node.description,
+        accountNumber: node.accountNumber,
+        openingBalance: node.openingBalance,
+        ownerUserId: node.ownerUserId,
+        reportingMode: node.reportingMode,
+        isGloballyShared: node.isGloballyShared,
+        sourceAccountId: node.id,
+        include: true,
+        isExisting: existingAccountPathLookup.has(fullPath.toLowerCase()),
+      })
+      index += 1
+
+      visit(node.children ?? [], fullPath)
+    }
+  }
+
+  visit(value.tree, "")
+  return drafts
+}
+
+function downloadJsonFile(fileName: string, payload: unknown) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }
 
 function collectBranchAccountIds(nodes: AccountNode[]) {

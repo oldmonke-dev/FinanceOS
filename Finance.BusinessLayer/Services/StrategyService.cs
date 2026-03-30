@@ -101,6 +101,39 @@ namespace Finance.BusinessLayer.Services
             };
         }
 
+        public async Task<BayesianStatisticsExportDTO> ExportBayesianStatisticsAsync(
+            Guid userId,
+            bool isAdmin,
+            CancellationToken cancellationToken = default)
+        {
+            var accounts = await _accountRepository.GetAllAccountsAsync(userId, isAdmin);
+            var accountIds = accounts.Select(account => account.Id).ToHashSet();
+            var stats = (await _importLearningRepository.GetGlobalStatsAsync(cancellationToken))
+                .Where(stat => accountIds.Contains(stat.DestinationAccountId))
+                .OrderBy(stat => stat.DestinationAccountId)
+                .ThenBy(stat => stat.FeatureKey)
+                .ToList();
+
+            var accountById = accounts.ToDictionary(account => account.Id);
+
+            return new BayesianStatisticsExportDTO
+            {
+                ExportedAt = DateTime.UtcNow,
+                Entries = stats.Select(stat =>
+                {
+                    accountById.TryGetValue(stat.DestinationAccountId, out var account);
+
+                    return new BayesianStatisticsExportEntryDTO
+                    {
+                        DestinationAccountPath = account is null ? stat.DestinationAccountId.ToString() : BuildPath(account, accounts),
+                        DestinationAccountOwnerUserId = account?.OwnerUserId,
+                        FeatureKey = stat.FeatureKey,
+                        Count = stat.Count,
+                    };
+                }).ToList(),
+            };
+        }
+
         public async Task<ImportBayesianTrainingResultDTO> ImportBayesianTrainingDataAsync(
             Guid userId,
             bool isAdmin,
@@ -169,6 +202,58 @@ namespace Finance.BusinessLayer.Services
             {
                 ImportedExampleCount = importedCount,
                 SkippedExampleCount = skippedCount,
+                MissingAccountPaths = missingAccountPaths.OrderBy(value => value).ToList(),
+            };
+        }
+
+        public async Task<ImportBayesianStatisticsResultDTO> ImportBayesianStatisticsAsync(
+            Guid userId,
+            bool isAdmin,
+            BayesianStatisticsExportDTO request,
+            CancellationToken cancellationToken = default)
+        {
+            var accounts = await _accountRepository.GetAllAccountsAsync(userId, isAdmin);
+            var accountByNormalizedPath = accounts.ToDictionary(
+                account => NormalizeAccountPath(BuildPath(account, accounts)),
+                account => account);
+
+            var increments = new Dictionary<(Guid DestinationAccountId, string FeatureKey), int>();
+            var missingAccountPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var importedEntryCount = 0;
+            var skippedEntryCount = 0;
+
+            foreach (var entry in request.Entries)
+            {
+                if (string.IsNullOrWhiteSpace(entry.DestinationAccountPath)
+                    || string.IsNullOrWhiteSpace(entry.FeatureKey)
+                    || entry.Count <= 0)
+                {
+                    skippedEntryCount += 1;
+                    continue;
+                }
+
+                var normalizedDestinationPath = NormalizeAccountPath(entry.DestinationAccountPath);
+                if (!accountByNormalizedPath.TryGetValue(normalizedDestinationPath, out var destinationAccount))
+                {
+                    skippedEntryCount += 1;
+                    missingAccountPaths.Add(entry.DestinationAccountPath);
+                    continue;
+                }
+
+                var key = (destinationAccount.Id, entry.FeatureKey);
+                increments[key] = (increments.TryGetValue(key, out var count) ? count : 0) + entry.Count;
+                importedEntryCount += 1;
+            }
+
+            await _importLearningRepository.IncrementGlobalStatsAsync(
+                userId,
+                increments,
+                cancellationToken);
+
+            return new ImportBayesianStatisticsResultDTO
+            {
+                ImportedEntryCount = importedEntryCount,
+                SkippedEntryCount = skippedEntryCount,
                 MissingAccountPaths = missingAccountPaths.OrderBy(value => value).ToList(),
             };
         }

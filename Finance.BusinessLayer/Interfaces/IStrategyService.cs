@@ -9,10 +9,21 @@ namespace Finance.BusinessLayer.Interfaces
             bool isAdmin,
             CancellationToken cancellationToken = default);
 
+        Task<BayesianStatisticsExportDTO> ExportBayesianStatisticsAsync(
+            Guid userId,
+            bool isAdmin,
+            CancellationToken cancellationToken = default);
+
         Task<ImportBayesianTrainingResultDTO> ImportBayesianTrainingDataAsync(
             Guid userId,
             bool isAdmin,
             ImportBayesianTrainingDataDTO request,
+            CancellationToken cancellationToken = default);
+
+        Task<ImportBayesianStatisticsResultDTO> ImportBayesianStatisticsAsync(
+            Guid userId,
+            bool isAdmin,
+            BayesianStatisticsExportDTO request,
             CancellationToken cancellationToken = default);
 
         Task DeleteBayesianLearningForAccountAsync(
