@@ -83,8 +83,23 @@ export function AccountPermissionsPage({ accountId }: { accountId: string }) {
       return []
     }
 
-    const assignedUserIds = new Set(details.entries.map((entry) => entry.userId))
-    return details.availableUsers.filter((user) => !assignedUserIds.has(user.id))
+    const assignedUserIds = new Set(
+      details.entries
+        .filter((entry) => entry.userId !== details.ownerUserId)
+        .map((entry) => entry.userId),
+    )
+
+    return details.availableUsers.filter(
+      (user) => user.id !== details.ownerUserId && !assignedUserIds.has(user.id),
+    )
+  }, [details])
+
+  const visibleEntries = useMemo(() => {
+    if (!details) {
+      return []
+    }
+
+    return details.entries.filter((entry) => entry.userId !== details.ownerUserId)
   }, [details])
 
   const isOwnerlessShared = details?.ownerUserId == null
@@ -146,10 +161,10 @@ export function AccountPermissionsPage({ accountId }: { accountId: string }) {
                 userEmail: user.email,
                 isAdmin: user.isAdmin,
                 canView: true,
-                canPost: false,
-                canEditTransaction: false,
-                canDeleteTransaction: false,
-                canManageAccess: false,
+                canPost: user.isAdmin,
+                canEditTransaction: user.isAdmin,
+                canDeleteTransaction: user.isAdmin,
+                canManageAccess: user.isAdmin,
               },
             ].sort((left, right) =>
               `${left.userDisplayName}${left.userEmail}`.localeCompare(
@@ -169,12 +184,12 @@ export function AccountPermissionsPage({ accountId }: { accountId: string }) {
     setIsSaving(true)
 
     try {
-        const nextDetails = await updateAccountPermissions(accountId, {
-          ownerUserId: details.ownerUserId,
-          isGloballyShared: details.isGloballyShared,
-          reportingMode: details.reportingMode,
-          entries: details.entries,
-        })
+      const nextDetails = await updateAccountPermissions(accountId, {
+        ownerUserId: details.ownerUserId,
+        isGloballyShared: details.isGloballyShared,
+        reportingMode: details.reportingMode,
+        entries: details.entries.filter((entry) => entry.userId !== details.ownerUserId),
+      })
 
       setDetails(nextDetails)
       await refreshAccounts()
@@ -383,7 +398,10 @@ export function AccountPermissionsPage({ accountId }: { accountId: string }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {details.entries.map((entry) => (
+                    {visibleEntries.map((entry) => {
+                      const isAdminRow = entry.isAdmin
+
+                      return (
                       <tr key={entry.userId} className="border-t">
                         <td className="px-2.5 py-2.5 align-top">
                           <div className="font-medium">{entry.userDisplayName}</div>
@@ -397,10 +415,16 @@ export function AccountPermissionsPage({ accountId }: { accountId: string }) {
                               </span>
                             </div>
                           ) : null}
+                          {isAdminRow ? (
+                            <div className="mt-1 text-[11px] leading-4 text-muted-foreground">
+                              Admin already have access
+                            </div>
+                          ) : null}
                         </td>
                         <td className="px-2 py-2.5 text-center">
                           <Checkbox
-                            checked={entry.canView}
+                            checked={isAdminRow ? true : entry.canView}
+                            disabled={isAdminRow}
                             onCheckedChange={(checked) =>
                               updateEntryFlag(entry.userId, "canView", Boolean(checked))
                             }
@@ -408,7 +432,8 @@ export function AccountPermissionsPage({ accountId }: { accountId: string }) {
                         </td>
                         <td className="px-2 py-2.5 text-center">
                           <Checkbox
-                            checked={entry.canPost}
+                            checked={isAdminRow ? true : entry.canPost}
+                            disabled={isAdminRow}
                             onCheckedChange={(checked) =>
                               updateEntryFlag(entry.userId, "canPost", Boolean(checked))
                             }
@@ -416,7 +441,8 @@ export function AccountPermissionsPage({ accountId }: { accountId: string }) {
                         </td>
                         <td className="px-2 py-2.5 text-center">
                           <Checkbox
-                            checked={entry.canEditTransaction}
+                            checked={isAdminRow ? true : entry.canEditTransaction}
+                            disabled={isAdminRow}
                             onCheckedChange={(checked) =>
                               updateEntryFlag(entry.userId, "canEditTransaction", Boolean(checked))
                             }
@@ -424,7 +450,8 @@ export function AccountPermissionsPage({ accountId }: { accountId: string }) {
                         </td>
                         <td className="px-2 py-2.5 text-center">
                           <Checkbox
-                            checked={entry.canDeleteTransaction}
+                            checked={isAdminRow ? true : entry.canDeleteTransaction}
+                            disabled={isAdminRow}
                             onCheckedChange={(checked) =>
                               updateEntryFlag(entry.userId, "canDeleteTransaction", Boolean(checked))
                             }
@@ -432,7 +459,8 @@ export function AccountPermissionsPage({ accountId }: { accountId: string }) {
                         </td>
                         <td className="px-2 py-2.5 text-center">
                           <Checkbox
-                            checked={entry.canManageAccess}
+                            checked={isAdminRow ? true : entry.canManageAccess}
+                            disabled={isAdminRow}
                             onCheckedChange={(checked) =>
                               updateEntryFlag(entry.userId, "canManageAccess", Boolean(checked))
                             }
@@ -451,8 +479,9 @@ export function AccountPermissionsPage({ accountId }: { accountId: string }) {
                           </Button>
                         </td>
                       </tr>
-                    ))}
-                    {details.entries.length === 0 ? (
+                      )
+                    })}
+                    {visibleEntries.length === 0 ? (
                       <tr>
                         <td colSpan={7} className="px-3 py-4 text-sm text-muted-foreground">
                           No explicit access rows yet. Use the globally shared toggle if this account should be open to every user.

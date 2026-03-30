@@ -2109,7 +2109,7 @@ function buildMoveParentOptions(accounts: Account[], account: Account, isAdmin: 
 
   return accounts
     .filter((candidate) => {
-      if (excludedIds.has(candidate.id) || candidate.isCore) {
+      if (excludedIds.has(candidate.id)) {
         return false
       }
 

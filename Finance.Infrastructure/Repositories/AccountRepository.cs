@@ -169,11 +169,6 @@ namespace Finance.Infrastructure.Repositories
                     throw new KeyNotFoundException("Parent account was not found.");
                 }
 
-                if (parentAccount.IsCore)
-                {
-                    throw new InvalidOperationException("Core accounts cannot be used as editable targets.");
-                }
-
                 if (await IsDescendantOfAsync(nextParentAccountId.Value, account.Id))
                 {
                     throw new InvalidOperationException("An account cannot be moved under one of its descendants.");

@@ -57,6 +57,19 @@ namespace Finance.Infrastructure.Data
                     OR ("Name" = 'Expenses' AND "AccountType" = 5)
                   );
 
+                UPDATE "Accounts"
+                SET "IsCore" = FALSE
+                WHERE NOT (
+                    "ParentAccountId" IS NULL
+                    AND (
+                        ("Name" = 'Assets' AND "AccountType" = 1)
+                        OR ("Name" = 'Liability' AND "AccountType" = 2)
+                        OR ("Name" = 'Equity' AND "AccountType" = 3)
+                        OR ("Name" = 'Income' AND "AccountType" = 4)
+                        OR ("Name" = 'Expenses' AND "AccountType" = 5)
+                    )
+                );
+
                 UPDATE "Accounts" AS a
                 SET "IsGloballyShared" = TRUE
                 WHERE a."IsCore" = FALSE
