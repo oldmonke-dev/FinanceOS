@@ -68,6 +68,7 @@ import { type User } from "@/models/user"
 type AccountFormProps = {
   parentAccountId: string | null
   parentLabel: string
+  parentAccountType?: AccountType | null
   onCancel: () => void
   onCreated: (account: Account) => void
 }
@@ -466,6 +467,7 @@ export function AccountTree() {
           <AccountForm
             parentAccountId={null}
             parentLabel="top level"
+            parentAccountType={null}
             onCancel={() => setActiveParentId(null)}
             onCreated={handleCreated}
           />
@@ -1084,6 +1086,7 @@ function TreeList({
                   <AccountForm
                     parentAccountId={node.id}
                     parentLabel={node.name}
+                    parentAccountType={node.accountType as AccountType}
                     onCancel={onCancelCreate}
                     onCreated={onCreated}
                   />
@@ -1176,6 +1179,7 @@ function TreeList({
 function AccountForm({
   parentAccountId,
   parentLabel,
+  parentAccountType,
   onCancel,
   onCreated,
 }: AccountFormProps) {
@@ -1183,9 +1187,14 @@ function AccountForm({
   const [name, setName] = useState("")
   const [accountNumber, setAccountNumber] = useState("")
   const [description, setDescription] = useState("")
-  const [accountType, setAccountType] = useState<AccountType>(1)
+  const [accountType, setAccountType] = useState<AccountType>(parentAccountType ?? 1)
   const [openingBalance, setOpeningBalance] = useState("0")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const isSubaccount = parentAccountId != null
+
+  useEffect(() => {
+    setAccountType(parentAccountType ?? 1)
+  }, [parentAccountType])
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -1196,7 +1205,7 @@ function AccountForm({
         name,
         accountNumber: accountNumber.trim() || null,
         description: description.trim() || null,
-        accountType,
+        accountType: parentAccountType ?? accountType,
         parentAccountId,
         openingBalance: Number(openingBalance) || 0,
       }
@@ -1205,7 +1214,7 @@ function AccountForm({
       setName("")
       setAccountNumber("")
       setDescription("")
-      setAccountType(1)
+      setAccountType(parentAccountType ?? 1)
       setOpeningBalance("0")
       onCreated(account)
     } catch (error) {
@@ -1257,6 +1266,7 @@ function AccountForm({
           <Select
             value={String(accountType)}
             onValueChange={(value) => setAccountType(Number(value) as AccountType)}
+            disabled={isSubaccount}
           >
             <SelectTrigger className="h-8">
               <SelectValue placeholder="Select type" />
@@ -1269,6 +1279,11 @@ function AccountForm({
               ))}
             </SelectContent>
           </Select>
+          {isSubaccount ? (
+            <p className="text-xs text-muted-foreground">
+              Subaccounts use the same type as their parent.
+            </p>
+          ) : null}
         </label>
 
         <label className="space-y-1 text-sm">

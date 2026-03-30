@@ -101,6 +101,8 @@ namespace Finance.Infrastructure.Repositories
                     throw new KeyNotFoundException("Parent account was not found.");
                 }
 
+                accountType = parentAccount.AccountType;
+
                 if (!isAdmin)
                 {
                     await _accountAccessService.EnsureCanManageAccountAsync(parentAccount.Id, userId, isAdmin);
