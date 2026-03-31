@@ -1,6 +1,8 @@
 import {
   type Account,
   type AccountAccessEntry,
+  type BatchUpdateAccountResult,
+  type BatchUpdateAccountsInput,
   type AccountNode,
   type AccountPermissionSummary,
   type AccountPermissionUserOption,
@@ -331,6 +333,41 @@ export async function updateAccountPermissions(
   }
 
   return getAccountPermissions(accountId)
+}
+
+export async function batchUpdateAccounts(
+  input: BatchUpdateAccountsInput,
+): Promise<BatchUpdateAccountResult[]> {
+  const response = await authFetch(`${API_BASE_URL}/Accounts/batch-update`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(input),
+  })
+
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to update selected accounts: ${response.status} ${response.statusText}`,
+      ),
+    )
+  }
+
+  const data = (await response.json()) as unknown[]
+
+  return data.map((item) => {
+    const raw = item as Record<string, unknown>
+
+    return {
+      id: String(raw.id ?? raw.Id ?? ""),
+      name: String(raw.name ?? raw.Name ?? "Account"),
+      updatedNodeCount: Number(raw.updatedNodeCount ?? raw.UpdatedNodeCount ?? 1),
+      accountTypeChanged: Boolean(raw.accountTypeChanged ?? raw.AccountTypeChanged ?? false),
+    }
+  })
 }
 
 export function buildAccountTree(accounts: Account[]): AccountNode[] {

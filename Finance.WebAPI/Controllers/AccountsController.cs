@@ -147,6 +147,31 @@ namespace Finance.WebAPI.Controllers
             }
         }
 
+        [HttpPut("batch-update")]
+        public async Task<ActionResult<List<UpdateAccountResultDTO>>> BatchUpdateAccounts(
+            [FromBody] BatchUpdateAccountsDTO request,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var results = await _accountRepository.BatchUpdateAccountsAsync(
+                    request,
+                    User.GetRequiredUserId(),
+                    User.IsAdmin(),
+                    cancellationToken);
+
+                return Ok(results);
+            }
+            catch (InvalidOperationException exception)
+            {
+                return BadRequest(new { message = exception.Message });
+            }
+            catch (KeyNotFoundException exception)
+            {
+                return NotFound(new { message = exception.Message });
+            }
+        }
+
         [HttpGet("{id:guid}/permissions")]
         public async Task<ActionResult<AccountAccessDetailsDTO>> GetAccountPermissions(
             Guid id,

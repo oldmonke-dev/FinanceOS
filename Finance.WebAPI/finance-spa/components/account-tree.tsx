@@ -48,6 +48,7 @@ import {
 } from "@/components/ui/select"
 import { getBalanceDeltaForAccount, getDisplayBalanceForAccount } from "@/lib/accounting"
 import {
+  batchUpdateAccounts,
   buildAccountTree,
   createAccount,
   deleteAccount,
@@ -61,6 +62,7 @@ import { getTransactions } from "@/lib/transactions"
 import { getUsers } from "@/lib/users"
 import {
   type Account,
+  type BatchUpdateAccountResult,
   type AccountNode,
   type AccountReportingMode,
   type AccountType,
@@ -89,14 +91,26 @@ type MoveAccountFormProps = {
   account: Account
   availableParents: Account[]
   isAdmin: boolean
+  onRefreshRequested: () => Promise<void>
   onCancel: () => void
-  onMoved: (account: Account) => void
+  onMoved: () => Promise<void> | void
 }
 
 type OpeningBalanceFormProps = {
   account: Account
   onCancel: () => void
   onSaved: (account: Account) => void
+}
+
+type BatchAccountUpdateFormProps = {
+  accounts: Account[]
+  selectedAccountIds: string[]
+  users: User[]
+  isAdmin: boolean
+  isLoadingUsers: boolean
+  onSelectionChange: (accountIds: string[]) => void
+  onCancel: () => void
+  onApplied: (selectedAccounts: Account[], results: BatchUpdateAccountResult[]) => Promise<void>
 }
 
 type ImportedAccountDraft = {
@@ -169,6 +183,8 @@ export function AccountTree() {
   const [movingAccountId, setMovingAccountId] = useState<string | null>(null)
   const [editingOpeningBalanceAccountId, setEditingOpeningBalanceAccountId] = useState<string | null>(null)
   const [openActionsAccountId, setOpenActionsAccountId] = useState<string | null>(null)
+  const [isMultiSelectEnabled, setIsMultiSelectEnabled] = useState(false)
+  const [selectedAccountIds, setSelectedAccountIds] = useState<Set<string>>(new Set())
   const [searchTerm, setSearchTerm] = useState("")
   const [balanceLookup, setBalanceLookup] = useState<Record<string, number>>({})
   const [directTransactionAccountIds, setDirectTransactionAccountIds] = useState<Set<string>>(new Set())
@@ -395,6 +411,24 @@ export function AccountTree() {
     showSnackbar({ message: `Created account ${account.name}.`, tone: "success" })
   }
 
+  function toggleAccountSelection(accountId: string, checked: boolean) {
+    if (!isMultiSelectEnabled) {
+      return
+    }
+
+    setSelectedAccountIds((current) => {
+      const next = new Set(current)
+
+      if (checked) {
+        next.add(accountId)
+      } else {
+        next.delete(accountId)
+      }
+
+      return next
+    })
+  }
+
   function handleRenamed(account: Account) {
     updateAccount(account)
     setRenamingAccountId(null)
@@ -411,6 +445,24 @@ export function AccountTree() {
     setMovingAccountId(null)
     setOpenActionsAccountId(null)
     showSnackbar({ message: `Updated opening balance for ${account.name}.`, tone: "success" })
+  }
+
+  async function handleBatchApplied(selectedAccounts: Account[], results: BatchUpdateAccountResult[]) {
+    await refreshAccounts()
+    setSelectedAccountIds(new Set())
+    setOpenActionsAccountId(null)
+    setMovingAccountId(null)
+
+    const changedTypeCount = results.filter((item) => item.accountTypeChanged).length
+    const messageParts = [`Updated ${selectedAccounts.length} account${selectedAccounts.length === 1 ? "" : "s"}.`]
+
+    if (changedTypeCount > 0) {
+      messageParts.push(
+        `${changedTypeCount} moved account${changedTypeCount === 1 ? "" : "s"} also changed type to match the destination branch.`,
+      )
+    }
+
+    showSnackbar({ message: messageParts.join(" "), tone: "success" })
   }
 
   async function handleDeleteAccount(account: Account) {
@@ -474,6 +526,23 @@ export function AccountTree() {
           <Button type="button" size="sm" variant="outline" onClick={expandAll}>
             Expand All
           </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={isMultiSelectEnabled ? "secondary" : "outline"}
+            onClick={() => {
+              setIsMultiSelectEnabled((current) => {
+                const next = !current
+                if (!next) {
+                  setSelectedAccountIds(new Set())
+                }
+
+                return next
+              })
+            }}
+          >
+            {isMultiSelectEnabled ? "Disable multi-select" : "Enable multi-select"}
+          </Button>
           {user?.isAdmin ? (
             <Button
               type="button"
@@ -491,6 +560,21 @@ export function AccountTree() {
           </Button>
         </div>
       </div>
+
+      {isMultiSelectEnabled && selectedAccountIds.size > 0 ? (
+        <div className="mt-3">
+          <BatchAccountUpdateForm
+            accounts={accounts}
+            selectedAccountIds={[...selectedAccountIds]}
+            users={users}
+            isAdmin={Boolean(user?.isAdmin)}
+            isLoadingUsers={isLoadingUsers}
+            onSelectionChange={(accountIds) => setSelectedAccountIds(new Set(accountIds))}
+            onCancel={() => setSelectedAccountIds(new Set())}
+            onApplied={handleBatchApplied}
+          />
+        </div>
+      ) : null}
 
       {activeParentId === "root" ? (
         <div className="mt-3">
@@ -540,13 +624,16 @@ export function AccountTree() {
           nodes={visibleNodes}
           allAccounts={accounts}
           isAdmin={Boolean(user?.isAdmin)}
+          isMultiSelectEnabled={isMultiSelectEnabled}
           depth={0}
           formatNumber={formatNumber}
           balanceLookup={rolledUpBalanceLookup}
           directTransactionAccountIds={directTransactionAccountIds}
+          selectedAccountIds={selectedAccountIds}
           collapsedIds={collapsedIds}
           forcedExpandedIds={searchResult.forcedExpandedIds}
           activeParentId={activeParentId}
+          onToggleSelected={toggleAccountSelection}
           onToggleCollapsed={toggleCollapsed}
           onOpenLedger={(accountId) => {
             if (typeof window !== "undefined") {
@@ -603,6 +690,7 @@ export function AccountTree() {
           onCreated={handleCreated}
           onRenamed={handleRenamed}
           onOpeningBalanceSaved={handleOpeningBalanceSaved}
+          onRefreshAccounts={refreshAccounts}
           onCancelCreate={() => setActiveParentId(null)}
           onCancelRename={() => setRenamingAccountId(null)}
           onCancelMove={() => setMovingAccountId(null)}
@@ -973,13 +1061,16 @@ type TreeListProps = {
   nodes: AccountNode[]
   allAccounts: Account[]
   isAdmin: boolean
+  isMultiSelectEnabled: boolean
   depth: number
   formatNumber: (value: number, fractionDigits?: number) => string
   balanceLookup: Record<string, number>
   directTransactionAccountIds: Set<string>
+  selectedAccountIds: Set<string>
   collapsedIds: Set<string>
   forcedExpandedIds: Set<string>
   activeParentId: string | "root" | null
+  onToggleSelected: (accountId: string, checked: boolean) => void
   onToggleCollapsed: (accountId: string) => void
   onOpenLedger: (accountId: string) => void
   onOpenPermissions: (accountId: string) => void
@@ -1000,6 +1091,7 @@ type TreeListProps = {
   onCreated: (account: Account) => void
   onRenamed: (account: Account) => void
   onOpeningBalanceSaved: (account: Account) => void
+  onRefreshAccounts: () => Promise<void>
   onCancelCreate: () => void
   onCancelRename: () => void
   onCancelMove: () => void
@@ -1010,13 +1102,16 @@ function TreeList({
   nodes,
   allAccounts,
   isAdmin,
+  isMultiSelectEnabled,
   depth,
   formatNumber,
   balanceLookup,
   directTransactionAccountIds,
+  selectedAccountIds,
   collapsedIds,
   forcedExpandedIds,
   activeParentId,
+  onToggleSelected,
   onToggleCollapsed,
   onOpenLedger,
   onOpenPermissions,
@@ -1037,6 +1132,7 @@ function TreeList({
   onCreated,
   onRenamed,
   onOpeningBalanceSaved,
+  onRefreshAccounts,
   onCancelCreate,
   onCancelRename,
   onCancelMove,
@@ -1050,6 +1146,7 @@ function TreeList({
         const isRenameOpen = renamingAccountId === node.id
         const isMoveOpen = movingAccountId === node.id
         const isOpeningBalanceOpen = editingOpeningBalanceAccountId === node.id
+        const isSelected = selectedAccountIds.has(node.id)
         const presentation = getAccountTypePresentation(node.accountType)
         const canOpenLedger = node.currentUserPermissions.canView
 
@@ -1061,6 +1158,15 @@ function TreeList({
             >
               <div className="flex flex-col gap-1.5 md:flex-row md:items-center md:justify-between">
                 <div className="flex items-start gap-2">
+                  {isMultiSelectEnabled ? (
+                    <div className="pt-0.5">
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={(checked) => onToggleSelected(node.id, checked === true)}
+                        disabled={node.isCore}
+                      />
+                    </div>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => onToggleCollapsed(node.id)}
@@ -1182,8 +1288,12 @@ function TreeList({
                     account={node}
                     availableParents={allAccounts}
                     isAdmin={isAdmin}
+                    onRefreshRequested={onRefreshAccounts}
                     onCancel={onCancelMove}
-                    onMoved={onRenamed}
+                    onMoved={() => {
+                      onCancelMove()
+                      onCloseActionsMenu()
+                    }}
                   />
                 </div>
               ) : null}
@@ -1205,13 +1315,16 @@ function TreeList({
                   nodes={node.children}
                   allAccounts={allAccounts}
                   isAdmin={isAdmin}
+                  isMultiSelectEnabled={isMultiSelectEnabled}
                   depth={depth + 1}
                   formatNumber={formatNumber}
                   balanceLookup={balanceLookup}
                   directTransactionAccountIds={directTransactionAccountIds}
+                  selectedAccountIds={selectedAccountIds}
                   collapsedIds={collapsedIds}
                   forcedExpandedIds={forcedExpandedIds}
                   activeParentId={activeParentId}
+                  onToggleSelected={onToggleSelected}
                   onToggleCollapsed={onToggleCollapsed}
                   onOpenLedger={onOpenLedger}
                   onOpenPermissions={onOpenPermissions}
@@ -1232,6 +1345,7 @@ function TreeList({
                   onCreated={onCreated}
                   onRenamed={onRenamed}
                   onOpeningBalanceSaved={onOpeningBalanceSaved}
+                  onRefreshAccounts={onRefreshAccounts}
                   onCancelCreate={onCancelCreate}
                   onCancelRename={onCancelRename}
                   onCancelMove={onCancelMove}
@@ -1243,6 +1357,238 @@ function TreeList({
         )
       })}
     </ul>
+  )
+}
+
+function BatchAccountUpdateForm({
+  accounts,
+  selectedAccountIds,
+  users,
+  isAdmin,
+  isLoadingUsers,
+  onSelectionChange,
+  onCancel,
+  onApplied,
+}: BatchAccountUpdateFormProps) {
+  const { showSnackbar } = useSnackbar()
+  const accountById = useMemo(
+    () => new Map(accounts.map((account) => [account.id, account])),
+    [accounts],
+  )
+  const selectedAccounts = useMemo(
+    () =>
+      selectedAccountIds
+        .map((accountId) => accountById.get(accountId))
+        .filter((account): account is Account => account != null),
+    [accountById, selectedAccountIds],
+  )
+  const [applyOwner, setApplyOwner] = useState(false)
+  const [selectedOwnerId, setSelectedOwnerId] = useState("__none__")
+  const [applyGlobalSharing, setApplyGlobalSharing] = useState(false)
+  const [isGloballyShared, setIsGloballyShared] = useState(false)
+  const [applyMove, setApplyMove] = useState(false)
+  const [selectedParentId, setSelectedParentId] = useState("__unset__")
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const pathLookup = useMemo(() => {
+    const lookup = new Map<string, string>()
+
+    for (const account of accounts) {
+      lookup.set(account.id, buildAccountPathForMove(account.id, accountById))
+    }
+
+    return lookup
+  }, [accountById, accounts])
+
+  const movableParentOptions = useMemo(
+    () => buildBatchMoveParentOptions(accounts, selectedAccounts, isAdmin, pathLookup),
+    [accounts, isAdmin, pathLookup, selectedAccounts],
+  )
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!applyOwner && !applyGlobalSharing && !applyMove) {
+      showSnackbar({
+        message: "Select at least one batch setting before applying changes.",
+        tone: "error",
+      })
+      return
+    }
+
+    if (applyMove && selectedParentId === "__unset__") {
+      showSnackbar({
+        message: "Select a destination parent before moving accounts.",
+        tone: "error",
+      })
+      return
+    }
+
+    setIsSubmitting(true)
+
+    try {
+      const results = await batchUpdateAccounts({
+        accountIds: selectedAccounts.map((account) => account.id),
+        applyOwner,
+        ownerUserId: !applyOwner || selectedOwnerId === "__none__" ? null : selectedOwnerId,
+        applyGlobalSharing,
+        isGloballyShared,
+        applyMove,
+        parentAccountId:
+          !applyMove || selectedParentId === "__root__" || selectedParentId === "__unset__"
+            ? null
+            : selectedParentId,
+      })
+
+      await onApplied(selectedAccounts, results)
+    } catch (error) {
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Unknown error while updating accounts.",
+        tone: "error",
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="rounded-2xl border bg-card p-4 shadow-sm">
+      <div className="flex flex-col gap-3 border-b pb-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold">Batch update selected accounts</h3>
+          <p className="text-xs text-muted-foreground">
+            {selectedAccounts.length} account{selectedAccounts.length === 1 ? "" : "s"} selected.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={() => onSelectionChange([])}>
+            Clear selection
+          </Button>
+          <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
+            Close
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+        <div className="space-y-2">
+          <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            Selected accounts
+          </p>
+          <div className="max-h-52 space-y-2 overflow-y-auto pr-1">
+            {selectedAccounts.map((account) => (
+              <div key={account.id} className="flex items-center justify-between rounded-xl border bg-background/70 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{pathLookup.get(account.id) ?? account.name}</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {formatAccountType(account.accountType)} · {getAccountOwnerLabel(account)}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() =>
+                    onSelectionChange(selectedAccountIds.filter((accountId) => accountId !== account.id))
+                  }
+                >
+                  Remove
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          {isAdmin ? (
+            <div className="rounded-xl border bg-background/70 p-3">
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <Checkbox checked={applyOwner} onCheckedChange={(checked) => setApplyOwner(checked === true)} />
+                <span>Change owner together</span>
+              </label>
+              {applyOwner ? (
+                <div className="mt-3">
+                  <Select
+                    value={selectedOwnerId}
+                    onValueChange={setSelectedOwnerId}
+                    disabled={isLoadingUsers}
+                  >
+                    <SelectTrigger className="h-8">
+                      <SelectValue placeholder={isLoadingUsers ? "Loading users..." : "Select owner"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No owner</SelectItem>
+                      {users.map((item) => (
+                        <SelectItem key={item.id} value={item.id}>
+                          {item.displayName} ({item.email})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {isAdmin ? (
+            <div className="rounded-xl border bg-background/70 p-3">
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <Checkbox
+                  checked={applyGlobalSharing}
+                  onCheckedChange={(checked) => setApplyGlobalSharing(checked === true)}
+                />
+                <span>Check globally shared or not</span>
+              </label>
+              {applyGlobalSharing ? (
+                <label className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+                  <Checkbox
+                    checked={isGloballyShared}
+                    onCheckedChange={(checked) => setIsGloballyShared(checked === true)}
+                  />
+                  <span>Mark selected accounts as globally shared</span>
+                </label>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="rounded-xl border bg-background/70 p-3">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <Checkbox checked={applyMove} onCheckedChange={(checked) => setApplyMove(checked === true)} />
+              <span>Move</span>
+            </label>
+            {applyMove ? (
+              <div className="mt-3 space-y-2">
+                <Select value={selectedParentId} onValueChange={setSelectedParentId}>
+                  <SelectTrigger className="h-8">
+                    <SelectValue placeholder="Select destination parent" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {isAdmin ? <SelectItem value="__root__">Top level</SelectItem> : null}
+                    {movableParentOptions.map((option) => (
+                      <SelectItem key={option.id} value={option.id}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Moving under another core branch changes the selected subtree type to match the destination.
+                </p>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button type="submit" size="sm" disabled={isSubmitting || selectedAccounts.length === 0}>
+              {isSubmitting ? "Applying..." : "Apply changes"}
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={onCancel} disabled={isSubmitting}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </div>
+    </form>
   )
 }
 
@@ -1524,12 +1870,20 @@ function MoveAccountForm({
   account,
   availableParents,
   isAdmin,
+  onRefreshRequested,
   onCancel,
   onMoved,
 }: MoveAccountFormProps) {
   const { showSnackbar } = useSnackbar()
   const [selectedParentId, setSelectedParentId] = useState(account.parentAccountId ?? "__root__")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const selectedParent = useMemo(
+    () =>
+      selectedParentId === "__root__"
+        ? null
+        : availableParents.find((item) => item.id === selectedParentId) ?? null,
+    [availableParents, selectedParentId],
+  )
   const movableParentOptions = useMemo(
     () => buildMoveParentOptions(availableParents, account, isAdmin),
     [account, availableParents, isAdmin],
@@ -1540,15 +1894,24 @@ function MoveAccountForm({
     setIsSubmitting(true)
 
     try {
-      const updatedAccount = await renameAccount(account.id, {
-        name: account.name,
-        accountNumber: account.accountNumber,
-        description: account.description,
-        openingBalance: account.openingBalance,
+      const [result] = await batchUpdateAccounts({
+        accountIds: [account.id],
+        applyOwner: false,
+        ownerUserId: null,
+        applyGlobalSharing: false,
+        isGloballyShared: account.isGloballyShared,
+        applyMove: true,
         parentAccountId: selectedParentId === "__root__" ? null : selectedParentId,
       })
 
-      onMoved(updatedAccount)
+      await onRefreshRequested()
+      await onMoved()
+      showSnackbar({
+        message: result.accountTypeChanged
+          ? `Moved ${account.name}. The account type changed to ${formatAccountType(selectedParent?.accountType ?? account.accountType)}.`
+          : `Moved ${account.name}.`,
+        tone: "success",
+      })
     } catch (error) {
       showSnackbar({
         message: error instanceof Error ? error.message : "Unknown error while moving account.",
@@ -1565,7 +1928,7 @@ function MoveAccountForm({
         <div>
           <h3 className="text-sm font-medium">Move account</h3>
           <p className="text-xs text-muted-foreground">
-            Move {account.name} under another parent without changing its type or transactions.
+            Move {account.name} under another parent. If the destination is in another core branch, the moved subtree adopts that branch type.
           </p>
         </div>
       </div>
@@ -2311,7 +2674,52 @@ function buildMoveParentOptions(accounts: Account[], account: Account, isAdmin: 
         return false
       }
 
-      if (candidate.accountType !== account.accountType) {
+      if (!isAdmin && !candidate.currentUserPermissions.canManageAccess) {
+        return false
+      }
+
+      return true
+    })
+    .map((candidate) => ({
+      id: candidate.id,
+      label: `${buildAccountPathForMove(candidate.id, accountById)} · ${formatAccountType(candidate.accountType)}`,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label))
+}
+
+function buildBatchMoveParentOptions(
+  accounts: Account[],
+  selectedAccounts: Account[],
+  isAdmin: boolean,
+  pathLookup: Map<string, string>,
+) {
+  if (selectedAccounts.length === 0) {
+    return []
+  }
+
+  const selectedIds = new Set(selectedAccounts.map((account) => account.id))
+  const excludedIds = new Set<string>(selectedIds)
+  const stack = [...selectedIds]
+
+  while (stack.length > 0) {
+    const currentId = stack.pop()
+    if (!currentId) {
+      continue
+    }
+
+    for (const candidate of accounts) {
+      if (candidate.parentAccountId !== currentId || excludedIds.has(candidate.id)) {
+        continue
+      }
+
+      excludedIds.add(candidate.id)
+      stack.push(candidate.id)
+    }
+  }
+
+  return accounts
+    .filter((candidate) => {
+      if (excludedIds.has(candidate.id)) {
         return false
       }
 
@@ -2323,7 +2731,7 @@ function buildMoveParentOptions(accounts: Account[], account: Account, isAdmin: 
     })
     .map((candidate) => ({
       id: candidate.id,
-      label: buildAccountPathForMove(candidate.id, accountById),
+      label: `${pathLookup.get(candidate.id) ?? candidate.name} · ${formatAccountType(candidate.accountType)}`,
     }))
     .sort((left, right) => left.label.localeCompare(right.label))
 }

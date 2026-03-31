@@ -74,3 +74,20 @@ export type CreateAccountInput = {
 export type AccountNode = Account & {
   children: AccountNode[]
 }
+
+export type BatchUpdateAccountsInput = {
+  accountIds: string[]
+  applyOwner: boolean
+  ownerUserId: string | null
+  applyGlobalSharing: boolean
+  isGloballyShared: boolean
+  applyMove: boolean
+  parentAccountId: string | null
+}
+
+export type BatchUpdateAccountResult = {
+  id: string
+  name: string
+  updatedNodeCount: number
+  accountTypeChanged: boolean
+}

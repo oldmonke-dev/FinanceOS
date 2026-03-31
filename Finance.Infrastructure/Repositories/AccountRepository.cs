@@ -151,6 +151,7 @@ namespace Finance.Infrastructure.Repositories
 
             var normalizedName = NormalizeAccountName(request.Name);
             var nextParentAccountId = request.ParentAccountId;
+            var nextAccountType = account.AccountType;
 
             if (!isAdmin && nextParentAccountId is null)
             {
@@ -180,11 +181,13 @@ namespace Finance.Infrastructure.Repositories
                 {
                     await _accountAccessService.EnsureCanManageAccountAsync(parentAccount.Id, userId, isAdmin);
                 }
+
+                nextAccountType = parentAccount.AccountType;
             }
 
             await EnsureNoDuplicateAsync(
                 nextParentAccountId,
-                account.AccountType,
+                nextAccountType,
                 normalizedName,
                 account.Id,
                 account.OwnerUserId);
@@ -194,9 +197,240 @@ namespace Finance.Infrastructure.Repositories
             account.Description = NormalizeOptionalText(request.Description, 500);
             account.OpeningBalance = request.OpeningBalance ?? 0m;
             account.ParentAccountId = nextParentAccountId;
+            if (account.AccountType != nextAccountType)
+            {
+                await UpdateSubtreeAccountTypeAsync(account.Id, nextAccountType);
+            }
             await _context.SaveChangesAsync();
 
             return await GetAccountWithOwnerAsync(account.Id);
+        }
+
+        public async Task<List<UpdateAccountResultDTO>> BatchUpdateAccountsAsync(
+            BatchUpdateAccountsDTO request,
+            Guid userId,
+            bool isAdmin,
+            CancellationToken cancellationToken = default)
+        {
+            var requestedAccountIds = request.AccountIds
+                .Where(accountId => accountId != Guid.Empty)
+                .Distinct()
+                .ToArray();
+
+            if (requestedAccountIds.Length == 0)
+            {
+                throw new InvalidOperationException("Select at least one account.");
+            }
+
+            var accounts = await _context.Accounts.ToListAsync(cancellationToken);
+            var accountById = accounts.ToDictionary(account => account.Id);
+            var selectedAccounts = requestedAccountIds
+                .Select(accountId => accountById.TryGetValue(accountId, out var account) ? account : null)
+                .ToList();
+
+            if (selectedAccounts.Any(account => account is null))
+            {
+                throw new KeyNotFoundException("One or more selected accounts were not found.");
+            }
+
+            var materializedSelectedAccounts = selectedAccounts
+                .OfType<Account>()
+                .ToList();
+            var selectedAccountIds = materializedSelectedAccounts
+                .Select(account => account.Id)
+                .ToHashSet();
+
+            if (!isAdmin)
+            {
+                foreach (var account in materializedSelectedAccounts)
+                {
+                    await _accountAccessService.EnsureCanManageAccountAsync(
+                        account.Id,
+                        userId,
+                        isAdmin,
+                        cancellationToken);
+                }
+            }
+
+            Account? nextParent = null;
+            if (request.ApplyMove && request.ParentAccountId.HasValue)
+            {
+                if (!accountById.TryGetValue(request.ParentAccountId.Value, out nextParent))
+                {
+                    throw new KeyNotFoundException("Parent account was not found.");
+                }
+
+                if (!isAdmin)
+                {
+                    await _accountAccessService.EnsureCanManageAccountAsync(
+                        nextParent.Id,
+                        userId,
+                        isAdmin,
+                        cancellationToken);
+                }
+            }
+
+            if (!isAdmin && request.ApplyMove && request.ParentAccountId is null)
+            {
+                throw new InvalidOperationException("Only admins can move accounts to the top level.");
+            }
+
+            if ((request.ApplyOwner || request.ApplyGlobalSharing) && materializedSelectedAccounts.Any(account => account.IsCore))
+            {
+                throw new InvalidOperationException("Core accounts do not support owner or sharing changes.");
+            }
+
+            if (request.ApplyMove && materializedSelectedAccounts.Any(account => account.IsCore))
+            {
+                throw new InvalidOperationException("Core accounts cannot be moved.");
+            }
+
+            if (request.ApplyOwner && request.OwnerUserId.HasValue)
+            {
+                var userExists = await _context.Users.AnyAsync(
+                    item => item.Id == request.OwnerUserId.Value && item.IsActive,
+                    cancellationToken);
+
+                if (!userExists)
+                {
+                    throw new InvalidOperationException("The selected owner was not found or is inactive.");
+                }
+            }
+
+            if (request.ApplyMove)
+            {
+                foreach (var account in materializedSelectedAccounts)
+                {
+                    if (selectedAccountIds.Contains(account.ParentAccountId.GetValueOrDefault()))
+                    {
+                        throw new InvalidOperationException(
+                            "Batch move does not support selecting both a parent account and one of its descendants.");
+                    }
+
+                    if (request.ParentAccountId == account.Id)
+                    {
+                        throw new InvalidOperationException("An account cannot be moved under itself.");
+                    }
+
+                    if (request.ParentAccountId.HasValue
+                        && IsDescendantOf(request.ParentAccountId.Value, account.Id, accountById))
+                    {
+                        throw new InvalidOperationException(
+                            "An account cannot be moved under one of its descendants.");
+                    }
+                }
+            }
+
+            var subtreeIdsByAccountId = materializedSelectedAccounts.ToDictionary(
+                account => account.Id,
+                account => CollectSubtreeIds(account.Id, accountById));
+
+            var projectedAccounts = accounts.ToDictionary(
+                account => account.Id,
+                account => new ProjectedAccountState
+                {
+                    Id = account.Id,
+                    Name = account.Name,
+                    ParentAccountId = account.ParentAccountId,
+                    AccountType = account.AccountType,
+                    OwnerUserId = account.OwnerUserId,
+                    IsGloballyShared = account.IsGloballyShared,
+                });
+
+            foreach (var account in materializedSelectedAccounts)
+            {
+                var projected = projectedAccounts[account.Id];
+                var nextOwnerUserId = request.ApplyOwner ? request.OwnerUserId : projected.OwnerUserId;
+
+                if (request.ApplyMove)
+                {
+                    projected.ParentAccountId = request.ParentAccountId;
+
+                    if (nextParent is not null)
+                    {
+                        foreach (var subtreeId in subtreeIdsByAccountId[account.Id])
+                        {
+                            projectedAccounts[subtreeId].AccountType = nextParent.AccountType;
+                        }
+                    }
+                }
+
+                if (request.ApplyOwner)
+                {
+                    projected.OwnerUserId = nextOwnerUserId;
+                }
+
+                if (request.ApplyGlobalSharing)
+                {
+                    projected.IsGloballyShared = nextOwnerUserId is null || request.IsGloballyShared;
+                }
+                else if (request.ApplyOwner && nextOwnerUserId is null)
+                {
+                    projected.IsGloballyShared = true;
+                }
+            }
+
+            var duplicateGroup = projectedAccounts.Values
+                .GroupBy(account => new
+                {
+                    account.ParentAccountId,
+                    account.AccountType,
+                    account.OwnerUserId,
+                    Name = account.Name.Trim().ToLowerInvariant(),
+                })
+                .FirstOrDefault(group => group.Count() > 1);
+
+            if (duplicateGroup is not null)
+            {
+                throw new InvalidOperationException(
+                    "The selected changes would create duplicate account names at the same level.");
+            }
+
+            var results = new List<UpdateAccountResultDTO>();
+            foreach (var account in materializedSelectedAccounts)
+            {
+                var subtreeIds = subtreeIdsByAccountId[account.Id];
+                var nextType = nextParent?.AccountType ?? account.AccountType;
+                var accountTypeChanged = request.ApplyMove && nextParent is not null && account.AccountType != nextType;
+
+                if (request.ApplyMove)
+                {
+                    account.ParentAccountId = request.ParentAccountId;
+                }
+
+                if (request.ApplyOwner)
+                {
+                    account.OwnerUserId = request.OwnerUserId;
+                    if (request.OwnerUserId is null)
+                    {
+                        account.IsGloballyShared = true;
+                    }
+                }
+
+                if (request.ApplyGlobalSharing)
+                {
+                    account.IsGloballyShared = account.OwnerUserId is null || request.IsGloballyShared;
+                }
+
+                if (accountTypeChanged)
+                {
+                    foreach (var subtreeId in subtreeIds)
+                    {
+                        accountById[subtreeId].AccountType = nextType;
+                    }
+                }
+
+                results.Add(new UpdateAccountResultDTO
+                {
+                    Id = account.Id,
+                    Name = account.Name,
+                    UpdatedNodeCount = accountTypeChanged ? subtreeIds.Count : 1,
+                    AccountTypeChanged = accountTypeChanged,
+                });
+            }
+
+            await _context.SaveChangesAsync(cancellationToken);
+            return results;
         }
 
         public async Task<Account> UpdateAccountOwnerAsync(Guid accountId, Guid? ownerUserId, Guid userId, bool isAdmin)
@@ -322,6 +556,78 @@ namespace Finance.Infrastructure.Repositories
 
                 currentParentId = currentAccount.ParentAccountId.Value;
             }
+        }
+
+        private async Task UpdateSubtreeAccountTypeAsync(
+            Guid rootAccountId,
+            Domain.Enums.AccountType nextAccountType)
+        {
+            var accounts = await _context.Accounts.ToListAsync();
+            var accountById = accounts.ToDictionary(account => account.Id);
+
+            foreach (var subtreeId in CollectSubtreeIds(rootAccountId, accountById))
+            {
+                accountById[subtreeId].AccountType = nextAccountType;
+            }
+        }
+
+        private static HashSet<Guid> CollectSubtreeIds(Guid rootAccountId, Dictionary<Guid, Account> accountById)
+        {
+            var subtreeIds = new HashSet<Guid>();
+            var stack = new Stack<Guid>();
+            stack.Push(rootAccountId);
+
+            while (stack.Count > 0)
+            {
+                var currentId = stack.Pop();
+                if (!subtreeIds.Add(currentId))
+                {
+                    continue;
+                }
+
+                foreach (var child in accountById.Values.Where(account => account.ParentAccountId == currentId))
+                {
+                    stack.Push(child.Id);
+                }
+            }
+
+            return subtreeIds;
+        }
+
+        private static bool IsDescendantOf(
+            Guid candidateParentId,
+            Guid accountId,
+            Dictionary<Guid, Account> accountById)
+        {
+            var currentParentId = candidateParentId;
+
+            while (accountById.TryGetValue(currentParentId, out var currentAccount)
+                && currentAccount.ParentAccountId.HasValue)
+            {
+                if (currentAccount.ParentAccountId.Value == accountId)
+                {
+                    return true;
+                }
+
+                currentParentId = currentAccount.ParentAccountId.Value;
+            }
+
+            return false;
+        }
+
+        private sealed class ProjectedAccountState
+        {
+            public Guid Id { get; set; }
+
+            public string Name { get; set; } = string.Empty;
+
+            public Guid? ParentAccountId { get; set; }
+
+            public Domain.Enums.AccountType AccountType { get; set; }
+
+            public Guid? OwnerUserId { get; set; }
+
+            public bool IsGloballyShared { get; set; }
         }
     }
 }
