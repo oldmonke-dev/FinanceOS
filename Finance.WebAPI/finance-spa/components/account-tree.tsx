@@ -87,6 +87,11 @@ import {
 } from "@/models/account"
 import { type User } from "@/models/user"
 
+function getAccountTreeOwnerLabel(account: Account) {
+  const label = getAccountOwnerLabel(account)
+  return label === "Globally Shared" ? "Shared" : label
+}
+
 type AccountFormProps = {
   parentAccountId: string | null
   parentLabel: string
@@ -1176,7 +1181,7 @@ function TreeList({
                       {isAdmin ? (
                         <span className="inline-flex items-center rounded-full border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground">
                           <UserRound className="mr-1 size-3 shrink-0" />
-                          {getAccountOwnerLabel(node)}
+                          {getAccountTreeOwnerLabel(node)}
                         </span>
                       ) : null}
                     </div>
@@ -1455,7 +1460,7 @@ function BatchAccountUpdateForm({
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{pathLookup.get(account.id) ?? account.name}</p>
                   <p className="text-[11px] text-muted-foreground">
-                    {formatAccountType(account.accountType)} · {getAccountOwnerLabel(account)}
+                    {formatAccountType(account.accountType)} · {getAccountTreeOwnerLabel(account)}
                   </p>
                 </div>
                 <Button

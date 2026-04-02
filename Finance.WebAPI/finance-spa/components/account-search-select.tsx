@@ -26,6 +26,7 @@ type AccountSearchSelectProps = {
   triggerClassName?: string
   contentClassName?: string
   getAccountLabel?: (account: Account) => string
+  usePortal?: boolean
 }
 
 export function AccountSearchSelect({
@@ -40,6 +41,7 @@ export function AccountSearchSelect({
   triggerClassName,
   contentClassName,
   getAccountLabel,
+  usePortal = true,
 }: AccountSearchSelectProps) {
   const { user } = useAuth()
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -111,12 +113,14 @@ export function AccountSearchSelect({
     }
 
     function updatePopupPosition() {
+      const container = containerRef.current
       const trigger = triggerRef.current
-      if (!trigger) {
+      if (!trigger || !container) {
         return
       }
 
       const rect = trigger.getBoundingClientRect()
+      const containerRect = container.getBoundingClientRect()
       const viewportWidth = window.innerWidth
       const viewportHeight = window.innerHeight
       const horizontalPadding = 8
@@ -127,17 +131,17 @@ export function AccountSearchSelect({
       const spaceAbove = rect.top - 16
       const openUpward = spaceBelow < 240 && spaceAbove > spaceBelow
       const maxHeight = Math.max(220, Math.min(360, (openUpward ? spaceAbove : spaceBelow)))
-      const top = openUpward
+      const viewportTop = openUpward
         ? Math.max(verticalPadding, rect.top - maxHeight - 8)
         : Math.min(rect.bottom + 8, Math.max(verticalPadding, viewportHeight - maxHeight - verticalPadding))
-      const left = Math.max(
+      const viewportLeft = Math.max(
         horizontalPadding,
         Math.min(rect.left, viewportWidth - width - horizontalPadding),
       )
 
       setPopupStyle({
-        top,
-        left,
+        top: usePortal ? viewportTop : viewportTop - containerRect.top,
+        left: usePortal ? viewportLeft : viewportLeft - containerRect.left,
         width,
         maxHeight,
       })
@@ -161,7 +165,7 @@ export function AccountSearchSelect({
       window.removeEventListener("resize", handleResize)
       window.removeEventListener("scroll", handleResize, true)
     }
-  }, [isOpen])
+  }, [isOpen, usePortal])
 
   useEffect(() => {
     if (!isOpen) {
@@ -187,6 +191,92 @@ export function AccountSearchSelect({
     setIsOpen(false)
     setQuery("")
   }
+
+  const popupContent = isOpen && popupStyle
+    ? (
+        <div
+          className={cn(usePortal ? "fixed inset-0 z-[100]" : "absolute inset-0 z-[100]")}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setIsOpen(false)
+              setQuery("")
+            }
+          }}
+        >
+          <div
+            ref={popupRef}
+            className={cn(
+              "absolute rounded-xl border bg-popover text-popover-foreground shadow-md",
+              contentClassName,
+            )}
+            style={{
+              left: popupStyle.left,
+              width: popupStyle.width,
+              top: popupStyle.top,
+              maxHeight: popupStyle.maxHeight,
+            }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="border-b p-2">
+              <div className="relative">
+                <Search className="pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  ref={inputRef}
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search account"
+                  className="pl-8"
+                />
+              </div>
+            </div>
+            <div className="overflow-y-auto p-1.5" style={{ maxHeight: popupStyle.maxHeight - 60 }}>
+              {allowEmpty ? (
+                <button
+                  type="button"
+                  onClick={() => handleSelect(null)}
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition hover:bg-muted"
+                >
+                  <span className="flex size-4 items-center justify-center">
+                    {!selectedAccount ? <Check className="size-4" /> : null}
+                  </span>
+                  <span className="truncate">{emptyLabel}</span>
+                </button>
+              ) : null}
+              {filteredAccounts.length === 0 ? (
+                <p className="px-2 py-2 text-sm text-muted-foreground">No accounts match.</p>
+              ) : (
+                filteredAccounts.map((account) => {
+                  const isSelected = account.id === value
+                  const ownerLabel = isAdmin ? getAccountOwnerLabel(account) : null
+
+                  return (
+                    <button
+                      key={account.id}
+                      type="button"
+                      onClick={() => handleSelect(account.id)}
+                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition hover:bg-muted"
+                    >
+                      <span className="flex size-4 items-center justify-center">
+                        {isSelected ? <Check className="size-4" /> : null}
+                      </span>
+                      <span className="min-w-0 flex-1 text-left">
+                        <span className="block break-words">{resolveLabel(account)}</span>
+                        {ownerLabel ? (
+                          <span className="flex items-center gap-1 break-words text-[11px] text-muted-foreground">
+                            <UserRound className="mt-0.5 size-3 shrink-0" />
+                            <span>{ownerLabel}</span>
+                          </span>
+                        ) : null}
+                      </span>
+                    </button>
+                  )
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )
+    : null
 
   return (
     <div ref={containerRef} className={cn("relative", className)}>
@@ -217,92 +307,7 @@ export function AccountSearchSelect({
         <ChevronDown className={cn("size-4 shrink-0 opacity-60 transition", isOpen && "rotate-180")} />
       </button>
 
-      {isOpen && popupStyle
-        ? createPortal(
-            <div
-              className="fixed inset-0 z-[100]"
-              onMouseDown={(event) => {
-                if (event.target === event.currentTarget) {
-                  setIsOpen(false)
-                  setQuery("")
-                }
-              }}
-            >
-              <div
-                ref={popupRef}
-                className={cn(
-                  "absolute rounded-xl border bg-popover text-popover-foreground shadow-md",
-                  contentClassName,
-                )}
-                style={{
-                  left: popupStyle.left,
-                  width: popupStyle.width,
-                  top: popupStyle.top,
-                  maxHeight: popupStyle.maxHeight,
-                }}
-                onMouseDown={(event) => event.stopPropagation()}
-              >
-                <div className="border-b p-2">
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      ref={inputRef}
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                      placeholder="Search account"
-                      className="pl-8"
-                    />
-                  </div>
-                </div>
-                <div className="overflow-y-auto p-1.5" style={{ maxHeight: popupStyle.maxHeight - 60 }}>
-                  {allowEmpty ? (
-                    <button
-                      type="button"
-                      onClick={() => handleSelect(null)}
-                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition hover:bg-muted"
-                    >
-                      <span className="flex size-4 items-center justify-center">
-                        {!selectedAccount ? <Check className="size-4" /> : null}
-                      </span>
-                      <span className="truncate">{emptyLabel}</span>
-                    </button>
-                  ) : null}
-                  {filteredAccounts.length === 0 ? (
-                    <p className="px-2 py-2 text-sm text-muted-foreground">No accounts match.</p>
-                  ) : (
-                    filteredAccounts.map((account) => {
-                      const isSelected = account.id === value
-                      const ownerLabel = isAdmin ? getAccountOwnerLabel(account) : null
-
-                      return (
-                        <button
-                          key={account.id}
-                          type="button"
-                          onClick={() => handleSelect(account.id)}
-                          className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition hover:bg-muted"
-                        >
-                          <span className="flex size-4 items-center justify-center">
-                            {isSelected ? <Check className="size-4" /> : null}
-                          </span>
-                          <span className="min-w-0 flex-1 text-left">
-                            <span className="block break-words">{resolveLabel(account)}</span>
-                            {ownerLabel ? (
-                              <span className="flex items-center gap-1 break-words text-[11px] text-muted-foreground">
-                                <UserRound className="mt-0.5 size-3 shrink-0" />
-                                <span>{ownerLabel}</span>
-                              </span>
-                            ) : null}
-                          </span>
-                        </button>
-                      )
-                    })
-                  )}
-                </div>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
+      {usePortal && popupContent ? createPortal(popupContent, document.body) : popupContent}
     </div>
   )
 }

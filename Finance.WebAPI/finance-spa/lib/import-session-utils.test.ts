@@ -42,6 +42,7 @@ function createTransaction(overrides: Partial<Transaction>): Transaction {
   return {
     id: overrides.id ?? "txn-1",
     transactionDate: overrides.transactionDate ?? "2026-03-31T00:00:00Z",
+    ledgerSequence: overrides.ledgerSequence ?? 1,
     description: overrides.description ?? "Coffee",
     referenceNumber: overrides.referenceNumber ?? "ABC",
     createdAt: overrides.createdAt ?? "2026-04-01T00:00:00Z",

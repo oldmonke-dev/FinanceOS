@@ -33,6 +33,7 @@ describe("transactions client", () => {
       jsonResponse({
         id: "txn-1",
         transactionDate: "2026-03-31T00:00:00Z",
+        ledgerSequence: 1,
         description: "Imported txn",
         referenceNumber: null,
         createdAt: "2026-03-31T00:00:00Z",

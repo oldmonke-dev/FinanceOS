@@ -26,6 +26,17 @@ namespace Finance.Infrastructure.Repositories
             CancellationToken cancellationToken = default)
         {
             var transactionList = transactions.ToList();
+            foreach (var group in transactionList.GroupBy(transaction => transaction.TransactionDate.Date))
+            {
+                var nextLedgerSequence = await GetNextLedgerSequenceForDateAsync(group.Key, cancellationToken);
+
+                foreach (var transaction in group.OrderBy(item => item.CreatedAt).ThenBy(item => item.Id))
+                {
+                    transaction.LedgerSequence = nextLedgerSequence;
+                    nextLedgerSequence += 1;
+                }
+            }
+
             _context.Transactions.AddRange(transactionList);
             await _context.SaveChangesAsync(cancellationToken);
             return transactionList;
@@ -60,8 +71,21 @@ namespace Finance.Infrastructure.Repositories
 
             return await query
                 .OrderByDescending(transaction => transaction.TransactionDate)
-                .ThenByDescending(transaction => transaction.CreatedAt)
+                .ThenBy(transaction => transaction.LedgerSequence)
+                .ThenBy(transaction => transaction.CreatedAt)
                 .ToListAsync(cancellationToken);
+        }
+
+        public async Task<int> GetNextLedgerSequenceForDateAsync(
+            DateTime transactionDate,
+            CancellationToken cancellationToken = default)
+        {
+            var maxLedgerSequence = await _context.Transactions
+                .Where(transaction => transaction.TransactionDate.Date == transactionDate.Date)
+                .Select(transaction => (int?)transaction.LedgerSequence)
+                .MaxAsync(cancellationToken);
+
+            return (maxLedgerSequence ?? 0) + 1;
         }
 
         public async Task<Transaction?> GetByIdAsync(Guid transactionId, CancellationToken cancellationToken = default)

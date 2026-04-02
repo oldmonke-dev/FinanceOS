@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 import {
+  type LucideIcon,
   FileSpreadsheet,
   FolderTree,
   HelpCircle,
@@ -35,7 +36,14 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 
-const navItems = [
+type NavItem = {
+  title: string
+  href: string
+  icon: LucideIcon
+  disabled?: boolean
+}
+
+const navItems: NavItem[] = [
   { title: "Overview", href: "/", icon: Home },
   { title: "Account Tree", href: "/accounts", icon: FolderTree },
   { title: "Transactions", href: "/transactions", icon: Receipt },

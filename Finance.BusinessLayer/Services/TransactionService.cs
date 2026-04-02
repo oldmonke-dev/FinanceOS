@@ -55,6 +55,9 @@ namespace Finance.BusinessLayer.Services
             {
                 Id = Guid.NewGuid(),
                 TransactionDate = transactionDto.TransactionDate,
+                LedgerSequence = await _transactionRepository.GetNextLedgerSequenceForDateAsync(
+                    transactionDto.TransactionDate,
+                    cancellationToken),
                 Description = transactionDto.Description?.Trim() ?? string.Empty,
                 ReferenceNumber = string.IsNullOrWhiteSpace(transactionDto.ReferenceNumber) ? null : transactionDto.ReferenceNumber.Trim(),
                 CreatedAt = DateTime.UtcNow,
@@ -136,6 +139,7 @@ namespace Finance.BusinessLayer.Services
             }
 
             transaction.Description = transactionDto.Description?.Trim() ?? string.Empty;
+            transaction.LedgerSequence = transactionDto.LedgerSequence.GetValueOrDefault(transaction.LedgerSequence);
             transaction.ReferenceNumber = string.IsNullOrWhiteSpace(transactionDto.ReferenceNumber)
                 ? null
                 : transactionDto.ReferenceNumber.Trim();
@@ -274,6 +278,7 @@ namespace Finance.BusinessLayer.Services
             {
                 Id = transaction.Id,
                 TransactionDate = transaction.TransactionDate,
+                LedgerSequence = transaction.LedgerSequence,
                 Description = transaction.Description,
                 ReferenceNumber = transaction.ReferenceNumber,
                 CreatedAt = transaction.CreatedAt,

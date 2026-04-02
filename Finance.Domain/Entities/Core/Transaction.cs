@@ -6,6 +6,8 @@ namespace Finance.Domain.Entities.Core
 
         public DateTime TransactionDate { get; set; }
 
+        public int LedgerSequence { get; set; }
+
         public string Description { get; set; } = string.Empty;
 
         public string? ReferenceNumber { get; set; }

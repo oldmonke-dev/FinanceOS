@@ -114,6 +114,7 @@ export default function ImportSessionsPage() {
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set())
   const [ledgerTransactions, setLedgerTransactions] = useState<Transaction[]>([])
   const [draftTitle, setDraftTitle] = useState("")
+  const [confidenceThreshold, setConfidenceThreshold] = useState<"0.25" | "0.5" | "0.75" | "0.9">("0.5")
 
   const filteredSessions = useMemo(
     () => sessions.filter((session) => (sessionView === "active" ? !session.isArchived : session.isArchived)),
@@ -204,7 +205,22 @@ export default function ImportSessionsPage() {
     : 0
   const hasPostableRows =
     activeSession?.sourceAccountId != null &&
-    activeRows.some((row) => row.destinationAccountId != null)
+    activeRows.length > 0 &&
+    activeRows.every((row) => row.destinationAccountId != null)
+  const lowConfidenceLearningRowCount = useMemo(() => {
+    if (!activeSession || isReadOnlySession) {
+      return 0
+    }
+
+    const threshold = Number(confidenceThreshold)
+    return activeRows.filter(
+      (row) =>
+        row.mappingSource === "learning" &&
+        row.destinationAccountId != null &&
+        row.learningConfidenceScore != null &&
+        row.learningConfidenceScore < threshold,
+    ).length
+  }, [activeRows, activeSession, confidenceThreshold, isReadOnlySession])
   const descriptionColumnIndex = useMemo(() => {
     if (!activeSession) {
       return -1
@@ -727,6 +743,38 @@ export default function ImportSessionsPage() {
     }
   }
 
+  async function handleClearLowConfidenceLearning() {
+    if (!activeSession || isReadOnlySession) {
+      return
+    }
+
+    const threshold = Number(confidenceThreshold)
+    const matchingRows = activeRows.filter(
+      (row) =>
+        row.mappingSource === "learning" &&
+        row.destinationAccountId != null &&
+        row.learningConfidenceScore != null &&
+        row.learningConfidenceScore < threshold,
+    )
+
+    if (matchingRows.length === 0) {
+      showSnackbar({
+        message: `No learning matches below ${confidenceThreshold} in this session.`,
+        tone: "info",
+      })
+      return
+    }
+
+    await Promise.all(
+      matchingRows.map((row) => updateRowDestinationAccount(activeSession.id, row.id, null)),
+    )
+
+    showSnackbar({
+      message: `Cleared ${matchingRows.length} learning match${matchingRows.length === 1 ? "" : "es"} below ${confidenceThreshold}. Save the session to persist.`,
+      tone: "success",
+    })
+  }
+
   return (
     <AppShell
       title="Import Sessions"
@@ -1041,6 +1089,42 @@ export default function ImportSessionsPage() {
                     }`}
                   >
                     {strategyCheckMessage}
+                  </div>
+                ) : null}
+                {!isReadOnlySession ? (
+                  <div className="mt-3 flex flex-col gap-2 rounded-xl border bg-card p-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Eliminate low-confidence learning matches</p>
+                      <p className="text-xs text-muted-foreground">
+                        Clear learning-assigned destination accounts below the selected confidence threshold.
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <Select
+                        value={confidenceThreshold}
+                        onValueChange={(value) =>
+                          setConfidenceThreshold(value as "0.25" | "0.5" | "0.75" | "0.9")
+                        }
+                      >
+                        <SelectTrigger className="w-full sm:w-36">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="0.25">Below 0.25</SelectItem>
+                          <SelectItem value="0.5">Below 0.50</SelectItem>
+                          <SelectItem value="0.75">Below 0.75</SelectItem>
+                          <SelectItem value="0.9">Below 0.90</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void handleClearLowConfidenceLearning()}
+                        disabled={lowConfidenceLearningRowCount === 0}
+                      >
+                        {`Clear ${lowConfidenceLearningRowCount}`}
+                      </Button>
+                    </div>
                   </div>
                 ) : null}
               </div>

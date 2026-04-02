@@ -275,18 +275,28 @@ namespace Finance.BusinessLayer.Services
                 throw new InvalidOperationException("Import session must have a valid source account before posting to the ledger.");
             }
 
-            var includedRows = session.Rows
-                .Where(row =>
-                    row.AddedToLedgerAt is null
-                    && row.DestinationAccountId.HasValue
-                    && row.DestinationAccountId.Value != Guid.Empty)
+            var pendingRows = session.Rows
+                .Where(row => row.AddedToLedgerAt is null)
                 .OrderBy(row => row.RowIndex)
                 .ToList();
+
+            var unmappedRowIndexes = pendingRows
+                .Where(row => !row.DestinationAccountId.HasValue || row.DestinationAccountId.Value == Guid.Empty)
+                .Select(row => row.RowIndex + 1)
+                .ToArray();
+
+            if (unmappedRowIndexes.Length > 0)
+            {
+                throw new InvalidOperationException(
+                    $"All pending import-session rows must be mapped before posting. Unmapped rows: {string.Join(", ", unmappedRowIndexes)}.");
+            }
+
+            var includedRows = pendingRows;
 
             if (includedRows.Count == 0)
             {
                 throw new InvalidOperationException(
-                    "Import session does not contain any destination-tagged rows ready for the ledger.");
+                    "Import session does not contain any pending rows ready for the ledger.");
             }
 
             var accountIdsToValidate = includedRows

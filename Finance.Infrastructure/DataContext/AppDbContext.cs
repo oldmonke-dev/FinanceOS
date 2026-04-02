@@ -101,6 +101,10 @@ namespace Finance.Infrastructure.Data
                 .HasConversion<string>()
                 .HasMaxLength(20);
 
+            modelBuilder.Entity<Transaction>()
+                .Property(transaction => transaction.LedgerSequence)
+                .HasDefaultValue(0);
+
             modelBuilder.Entity<User>(entity =>
             {
                 entity.HasKey(user => user.Id);

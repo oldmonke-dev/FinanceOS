@@ -15,6 +15,10 @@ namespace Finance.Domain.Interfaces
             Guid? accountId = null,
             CancellationToken cancellationToken = default);
 
+        Task<int> GetNextLedgerSequenceForDateAsync(
+            DateTime transactionDate,
+            CancellationToken cancellationToken = default);
+
         Task<Transaction?> GetByIdAsync(Guid transactionId, CancellationToken cancellationToken = default);
 
         Task<Transaction> UpdateAsync(Transaction transaction, CancellationToken cancellationToken = default);
