@@ -8,7 +8,6 @@ import {
   FolderTree,
   HelpCircle,
   Home,
-  LineChart,
   LogOut,
   PieChart,
   Receipt,
@@ -16,7 +15,6 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   TableOfContents,
-  Wallet,
 } from "lucide-react"
 
 import { useAuth } from "@/components/providers/auth-provider"
@@ -46,8 +44,6 @@ const navItems = [
   { title: "Importer", href: "/import", icon: FileSpreadsheet },
   { title: "Import Sessions", href: "/import-sessions", icon: TableOfContents },
   { title: "Strategies", href: "/strategies", icon: SlidersHorizontal },
-  { title: "Budgets", href: "#", icon: Wallet, disabled: true },
-  { title: "Investments", href: "#", icon: LineChart, disabled: true },
 ]
 
 type AppShellProps = {

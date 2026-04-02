@@ -34,6 +34,7 @@ import {
   getSignedSplitAmount,
 } from "@/lib/accounting"
 import { buildAccountTree } from "@/lib/accounts"
+import { getTransactionDateKey, isTransactionDateInRange, parseDateKeyToLocalDate } from "@/lib/transaction-date"
 import { deleteTransaction, getTransactions, updateTransaction } from "@/lib/transactions"
 import { cn } from "@/lib/utils"
 import type { AccountNode } from "@/models/account"
@@ -272,21 +273,17 @@ export function AdvancedTransactionsPage() {
     }
 
     const sortedDates = draftTransactions
-      .map((transaction) => transaction.transactionDate)
-      .map((value) => {
-        const date = new Date(value)
-        return Number.isNaN(date.getTime()) ? null : date
-      })
-      .filter((value): value is Date => value != null)
-      .sort((left, right) => left.getTime() - right.getTime())
+      .map((transaction) => getTransactionDateKey(transaction.transactionDate))
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => left.localeCompare(right))
 
     if (sortedDates.length === 0) {
       return { earliest: "", latest: "" }
     }
 
     return {
-      earliest: sortedDates[0].toISOString().slice(0, 10),
-      latest: sortedDates[sortedDates.length - 1].toISOString().slice(0, 10),
+      earliest: sortedDates[0],
+      latest: sortedDates[sortedDates.length - 1],
     }
   }, [draftTransactions])
 
@@ -318,8 +315,8 @@ export function AdvancedTransactionsPage() {
       return []
     }
 
-    const earliestDate = new Date(transactionDateRange.earliest)
-    const latestDate = new Date(transactionDateRange.latest)
+    const earliestDate = parseDateKeyToLocalDate(transactionDateRange.earliest)
+    const latestDate = parseDateKeyToLocalDate(transactionDateRange.latest)
 
     if (Number.isNaN(earliestDate.getTime()) || Number.isNaN(latestDate.getTime())) {
       return []
@@ -375,20 +372,8 @@ export function AdvancedTransactionsPage() {
     const normalizedMemo = deferredMemoQuery.trim().toLowerCase()
 
     return draftTransactions.filter((transaction) => {
-      const transactionDate = getComparableDateValue(transaction.transactionDate)
-
-      if (effectiveDateRange.from) {
-        const fromDate = new Date(`${effectiveDateRange.from}T00:00:00`)
-        if (Number.isFinite(transactionDate) && transactionDate < fromDate.getTime()) {
-          return false
-        }
-      }
-
-      if (effectiveDateRange.to) {
-        const toDate = new Date(`${effectiveDateRange.to}T23:59:59.999`)
-        if (Number.isFinite(transactionDate) && transactionDate > toDate.getTime()) {
-          return false
-        }
+      if (!isTransactionDateInRange(transaction.transactionDate, effectiveDateRange)) {
+        return false
       }
 
       if (

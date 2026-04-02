@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/sheet"
 import { buildAccountTree, formatAccountType } from "@/lib/accounts"
 import { getBalanceDeltaForAccount } from "@/lib/accounting"
+import { getTransactionDateKey, isTransactionDateInRange, parseDateKeyToLocalDate } from "@/lib/transaction-date"
 import { getTransactions } from "@/lib/transactions"
 import { cn } from "@/lib/utils"
 import type { Account, AccountNode } from "@/models/account"
@@ -185,17 +186,17 @@ export function ReportsPage() {
     }
 
     const sortedDates = transactions
-      .map((transaction) => new Date(transaction.transactionDate))
-      .filter((date) => !Number.isNaN(date.getTime()))
-      .sort((left, right) => left.getTime() - right.getTime())
+      .map((transaction) => getTransactionDateKey(transaction.transactionDate))
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => left.localeCompare(right))
 
     if (sortedDates.length === 0) {
       return { earliest: "", latest: "" }
     }
 
     return {
-      earliest: sortedDates[0].toISOString().slice(0, 10),
-      latest: sortedDates[sortedDates.length - 1].toISOString().slice(0, 10),
+      earliest: sortedDates[0],
+      latest: sortedDates[sortedDates.length - 1],
     }
   }, [transactions])
 
@@ -236,8 +237,8 @@ export function ReportsPage() {
       return []
     }
 
-    const earliestDate = new Date(transactionDateRange.earliest)
-    const latestDate = new Date(transactionDateRange.latest)
+    const earliestDate = parseDateKeyToLocalDate(transactionDateRange.earliest)
+    const latestDate = parseDateKeyToLocalDate(transactionDateRange.latest)
 
     if (Number.isNaN(earliestDate.getTime()) || Number.isNaN(latestDate.getTime())) {
       return []
@@ -290,21 +291,8 @@ export function ReportsPage() {
 
   const filteredTransactions = useMemo(() => {
     return transactions.filter((transaction) => {
-      const transactionDate = new Date(transaction.transactionDate)
-      const transactionTime = transactionDate.getTime()
-
-      if (effectiveDateRange.from) {
-        const fromTime = new Date(`${effectiveDateRange.from}T00:00:00`).getTime()
-        if (transactionTime < fromTime) {
-          return false
-        }
-      }
-
-      if (effectiveDateRange.to) {
-        const toTime = new Date(`${effectiveDateRange.to}T23:59:59.999`).getTime()
-        if (transactionTime > toTime) {
-          return false
-        }
+      if (!isTransactionDateInRange(transaction.transactionDate, effectiveDateRange)) {
+        return false
       }
 
       if (
