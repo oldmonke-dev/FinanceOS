@@ -640,43 +640,36 @@ export default function ImportSessionsPage() {
   const trailingBalanceByRowId = useMemo(() => {
     const balances = new Map<string, number>()
 
-    if (!sourceAccount || sourceOpeningBalanceDisplay == null) {
+    if (!sourceAccount || sourceOpeningBalanceDisplay == null || !activeSession) {
       return balances
     }
 
     let runningBalance = sourceOpeningBalanceDisplay
 
-    const crossSessionRows = sessions
-      .filter((session) => session.sourceAccountId === sourceAccount.id)
-      .flatMap((session) => {
-        const orderedRows = getOrderedImportSessionRows(
-          session.rows,
-          session.id,
-          session.columnMappings,
-          sameDayReorderEnabled,
-          sameDayRowOrderByGroupKey,
-        )
+    const sessionRows = getOrderedImportSessionRows(
+      activeRows,
+      activeSession.id,
+      activeSession.columnMappings,
+      sameDayReorderEnabled,
+      sameDayRowOrderByGroupKey,
+    )
+      .map((row, rowOrderIndex) => {
+        const postedTransaction = row.postedTransactionId
+          ? ledgerTransactionById.get(row.postedTransactionId) ?? null
+          : null
 
-        return orderedRows.map((row, rowOrderIndex) => {
-          const postedTransaction = row.postedTransactionId
-            ? ledgerTransactionById.get(row.postedTransactionId) ?? null
-            : null
-
-          return {
-            rowId: row.id,
-            rowIndex: row.rowIndex,
-            rowOrderIndex,
-            sessionCreatedAt: session.createdAt,
-            sessionId: session.id,
-            dateKey:
-              postedTransaction != null
-                ? normalizeDateKey(postedTransaction.transactionDate)
-                : resolveMappedDateKey(row.values, session.columnMappings) ?? "",
-            ledgerSequence: postedTransaction?.ledgerSequence ?? Number.MAX_SAFE_INTEGER,
-            ledgerCreatedAt: postedTransaction?.createdAt ?? "",
-            amount: resolveMappedAmount(row.values, session.columnMappings),
-          }
-        })
+        return {
+          rowId: row.id,
+          rowIndex: row.rowIndex,
+          rowOrderIndex,
+          dateKey:
+            postedTransaction != null
+              ? normalizeDateKey(postedTransaction.transactionDate)
+              : resolveMappedDateKey(row.values, activeSession.columnMappings) ?? "",
+          ledgerSequence: postedTransaction?.ledgerSequence ?? Number.MAX_SAFE_INTEGER,
+          ledgerCreatedAt: postedTransaction?.createdAt ?? "",
+          amount: resolveMappedAmount(row.values, activeSession.columnMappings),
+        }
       })
       .sort((left, right) => {
         const leftDateValue = getComparableImportDateValue(left.dateKey)
@@ -709,15 +702,6 @@ export default function ImportSessionsPage() {
           return ledgerCreatedAtComparison
         }
 
-        const createdAtComparison = left.sessionCreatedAt.localeCompare(right.sessionCreatedAt)
-        if (createdAtComparison !== 0) {
-          return createdAtComparison
-        }
-
-        if (left.sessionId !== right.sessionId) {
-          return left.sessionId.localeCompare(right.sessionId)
-        }
-
         if (left.rowOrderIndex !== right.rowOrderIndex) {
           return left.rowOrderIndex - right.rowOrderIndex
         }
@@ -725,7 +709,7 @@ export default function ImportSessionsPage() {
         return left.rowIndex - right.rowIndex
       })
 
-    for (const row of crossSessionRows) {
+    for (const row of sessionRows) {
       const amount = row.amount
       if (amount != null) {
         runningBalance += amount
@@ -736,10 +720,11 @@ export default function ImportSessionsPage() {
 
     return balances
   }, [
+    activeRows,
+    activeSession,
     ledgerTransactionById,
     sameDayReorderEnabled,
     sameDayRowOrderByGroupKey,
-    sessions,
     sourceAccount,
     sourceOpeningBalanceDisplay,
   ])
