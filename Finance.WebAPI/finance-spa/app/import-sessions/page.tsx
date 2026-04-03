@@ -679,6 +679,21 @@ export default function ImportSessionsPage() {
         })
       })
       .sort((left, right) => {
+        const leftDateValue = getComparableImportDateValue(left.dateKey)
+        const rightDateValue = getComparableImportDateValue(right.dateKey)
+
+        if (leftDateValue != null && rightDateValue != null && leftDateValue !== rightDateValue) {
+          return leftDateValue - rightDateValue
+        }
+
+        if (leftDateValue != null && rightDateValue == null) {
+          return -1
+        }
+
+        if (leftDateValue == null && rightDateValue != null) {
+          return 1
+        }
+
         const dateComparison = left.dateKey.localeCompare(right.dateKey)
         if (dateComparison !== 0) {
           return dateComparison
@@ -1937,6 +1952,16 @@ function SimilarityBar({ label, value, tone }: SimilarityBarProps) {
 
 function buildImportSessionRowGroupKey(sessionId: string, dateKey: string) {
   return `${sessionId}::${dateKey || "__no_date__"}`
+}
+
+function getComparableImportDateValue(dateKey: string) {
+  if (!dateKey || dateKey === "__no_date__") {
+    return null
+  }
+
+  const parsed = new Date(dateKey)
+  const timestamp = parsed.getTime()
+  return Number.isFinite(timestamp) ? timestamp : null
 }
 
 function getOrderedImportSessionRows(
