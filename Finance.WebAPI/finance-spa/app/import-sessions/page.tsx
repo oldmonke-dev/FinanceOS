@@ -11,6 +11,7 @@ import {
   SearchX,
   FileSpreadsheet,
   FolderInput,
+  GripVertical,
   Landmark,
   Sparkles,
 } from "lucide-react"
@@ -39,7 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { getSignedSplitAmount } from "@/lib/accounting"
+import { getDisplayBalanceForAccount, getSignedSplitAmount } from "@/lib/accounting"
 import { formatAccountType } from "@/lib/accounts"
 import {
   formatAccountDisplayLabel,
@@ -107,12 +108,18 @@ export default function ImportSessionsPage() {
   const [showAllRows, setShowAllRows] = useState(false)
   const [rowsPerPage, setRowsPerPage] = useState<10 | 50 | 100>(10)
   const [sortMode, setSortMode] = useState<"original" | "description_uniqueness">("original")
+  const [showTrailingBalances, setShowTrailingBalances] = useState(false)
+  const [sameDayReorderEnabled, setSameDayReorderEnabled] = useState(false)
+  const [draggedRowId, setDraggedRowId] = useState<string | null>(null)
+  const [dropTargetRowId, setDropTargetRowId] = useState<string | null>(null)
+  const [sameDayRowOrderByGroupKey, setSameDayRowOrderByGroupKey] = useState<Record<string, string[]>>({})
   const [strategyMode, setStrategyMode] = useState<StrategyMode>("unassigned")
   const [strategyCheckMessage, setStrategyCheckMessage] = useState<string | null>(null)
   const [strategyCheckTone, setStrategyCheckTone] = useState<"warning" | "success">("warning")
   const [sessionView, setSessionView] = useState<"active" | "archived">("active")
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set())
   const [ledgerTransactions, setLedgerTransactions] = useState<Transaction[]>([])
+  const [hasLoadedLedgerTransactions, setHasLoadedLedgerTransactions] = useState(false)
   const [draftTitle, setDraftTitle] = useState("")
   const [confidenceThreshold, setConfidenceThreshold] = useState<"0.25" | "0.5" | "0.75" | "0.9">("0.5")
 
@@ -167,9 +174,43 @@ export default function ImportSessionsPage() {
 
   useEffect(() => {
     setSimilarityLoadedSessionId(null)
-    setLedgerTransactions([])
     setIsLoadingSimilarity(false)
   }, [activeSession?.id])
+
+  useEffect(() => {
+    if (!showTrailingBalances || hasLoadedLedgerTransactions) {
+      return
+    }
+
+    let isCancelled = false
+
+    async function loadLedgerTransactionsForOrdering() {
+      try {
+        const transactions = await getTransactions()
+        if (isCancelled) {
+          return
+        }
+
+        setLedgerTransactions(transactions)
+      } catch {
+        if (isCancelled) {
+          return
+        }
+
+        setLedgerTransactions([])
+      } finally {
+        if (!isCancelled) {
+          setHasLoadedLedgerTransactions(true)
+        }
+      }
+    }
+
+    void loadLedgerTransactionsForOrdering()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [hasLoadedLedgerTransactions, showTrailingBalances])
 
   useEffect(() => {
     if (!activeSession || isReadOnlySession) {
@@ -261,7 +302,84 @@ export default function ImportSessionsPage() {
       return left.rowIndex - right.rowIndex
     })
   }, [activeRows, activeSession, descriptionColumnIndex, sortMode])
-  const visibleRows = sortedRows
+  const activeRowDateKeyByRowId = useMemo(() => {
+    const dateKeyByRowId = new Map<string, string>()
+
+    if (!activeSession) {
+      return dateKeyByRowId
+    }
+
+    for (const row of sortedRows) {
+      dateKeyByRowId.set(
+        row.id,
+        resolveMappedDateKey(row.values, activeSession.columnMappings) ?? "__no_date__",
+      )
+    }
+
+    return dateKeyByRowId
+  }, [activeSession, sortedRows])
+  const visibleRows = useMemo(() => {
+    if (!activeSession || !sameDayReorderEnabled) {
+      return sortedRows
+    }
+
+    const rowsById = new Map(sortedRows.map((row) => [row.id, row]))
+    const rowsByGroupKey = new Map<string, ImportSessionRow[]>()
+
+    for (const row of sortedRows) {
+      const dateKey = activeRowDateKeyByRowId.get(row.id) ?? "__no_date__"
+      const groupKey = buildImportSessionRowGroupKey(activeSession.id, dateKey)
+      const current = rowsByGroupKey.get(groupKey) ?? []
+      current.push(row)
+      rowsByGroupKey.set(groupKey, current)
+    }
+
+    const orderedRowIdsByGroupKey = new Map<string, string[]>()
+    rowsByGroupKey.forEach((rows, groupKey) => {
+      const baseOrder = rows.map((row) => row.id)
+      const override = sameDayRowOrderByGroupKey[groupKey]
+
+      if (!override || override.length === 0) {
+        orderedRowIdsByGroupKey.set(groupKey, baseOrder)
+        return
+      }
+
+      const nextOrder = [
+        ...override.filter((rowId) => baseOrder.includes(rowId)),
+        ...baseOrder.filter((rowId) => !override.includes(rowId)),
+      ]
+      orderedRowIdsByGroupKey.set(groupKey, nextOrder)
+    })
+
+    const consumedRowIds = new Set<string>()
+    const reorderedRows: ImportSessionRow[] = []
+
+    for (const row of sortedRows) {
+      if (consumedRowIds.has(row.id)) {
+        continue
+      }
+
+      const dateKey = activeRowDateKeyByRowId.get(row.id) ?? "__no_date__"
+      const groupKey = buildImportSessionRowGroupKey(activeSession.id, dateKey)
+      const orderedRowIds = orderedRowIdsByGroupKey.get(groupKey) ?? [row.id]
+
+      for (const rowId of orderedRowIds) {
+        if (consumedRowIds.has(rowId)) {
+          continue
+        }
+
+        const nextRow = rowsById.get(rowId)
+        if (!nextRow) {
+          continue
+        }
+
+        reorderedRows.push(nextRow)
+        consumedRowIds.add(rowId)
+      }
+    }
+
+    return reorderedRows
+  }, [activeRowDateKeyByRowId, activeSession, sameDayReorderEnabled, sameDayRowOrderByGroupKey, sortedRows])
   const totalPages = activeSession
     ? Math.max(1, Math.ceil(visibleRows.length / rowsPerPage))
     : 1
@@ -502,12 +620,114 @@ export default function ImportSessionsPage() {
   const sourceAccount = activeSession?.sourceAccountId
     ? accountById.get(activeSession.sourceAccountId) ?? null
     : null
+  const sourceOpeningBalanceDisplay = useMemo(
+    () =>
+      sourceAccount
+        ? getDisplayBalanceForAccount(sourceAccount.accountType, sourceAccount.openingBalance)
+        : null,
+    [sourceAccount],
+  )
   const sourceAccountLabel = sourceAccount
     ? formatAccountDisplayLabel(
         formatAccountType(sourceAccount.accountType),
         accountPathLookup.get(sourceAccount.id) ?? sourceAccount.name,
       )
     : "Unassigned"
+  const ledgerTransactionById = useMemo(
+    () => new Map(ledgerTransactions.map((transaction) => [transaction.id, transaction])),
+    [ledgerTransactions],
+  )
+  const trailingBalanceByRowId = useMemo(() => {
+    const balances = new Map<string, number>()
+
+    if (!sourceAccount || sourceOpeningBalanceDisplay == null) {
+      return balances
+    }
+
+    let runningBalance = sourceOpeningBalanceDisplay
+
+    const crossSessionRows = sessions
+      .filter((session) => session.sourceAccountId === sourceAccount.id)
+      .flatMap((session) => {
+        const orderedRows = getOrderedImportSessionRows(
+          session.rows,
+          session.id,
+          session.columnMappings,
+          sameDayReorderEnabled,
+          sameDayRowOrderByGroupKey,
+        )
+
+        return orderedRows.map((row, rowOrderIndex) => {
+          const postedTransaction = row.postedTransactionId
+            ? ledgerTransactionById.get(row.postedTransactionId) ?? null
+            : null
+
+          return {
+            rowId: row.id,
+            rowIndex: row.rowIndex,
+            rowOrderIndex,
+            sessionCreatedAt: session.createdAt,
+            sessionId: session.id,
+            dateKey:
+              postedTransaction != null
+                ? normalizeDateKey(postedTransaction.transactionDate)
+                : resolveMappedDateKey(row.values, session.columnMappings) ?? "",
+            ledgerSequence: postedTransaction?.ledgerSequence ?? Number.MAX_SAFE_INTEGER,
+            ledgerCreatedAt: postedTransaction?.createdAt ?? "",
+            amount: resolveMappedAmount(row.values, session.columnMappings),
+          }
+        })
+      })
+      .sort((left, right) => {
+        const dateComparison = left.dateKey.localeCompare(right.dateKey)
+        if (dateComparison !== 0) {
+          return dateComparison
+        }
+
+        const ledgerSequenceComparison = left.ledgerSequence - right.ledgerSequence
+        if (ledgerSequenceComparison !== 0) {
+          return ledgerSequenceComparison
+        }
+
+        const ledgerCreatedAtComparison = left.ledgerCreatedAt.localeCompare(right.ledgerCreatedAt)
+        if (ledgerCreatedAtComparison !== 0) {
+          return ledgerCreatedAtComparison
+        }
+
+        const createdAtComparison = left.sessionCreatedAt.localeCompare(right.sessionCreatedAt)
+        if (createdAtComparison !== 0) {
+          return createdAtComparison
+        }
+
+        if (left.sessionId !== right.sessionId) {
+          return left.sessionId.localeCompare(right.sessionId)
+        }
+
+        if (left.rowOrderIndex !== right.rowOrderIndex) {
+          return left.rowOrderIndex - right.rowOrderIndex
+        }
+
+        return left.rowIndex - right.rowIndex
+      })
+
+    for (const row of crossSessionRows) {
+      const amount = row.amount
+      if (amount != null) {
+        runningBalance += amount
+      }
+
+      balances.set(row.rowId, runningBalance)
+    }
+
+    return balances
+  }, [
+    ledgerTransactionById,
+    sameDayReorderEnabled,
+    sameDayRowOrderByGroupKey,
+    sessions,
+    sourceAccount,
+    sourceOpeningBalanceDisplay,
+  ])
   const canApplyLearning =
     !isReadOnlySession &&
     strategyMode !== "unassigned" &&
@@ -733,10 +953,10 @@ export default function ImportSessionsPage() {
     try {
       const transactions = await getTransactions()
       setLedgerTransactions(transactions)
+      setHasLoadedLedgerTransactions(true)
       setSimilarityLoadedSessionId(activeSession.id)
       showSnackbar({ message: "Similarity index loaded.", tone: "success" })
     } catch (error) {
-      setLedgerTransactions([])
       setSimilarityLoadedSessionId(activeSession.id)
       showSnackbar({
         message: error instanceof Error ? error.message : "Failed to load similarity index.",
@@ -777,6 +997,68 @@ export default function ImportSessionsPage() {
       message: `Cleared ${matchingRows.length} learning match${matchingRows.length === 1 ? "" : "es"} below ${confidenceThreshold}. Save the session to persist.`,
       tone: "success",
     })
+  }
+
+  function toggleSameDayReorder(checked: boolean) {
+    setSameDayReorderEnabled(checked)
+    setDraggedRowId(null)
+    setDropTargetRowId(null)
+
+    if (checked) {
+      setSortMode("original")
+    }
+  }
+
+  function handleRowDragStart(rowId: string) {
+    if (!sameDayReorderEnabled) {
+      return
+    }
+
+    setDraggedRowId(rowId)
+    setDropTargetRowId(rowId)
+  }
+
+  function handleRowDrop(targetRowId: string) {
+    if (!activeSession || !sameDayReorderEnabled || !draggedRowId || draggedRowId === targetRowId) {
+      setDraggedRowId(null)
+      setDropTargetRowId(null)
+      return
+    }
+
+    const draggedDateKey = activeRowDateKeyByRowId.get(draggedRowId) ?? "__no_date__"
+    const targetDateKey = activeRowDateKeyByRowId.get(targetRowId) ?? "__no_date__"
+
+    if (draggedDateKey !== targetDateKey) {
+      setDraggedRowId(null)
+      setDropTargetRowId(null)
+      return
+    }
+
+    const groupKey = buildImportSessionRowGroupKey(activeSession.id, draggedDateKey)
+    const sameDayRowIds = visibleRows
+      .filter((row) => (activeRowDateKeyByRowId.get(row.id) ?? "__no_date__") === draggedDateKey)
+      .map((row) => row.id)
+    const currentOrder = sameDayRowOrderByGroupKey[groupKey]?.filter((rowId) => sameDayRowIds.includes(rowId))
+      ?? sameDayRowIds
+    const draggedIndex = currentOrder.indexOf(draggedRowId)
+    const targetIndex = currentOrder.indexOf(targetRowId)
+
+    if (draggedIndex < 0 || targetIndex < 0) {
+      setDraggedRowId(null)
+      setDropTargetRowId(null)
+      return
+    }
+
+    const nextOrder = [...currentOrder]
+    const [movedRowId] = nextOrder.splice(draggedIndex, 1)
+    nextOrder.splice(targetIndex, 0, movedRowId)
+
+    setSameDayRowOrderByGroupKey((current) => ({
+      ...current,
+      [groupKey]: nextOrder,
+    }))
+    setDraggedRowId(null)
+    setDropTargetRowId(null)
   }
 
   return (
@@ -1147,11 +1429,35 @@ export default function ImportSessionsPage() {
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    <label className="inline-flex items-center gap-2 rounded-lg border bg-background px-3 py-2 text-sm">
+                      <Checkbox
+                        checked={showTrailingBalances}
+                        onCheckedChange={(checked) => setShowTrailingBalances(Boolean(checked))}
+                        disabled={!sourceAccount}
+                        aria-label="Show trailing balances"
+                      />
+                      <span>Trailing balances</span>
+                    </label>
+                    {showTrailingBalances && sourceOpeningBalanceDisplay != null ? (
+                      <div className="rounded-lg border bg-background px-3 py-2 text-sm text-muted-foreground">
+                        Opening: {formatNumber(sourceOpeningBalanceDisplay)}
+                      </div>
+                    ) : null}
+                    <label className="inline-flex items-center gap-2 rounded-lg border bg-background px-3 py-2 text-sm">
+                      <Checkbox
+                        checked={sameDayReorderEnabled}
+                        onCheckedChange={(checked) => toggleSameDayReorder(Boolean(checked))}
+                        disabled={!activeSession || visibleRows.length === 0}
+                        aria-label="Enable same-day reorder"
+                      />
+                      <span>Same-day reorder</span>
+                    </label>
                     <Select
                       value={sortMode}
                       onValueChange={(value) =>
                         setSortMode(value as "original" | "description_uniqueness")
                       }
+                      disabled={sameDayReorderEnabled}
                     >
                       <SelectTrigger className="w-52">
                         <SelectValue />
@@ -1212,11 +1518,13 @@ export default function ImportSessionsPage() {
               </div>
 
               <div className="mt-3 text-xs text-muted-foreground">
-                Scroll horizontally to review all mapped columns and controls.
+                {sameDayReorderEnabled
+                  ? "Drag rows within the same date to preview running-order changes. This affects review only and does not save back to the session."
+                  : "Scroll horizontally to review all mapped columns and controls."}
               </div>
 
               <div data-horizontal-scroll-region className="horizontal-scroll-region mt-5 rounded-2xl border pb-2">
-                <table className="w-full min-w-[84rem] border-collapse text-xs">
+                <table className="w-full min-w-[92rem] border-collapse text-xs">
                   <thead className="bg-muted/60">
                     <tr>
                       {!isReadOnlySession ? (
@@ -1244,6 +1552,11 @@ export default function ImportSessionsPage() {
                       <th className="border-b px-4 py-3 text-left font-medium">
                         Destination account
                       </th>
+                      {showTrailingBalances ? (
+                        <th className="border-b px-4 py-3 text-right font-medium whitespace-nowrap">
+                          Trailing balance
+                        </th>
+                      ) : null}
                       <th className="border-b px-4 py-3 text-left font-medium whitespace-nowrap">
                         <div className="flex items-center justify-between gap-2">
                           <span>Similarity Index</span>
@@ -1275,6 +1588,7 @@ export default function ImportSessionsPage() {
                       const activeSessionMatch = bestActiveSessionMatchByRowId.get(row.id) ?? null
                       const ledgerMatch = bestLedgerMatchByRowId.get(row.id) ?? null
                       const resolvedCurrentRow = resolvedCurrentRowById.get(row.id) ?? null
+                      const isDropTarget = dropTargetRowId === row.id
 
                       return (
                         <tr
@@ -1285,7 +1599,33 @@ export default function ImportSessionsPage() {
                               : presentation.rowClass
                                 ? `${presentation.rowClass} odd:bg-opacity-100 even:bg-opacity-100`
                                 : "odd:bg-muted/10 even:bg-muted/35"
-                          }`}
+                          } ${sameDayReorderEnabled && isDropTarget ? "ring-2 ring-primary/30" : ""}`}
+                          draggable={sameDayReorderEnabled}
+                          onDragStart={() => handleRowDragStart(row.id)}
+                          onDragOver={(event) => {
+                            if (!sameDayReorderEnabled || !draggedRowId) {
+                              return
+                            }
+
+                            const draggedDateKey = activeRowDateKeyByRowId.get(draggedRowId) ?? "__no_date__"
+                            const targetDateKey = activeRowDateKeyByRowId.get(row.id) ?? "__no_date__"
+                            if (draggedDateKey !== targetDateKey) {
+                              return
+                            }
+
+                            event.preventDefault()
+                            if (dropTargetRowId !== row.id) {
+                              setDropTargetRowId(row.id)
+                            }
+                          }}
+                          onDrop={(event) => {
+                            event.preventDefault()
+                            handleRowDrop(row.id)
+                          }}
+                          onDragEnd={() => {
+                            setDraggedRowId(null)
+                            setDropTargetRowId(null)
+                          }}
                         >
                           {!isReadOnlySession ? (
                             <td className="border-t px-2 py-2 text-center align-top">
@@ -1299,7 +1639,12 @@ export default function ImportSessionsPage() {
                             </td>
                           ) : null}
                           <td className="border-t px-2 py-2 align-top whitespace-nowrap">
-                            {row.rowIndex + 1}
+                            <div className="flex items-center gap-1.5">
+                              {sameDayReorderEnabled ? (
+                                <GripVertical className="size-3.5 text-muted-foreground" />
+                              ) : null}
+                              <span>{row.rowIndex + 1}</span>
+                            </div>
                           </td>
                           {mappedColumnIndexes.map((valueIndex) => (
                           <td
@@ -1358,6 +1703,11 @@ export default function ImportSessionsPage() {
                               </p>
                             ) : null}
                           </td>
+                          {showTrailingBalances ? (
+                            <td className="border-t px-3 py-2 text-right align-top font-medium tabular-nums whitespace-nowrap">
+                              {formatNumber(trailingBalanceByRowId.get(row.id) ?? sourceOpeningBalanceDisplay ?? 0)}
+                            </td>
+                          ) : null}
                           <td className="border-t px-3 py-2 align-top">
                             <TooltipProvider>
                               {isSimilarityLoadedForActiveSession ? (
@@ -1583,6 +1933,68 @@ function SimilarityBar({ label, value, tone }: SimilarityBarProps) {
       </div>
     </div>
   )
+}
+
+function buildImportSessionRowGroupKey(sessionId: string, dateKey: string) {
+  return `${sessionId}::${dateKey || "__no_date__"}`
+}
+
+function getOrderedImportSessionRows(
+  rows: ImportSessionRow[],
+  sessionId: string,
+  columnMappings: Record<number, string>,
+  sameDayReorderEnabled: boolean,
+  sameDayRowOrderByGroupKey: Record<string, string[]>,
+) {
+  if (!sameDayReorderEnabled) {
+    return rows
+  }
+
+  const rowsById = new Map(rows.map((row) => [row.id, row]))
+  const rowsByGroupKey = new Map<string, ImportSessionRow[]>()
+
+  for (const row of rows) {
+    const dateKey = resolveMappedDateKey(row.values, columnMappings) ?? "__no_date__"
+    const groupKey = buildImportSessionRowGroupKey(sessionId, dateKey)
+    const current = rowsByGroupKey.get(groupKey) ?? []
+    current.push(row)
+    rowsByGroupKey.set(groupKey, current)
+  }
+
+  const orderedRows: ImportSessionRow[] = []
+  const consumedRowIds = new Set<string>()
+
+  for (const row of rows) {
+    if (consumedRowIds.has(row.id)) {
+      continue
+    }
+
+    const dateKey = resolveMappedDateKey(row.values, columnMappings) ?? "__no_date__"
+    const groupKey = buildImportSessionRowGroupKey(sessionId, dateKey)
+    const rowsInGroup = rowsByGroupKey.get(groupKey) ?? [row]
+    const baseOrder = rowsInGroup.map((item) => item.id)
+    const override = sameDayRowOrderByGroupKey[groupKey] ?? []
+    const nextOrder = [
+      ...override.filter((rowId) => baseOrder.includes(rowId)),
+      ...baseOrder.filter((rowId) => !override.includes(rowId)),
+    ]
+
+    for (const rowId of nextOrder) {
+      if (consumedRowIds.has(rowId)) {
+        continue
+      }
+
+      const nextRow = rowsById.get(rowId)
+      if (!nextRow) {
+        continue
+      }
+
+      orderedRows.push(nextRow)
+      consumedRowIds.add(rowId)
+    }
+  }
+
+  return orderedRows
 }
 
 function getAccountTypePresentation(accountType: number | string | null) {
