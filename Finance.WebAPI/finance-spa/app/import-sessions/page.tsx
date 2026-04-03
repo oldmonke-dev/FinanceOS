@@ -654,54 +654,14 @@ export default function ImportSessionsPage() {
       sameDayRowOrderByGroupKey,
     )
       .map((row, rowOrderIndex) => {
-        const postedTransaction = row.postedTransactionId
-          ? ledgerTransactionById.get(row.postedTransactionId) ?? null
-          : null
-
         return {
           rowId: row.id,
           rowIndex: row.rowIndex,
           rowOrderIndex,
-          dateKey:
-            postedTransaction != null
-              ? normalizeDateKey(postedTransaction.transactionDate)
-              : resolveMappedDateKey(row.values, activeSession.columnMappings) ?? "",
-          ledgerSequence: postedTransaction?.ledgerSequence ?? Number.MAX_SAFE_INTEGER,
-          ledgerCreatedAt: postedTransaction?.createdAt ?? "",
           amount: resolveMappedAmount(row.values, activeSession.columnMappings),
         }
       })
       .sort((left, right) => {
-        const leftDateValue = getComparableImportDateValue(left.dateKey)
-        const rightDateValue = getComparableImportDateValue(right.dateKey)
-
-        if (leftDateValue != null && rightDateValue != null && leftDateValue !== rightDateValue) {
-          return leftDateValue - rightDateValue
-        }
-
-        if (leftDateValue != null && rightDateValue == null) {
-          return -1
-        }
-
-        if (leftDateValue == null && rightDateValue != null) {
-          return 1
-        }
-
-        const dateComparison = left.dateKey.localeCompare(right.dateKey)
-        if (dateComparison !== 0) {
-          return dateComparison
-        }
-
-        const ledgerSequenceComparison = left.ledgerSequence - right.ledgerSequence
-        if (ledgerSequenceComparison !== 0) {
-          return ledgerSequenceComparison
-        }
-
-        const ledgerCreatedAtComparison = left.ledgerCreatedAt.localeCompare(right.ledgerCreatedAt)
-        if (ledgerCreatedAtComparison !== 0) {
-          return ledgerCreatedAtComparison
-        }
-
         if (left.rowOrderIndex !== right.rowOrderIndex) {
           return left.rowOrderIndex - right.rowOrderIndex
         }
@@ -720,9 +680,8 @@ export default function ImportSessionsPage() {
 
     return balances
   }, [
-    activeRows,
     activeSession,
-    ledgerTransactionById,
+    activeRows,
     sameDayReorderEnabled,
     sameDayRowOrderByGroupKey,
     sourceAccount,
