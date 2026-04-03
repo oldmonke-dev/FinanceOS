@@ -144,7 +144,7 @@ export default function ImportSessionsPage() {
     setStrategyMode(resolveStrategyMode(nextActiveSession))
     setStrategyCheckMessage(null)
     setSelectedRowIds(new Set())
-  }, [activeSessionId, filteredSessions])
+  }, [activeSessionId])
 
   useEffect(() => {
     setCurrentPage(1)
@@ -270,6 +270,10 @@ export default function ImportSessionsPage() {
       ? visibleRows
       : visibleRows.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage)
     : []
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages))
+  }, [totalPages])
   const mappedColumnIndexes = useMemo(() => {
     if (!activeSession) {
       return []
