@@ -27,6 +27,7 @@ namespace Finance.WebAPI.Controllers
             {
                 var createdSession = await _importSessionService.CreateImportSessionAsync(
                     User.GetRequiredUserId(),
+                    User.IsAdmin(),
                     session,
                     cancellationToken);
 
@@ -46,6 +47,7 @@ namespace Finance.WebAPI.Controllers
         {
             var sessions = await _importSessionService.GetImportSessionsAsync(
                 User.GetRequiredUserId(),
+                User.IsAdmin(),
                 cancellationToken);
             return Ok(sessions);
         }
@@ -57,6 +59,7 @@ namespace Finance.WebAPI.Controllers
             {
                 var session = await _importSessionService.GetImportSessionAsync(
                     User.GetRequiredUserId(),
+                    User.IsAdmin(),
                     id,
                     cancellationToken);
                 return Ok(session);
@@ -98,6 +101,7 @@ namespace Finance.WebAPI.Controllers
             {
                 var session = await _importSessionService.UpdateSourceAccountAsync(
                     User.GetRequiredUserId(),
+                    User.IsAdmin(),
                     sessionId,
                     request.SourceAccountId,
                     cancellationToken);
@@ -124,6 +128,7 @@ namespace Finance.WebAPI.Controllers
             {
                 var session = await _importSessionService.UpdateTitleAsync(
                     User.GetRequiredUserId(),
+                    User.IsAdmin(),
                     sessionId,
                     request.FileName,
                     cancellationToken);
@@ -147,6 +152,7 @@ namespace Finance.WebAPI.Controllers
             {
                 var row = await _importSessionService.UpdateRowDestinationAccountAsync(
                     User.GetRequiredUserId(),
+                    User.IsAdmin(),
                     sessionId,
                     rowId,
                     request.DestinationAccountId,
@@ -173,6 +179,7 @@ namespace Finance.WebAPI.Controllers
             {
                 var result = await _importSessionService.AddSessionToLedgerAsync(
                     User.GetRequiredUserId(),
+                    User.IsAdmin(),
                     sessionId,
                     cancellationToken);
                 return Ok(result);
@@ -196,6 +203,7 @@ namespace Finance.WebAPI.Controllers
             {
                 var session = await _importSessionService.ReapplyLearningAsync(
                     User.GetRequiredUserId(),
+                    User.IsAdmin(),
                     sessionId,
                     cancellationToken);
                 return Ok(session);
@@ -219,6 +227,7 @@ namespace Finance.WebAPI.Controllers
             {
                 var session = await _importSessionService.RevertSessionLearningAsync(
                     User.GetRequiredUserId(),
+                    User.IsAdmin(),
                     sessionId,
                     cancellationToken);
                 return Ok(session);
@@ -243,6 +252,7 @@ namespace Finance.WebAPI.Controllers
             {
                 var updatedSession = await _importSessionService.DeleteRowsAsync(
                     User.GetRequiredUserId(),
+                    User.IsAdmin(),
                     sessionId,
                     request.RowIds,
                     cancellationToken);
