@@ -25,3 +25,4 @@ build.log
 # OS / misc
 .DS_Store
 Thumbs.db
+/Finance.WebAPI/App_Data/pdf-imports
