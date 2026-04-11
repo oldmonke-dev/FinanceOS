@@ -1022,7 +1022,7 @@ export default function ImportSessionsPage() {
 
   return (
     <AppShell
-      title="Import Sessions"
+      title="Sessions"
       subtitle="Navigate review sessions and map destination accounts before posting imports"
       badge={isLoading ? "Loading sessions" : `${sessions.length} sessions`}
     >

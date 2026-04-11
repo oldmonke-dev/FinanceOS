@@ -23,6 +23,7 @@ if (string.IsNullOrWhiteSpace(authOptions.JwtSecret))
 
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection("Auth"));
 builder.Services.Configure<TabulaOptions>(builder.Configuration.GetSection("Tabula"));
+builder.Services.Configure<CamelotOptions>(builder.Configuration.GetSection("Camelot"));
 
 // Add services to the container.
 
@@ -94,6 +95,8 @@ builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
 builder.Services.AddScoped<ITransactionService, TransactionService>();
 builder.Services.AddScoped<IUserPreferenceRepository, UserPreferenceRepository>();
 builder.Services.AddScoped<ITabulaPdfExtractionService, TabulaPdfExtractionService>();
+builder.Services.AddScoped<IPdfImportStorageService, PdfImportStorageService>();
+builder.Services.AddScoped<IPdfTableDetectionService, CamelotPdfTableDetectionService>();
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())

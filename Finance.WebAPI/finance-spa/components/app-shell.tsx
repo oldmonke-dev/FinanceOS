@@ -10,6 +10,7 @@ import {
   HelpCircle,
   Home,
   LogOut,
+  ScanText,
   PieChart,
   Receipt,
   Settings,
@@ -41,17 +42,32 @@ type NavItem = {
   href: string
   icon: LucideIcon
   disabled?: boolean
+  matches?: (pathname: string) => boolean
 }
 
-const navItems: NavItem[] = [
+const primaryNavItems: NavItem[] = [
   { title: "Overview", href: "/", icon: Home },
   { title: "Account Tree", href: "/accounts", icon: FolderTree },
   { title: "Transactions", href: "/transactions", icon: Receipt },
   { title: "Advanced Filter", href: "/transactions/advanced", icon: TableOfContents },
   { title: "Reports", href: "/reports", icon: PieChart },
-  { title: "Importer", href: "/import", icon: FileSpreadsheet },
-  { title: "Import Sessions", href: "/import-sessions", icon: TableOfContents },
   { title: "Strategies", href: "/strategies", icon: SlidersHorizontal },
+]
+
+const importNavItems: NavItem[] = [
+  { title: "Sessions", href: "/import-sessions", icon: TableOfContents },
+  {
+    title: "CSV Imports",
+    href: "/import",
+    icon: FileSpreadsheet,
+    matches: (pathname) => pathname === "/import",
+  },
+  {
+    title: "PDF Imports",
+    href: "/import/pdf",
+    icon: ScanText,
+    matches: (pathname) => pathname === "/import/pdf",
+  },
 ]
 
 type AppShellProps = {
@@ -150,11 +166,37 @@ export function AppShell({ title, subtitle, badge, children }: AppShellProps) {
             <SidebarGroupLabel>Navigation</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {navItems.map((item) => (
+                {primaryNavItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
                       asChild
-                      isActive={pathname === item.href}
+                      isActive={item.matches ? item.matches(pathname) : pathname === item.href}
+                      tooltip={item.title}
+                    >
+                      <Link
+                        href={item.href}
+                        aria-disabled={item.disabled}
+                        className={item.disabled ? "pointer-events-none opacity-50" : ""}
+                      >
+                        <item.icon />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+
+          <SidebarGroup>
+            <SidebarGroupLabel>Imports</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {importNavItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={item.matches ? item.matches(pathname) : pathname === item.href}
                       tooltip={item.title}
                     >
                       <Link
