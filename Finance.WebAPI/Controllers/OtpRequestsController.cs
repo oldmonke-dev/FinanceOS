@@ -167,38 +167,15 @@ namespace Finance.WebAPI.Controllers
                 });
             }
 
-            var templatePayload = new
-            {
-                templateName = "Finance OTP Forwarder",
-                version = 1,
-                user = new
-                {
-                    id = user.Id,
-                    email = user.Email,
-                    displayName = user.DisplayName,
-                },
-                workflow = new
-                {
-                    trigger = "incoming_sms",
-                    activeWindowMinutes = Math.Max(_otpOptions.ActiveWindowMinutes, 1),
-                    destination = "finance-otp-ingestion",
-                    ingestionUrl = $"{normalizedFrontendBaseUrl}/api-proxy/OtpRequests/ingest",
-                    method = "POST",
-                    authorizationHeader = $"Bearer {deviceToken}",
-                    contentType = "application/json",
-                    payload = new
-                    {
-                        sender = "{sender}",
-                        message = "{message}",
-                        receivedAt = "{receivedAtIsoUtc}",
-                    },
-                },
-                tokenRotated = request?.RotateExistingToken ?? true,
-            };
+            var templatePayload = BuildMacroDroidTemplatePayload(
+                user.DisplayName,
+                user.Email,
+                normalizedFrontendBaseUrl,
+                deviceToken);
 
             return Ok(new OtpTemplateDTO
             {
-                FileName = $"macrodroid-otp-{SanitizeFilePart(user.Email)}.json",
+                FileName = $"macrodroid-otp-{SanitizeFilePart(user.Email)}.macro",
                 ContentType = "application/json",
                 TemplateJson = JsonSerializer.Serialize(templatePayload, new JsonSerializerOptions
                 {
@@ -377,6 +354,119 @@ namespace Finance.WebAPI.Controllers
             }
 
             return uri.ToString().TrimEnd('/');
+        }
+
+        private static object BuildMacroDroidTemplatePayload(
+            string displayName,
+            string email,
+            string frontendBaseUrl,
+            string deviceToken)
+        {
+            var macroGuid = NextMacroDroidId();
+            var actionGuid = NextMacroDroidId();
+            var triggerGuid = NextMacroDroidId();
+
+            return new
+            {
+                globalVariables = Array.Empty<object>(),
+                macro = new
+                {
+                    breakpoints = Array.Empty<object>(),
+                    disabledTimestamp = 0,
+                    exportedActionBlocks = Array.Empty<object>(),
+                    forceEvenIfNotEnabledTimestamp = 0,
+                    isActionBlock = false,
+                    isExtra = false,
+                    isFavourite = false,
+                    lastEditedTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    localVariables = Array.Empty<object>(),
+                    localVarsAlphabetical = true,
+                    m_GUID = macroGuid,
+                    m_actionList = new object[]
+                    {
+                        new
+                        {
+                            requestConfig = new
+                            {
+                                allowAnyCertificate = false,
+                                basicAuthEnabled = false,
+                                basicAuthPassword = string.Empty,
+                                basicAuthUsername = string.Empty,
+                                blockNextAction = false,
+                                contentBodyFileDisplayName = string.Empty,
+                                contentBodyFileUri = string.Empty,
+                                contentBodySource = 0,
+                                contentBodyText = "{\"sender\":\"{sms_number}\",\"message\":\"{sms_message}\"}",
+                                contentType = "application/json",
+                                followRedirects = true,
+                                headerParams = new object[]
+                                {
+                                    new
+                                    {
+                                        paramName = "Authorization",
+                                        paramValue = $"Bearer {deviceToken}",
+                                    },
+                                },
+                                queryParams = Array.Empty<object>(),
+                                requestTimeOutSeconds = 15,
+                                requestType = 1,
+                                responseVariableName = "otp_response",
+                                returnCodeVariableName = "otp_status_code",
+                                saveResponseFileName = string.Empty,
+                                saveResponseFolderPathDisplayName = string.Empty,
+                                saveResponseFolderPathUri = string.Empty,
+                                saveResponseType = 1,
+                                saveReturnCodeToVariable = true,
+                                saveReturnHeadersToVariable = false,
+                                urlToOpen = $"{frontendBaseUrl}/api-proxy/OtpRequests/ingest",
+                            },
+                            m_SIGUID = actionGuid,
+                            m_classType = "HttpRequestAction",
+                            m_constraintList = Array.Empty<object>(),
+                            m_isDisabled = false,
+                            m_isOrCondition = false,
+                        },
+                    },
+                    m_category = "Finance OTP",
+                    m_constraintList = Array.Empty<object>(),
+                    m_description = $"Forward incoming SMS to Finance OTP ingestion endpoint for {email}.",
+                    m_descriptionOpen = false,
+                    m_enabled = true,
+                    m_excludeLog = false,
+                    m_headingColor = 0,
+                    m_isOrCondition = false,
+                    m_name = $"Finance OTP Forwarder - {displayName}",
+                    m_triggerList = new object[]
+                    {
+                        new
+                        {
+                            enableRegex = false,
+                            ignoreCase = true,
+                            isExcludeContact = false,
+                            m_exactMatch = false,
+                            m_excludes = false,
+                            m_groupIdList = Array.Empty<object>(),
+                            m_groupNameList = Array.Empty<object>(),
+                            m_option = 3,
+                            m_smsContent = string.Empty,
+                            m_smsFromList = Array.Empty<object>(),
+                            m_smsNumberExclude = false,
+                            disableLogging = false,
+                            m_SIGUID = triggerGuid,
+                            m_classType = "IncomingSMSTrigger",
+                            m_constraintList = Array.Empty<object>(),
+                            m_isDisabled = false,
+                            m_isOrCondition = false,
+                        },
+                    },
+                },
+                macroExportVersion = 1,
+            };
+        }
+
+        private static long NextMacroDroidId()
+        {
+            return BitConverter.ToInt64(RandomNumberGenerator.GetBytes(sizeof(long)));
         }
     }
 }
