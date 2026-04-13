@@ -1,7 +1,9 @@
 export type OtpForwardedMessage = {
   id: string
   senderMasked: string
+  sender: string | null
   messagePreview: string
+  message: string | null
   receivedAt: string
 }
 

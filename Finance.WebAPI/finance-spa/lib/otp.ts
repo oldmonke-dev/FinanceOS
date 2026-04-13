@@ -7,7 +7,15 @@ function normalizeForwardedMessage(raw: Record<string, unknown>) {
   return {
     id: String(raw.id ?? raw.Id ?? ""),
     senderMasked: String(raw.senderMasked ?? raw.SenderMasked ?? ""),
+    sender:
+      raw.sender == null && raw.Sender == null
+        ? null
+        : String(raw.sender ?? raw.Sender),
     messagePreview: String(raw.messagePreview ?? raw.MessagePreview ?? ""),
+    message:
+      raw.message == null && raw.Message == null
+        ? null
+        : String(raw.message ?? raw.Message),
     receivedAt: String(raw.receivedAt ?? raw.ReceivedAt ?? ""),
   }
 }
@@ -125,7 +133,7 @@ export async function downloadOtpTemplate(): Promise<OtpTemplate> {
 
   return {
     fileName: String(raw.fileName ?? raw.FileName ?? "macrodroid-otp.json"),
-    contentType: String(raw.contentType ?? raw.ContentType ?? "application/json"),
+    contentType: String(raw.contentType ?? raw.ContentType ?? "application/octet-stream"),
     templateJson: String(raw.templateJson ?? raw.TemplateJson ?? "{}"),
     issuedAt: String(raw.issuedAt ?? raw.IssuedAt ?? new Date().toISOString()),
   }

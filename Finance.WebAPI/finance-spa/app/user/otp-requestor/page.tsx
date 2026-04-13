@@ -133,8 +133,11 @@ export default function OtpRequestorPage() {
       const blob = new Blob([template.templateJson], { type: template.contentType })
       const objectUrl = window.URL.createObjectURL(blob)
       const link = document.createElement("a")
+      const normalizedFileName = template.fileName.endsWith(".macro")
+        ? template.fileName
+        : `${template.fileName.replace(/\.json$/i, "")}.macro`
       link.href = objectUrl
-      link.download = template.fileName
+      link.download = normalizedFileName
       document.body.append(link)
       link.click()
       link.remove()
@@ -294,7 +297,7 @@ export default function OtpRequestorPage() {
             <div className="space-y-1">
               <h2 className="text-lg font-semibold">Forwarded SMS</h2>
               <p className="text-sm text-muted-foreground">
-                Only masked sender details and redacted previews are shown here. Full SMS content remains encrypted at rest.
+                Active requests show full sender and OTP text. Closed requests fall back to masked sender details and redacted previews.
               </p>
             </div>
 
@@ -307,10 +310,12 @@ export default function OtpRequestorPage() {
                 recentMessages.map((message) => (
                   <div key={message.id} className="rounded-2xl border bg-background/70 p-4 text-sm">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="font-medium">{message.senderMasked}</span>
+                      <span className="font-medium">{message.sender ?? message.senderMasked}</span>
                       <span className="text-xs text-muted-foreground">{formatDateTime(message.receivedAt)}</span>
                     </div>
-                    <p className="mt-2 text-muted-foreground">{message.messagePreview}</p>
+                    <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
+                      {message.message ?? message.messagePreview}
+                    </p>
                   </div>
                 ))
               )}

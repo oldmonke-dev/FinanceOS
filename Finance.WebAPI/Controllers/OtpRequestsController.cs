@@ -176,7 +176,7 @@ namespace Finance.WebAPI.Controllers
             return Ok(new OtpTemplateDTO
             {
                 FileName = $"macrodroid-otp-{SanitizeFilePart(user.Email)}.macro",
-                ContentType = "application/json",
+                ContentType = "application/octet-stream",
                 TemplateJson = JsonSerializer.Serialize(templatePayload, new JsonSerializerOptions
                 {
                     WriteIndented = true,
@@ -252,12 +252,13 @@ namespace Finance.WebAPI.Controllers
             return Accepted(new { message = "OTP message accepted.", otpRequestId = otpRequest.Id });
         }
 
-        private static OtpRequestDTO MapRequest(
+        private OtpRequestDTO MapRequest(
             OtpRequest request,
             DateTime now,
             IReadOnlyDictionary<Guid, Finance.Domain.Entities.Core.User> targetUsers)
         {
             targetUsers.TryGetValue(request.TargetUserId, out var targetUser);
+            var isActive = request.ClosedAt == null && request.ExpiresAt > now;
 
             return new OtpRequestDTO
             {
@@ -267,7 +268,7 @@ namespace Finance.WebAPI.Controllers
                 TargetEmail = targetUser?.Email ?? string.Empty,
                 RequestedAt = request.RequestedAt,
                 ExpiresAt = request.ExpiresAt,
-                IsActive = request.ClosedAt == null && request.ExpiresAt > now,
+                IsActive = isActive,
                 LastForwardedAt = request.LastForwardedAt,
                 ForwardedMessageCount = request.Messages.Count,
                 Messages = request.Messages
@@ -277,7 +278,9 @@ namespace Finance.WebAPI.Controllers
                     {
                         Id = item.Id,
                         SenderMasked = item.SenderMasked,
+                        Sender = isActive ? TryUnprotect(item.SenderEncrypted) : null,
                         MessagePreview = item.MessagePreview,
+                        Message = isActive ? TryUnprotect(item.MessageEncrypted) : null,
                         ReceivedAt = item.ReceivedAt,
                     })
                     .ToList(),
@@ -467,6 +470,18 @@ namespace Finance.WebAPI.Controllers
         private static long NextMacroDroidId()
         {
             return BitConverter.ToInt64(RandomNumberGenerator.GetBytes(sizeof(long)));
+        }
+
+        private string? TryUnprotect(string protectedValue)
+        {
+            try
+            {
+                return _otpProtector.Unprotect(protectedValue);
+            }
+            catch
+            {
+                return null;
+            }
         }
     }
 }
