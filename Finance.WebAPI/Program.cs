@@ -22,6 +22,7 @@ if (string.IsNullOrWhiteSpace(authOptions.JwtSecret))
 }
 
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection("Auth"));
+builder.Services.Configure<OtpOptions>(builder.Configuration.GetSection("Otp"));
 builder.Services.Configure<TabulaOptions>(builder.Configuration.GetSection("Tabula"));
 builder.Services.Configure<CamelotOptions>(builder.Configuration.GetSection("Camelot"));
 
@@ -36,6 +37,7 @@ builder.Services.AddControllers()
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+builder.Services.AddDataProtection();
 var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(authOptions.JwtSecret));
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -104,6 +106,7 @@ using (var scope = app.Services.CreateScope())
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     dbContext.Database.Migrate();
     await AppDbContextSeed.EnsureAccountMetadataColumnsAsync(dbContext);
+    await AppDbContextSeed.EnsureOtpTablesAsync(dbContext);
     await AppDbContextSeed.SeedBootstrapUsersAsync(
         dbContext,
         authOptions.BootstrapUsers.Select(user => (user.Email, user.Password)));

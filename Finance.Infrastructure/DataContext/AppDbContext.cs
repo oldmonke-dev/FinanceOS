@@ -23,6 +23,9 @@ namespace Finance.Infrastructure.Data
         public DbSet<ImportSessionRow> ImportSessionRows => Set<ImportSessionRow>();
         public DbSet<ImportLearningStat> ImportLearningStats => Set<ImportLearningStat>();
         public DbSet<ImportSessionLearningEntry> ImportSessionLearningEntries => Set<ImportSessionLearningEntry>();
+        public DbSet<OtpDeviceRegistration> OtpDeviceRegistrations => Set<OtpDeviceRegistration>();
+        public DbSet<OtpRequest> OtpRequests => Set<OtpRequest>();
+        public DbSet<OtpForwardedMessage> OtpForwardedMessages => Set<OtpForwardedMessage>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -295,6 +298,80 @@ namespace Finance.Infrastructure.Data
                     .WithMany()
                     .HasForeignKey(item => item.DestinationAccountId)
                     .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<OtpDeviceRegistration>(entity =>
+            {
+                entity.HasKey(item => item.UserId);
+
+                entity.Property(item => item.TokenHash)
+                    .IsRequired()
+                    .HasMaxLength(200);
+
+                entity.Property(item => item.CreatedAt)
+                    .HasColumnType("timestamp with time zone");
+
+                entity.Property(item => item.UpdatedAt)
+                    .HasColumnType("timestamp with time zone");
+            });
+
+            modelBuilder.Entity<OtpRequest>(entity =>
+            {
+                entity.HasKey(item => item.Id);
+
+                entity.HasIndex(item => new { item.UserId, item.ExpiresAt });
+                entity.HasIndex(item => new { item.TargetUserId, item.ExpiresAt });
+
+                entity.Property(item => item.RequestedAt)
+                    .HasColumnType("timestamp with time zone");
+
+                entity.Property(item => item.ExpiresAt)
+                    .HasColumnType("timestamp with time zone");
+
+                entity.Property(item => item.ClosedAt)
+                    .HasColumnType("timestamp with time zone");
+
+                entity.Property(item => item.LastForwardedAt)
+                    .HasColumnType("timestamp with time zone");
+
+                entity.HasOne<User>()
+                    .WithMany()
+                    .HasForeignKey(item => item.TargetUserId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<OtpForwardedMessage>(entity =>
+            {
+                entity.HasKey(item => item.Id);
+
+                entity.Property(item => item.SenderMasked)
+                    .IsRequired()
+                    .HasMaxLength(100);
+
+                entity.Property(item => item.SenderEncrypted)
+                    .IsRequired()
+                    .HasColumnType("text");
+
+                entity.Property(item => item.MessagePreview)
+                    .IsRequired()
+                    .HasMaxLength(220);
+
+                entity.Property(item => item.MessageEncrypted)
+                    .IsRequired()
+                    .HasColumnType("text");
+
+                entity.Property(item => item.ReceivedAt)
+                    .HasColumnType("timestamp with time zone");
+
+                entity.Property(item => item.CreatedAt)
+                    .HasColumnType("timestamp with time zone");
+
+                entity.HasIndex(item => new { item.OtpRequestId, item.ReceivedAt });
+
+                entity.HasOne(item => item.OtpRequest)
+                    .WithMany(request => request.Messages)
+                    .HasForeignKey(item => item.OtpRequestId)
+                    .OnDelete(DeleteBehavior.Cascade);
             });
 
         }

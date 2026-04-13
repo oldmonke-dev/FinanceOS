@@ -9,6 +9,7 @@ import {
   FolderTree,
   HelpCircle,
   Home,
+  KeyRound,
   LogOut,
   ScanText,
   PieChart,
@@ -17,6 +18,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   TableOfContents,
+  UserCog,
 } from "lucide-react"
 
 import { useAuth } from "@/components/providers/auth-provider"
@@ -68,6 +70,12 @@ const importNavItems: NavItem[] = [
     icon: ScanText,
     matches: (pathname) => pathname === "/import/pdf",
   },
+]
+
+const userNavItems: NavItem[] = [
+  { title: "Permission Matrix", href: "/user/permissions", icon: ShieldCheck },
+  { title: "User Preferences", href: "/user/preferences", icon: UserCog },
+  { title: "OTP Requestor", href: "/user/otp-requestor", icon: KeyRound },
 ]
 
 type AppShellProps = {
@@ -213,6 +221,32 @@ export function AppShell({ title, subtitle, badge, children }: AppShellProps) {
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
+
+          <SidebarGroup>
+            <SidebarGroupLabel>User</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {userNavItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={item.matches ? item.matches(pathname) : pathname === item.href}
+                      tooltip={item.title}
+                    >
+                      <Link
+                        href={item.href}
+                        aria-disabled={item.disabled}
+                        className={item.disabled ? "pointer-events-none opacity-50" : ""}
+                      >
+                        <item.icon />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
         </SidebarContent>
 
         <SidebarFooter className="p-3">
@@ -283,35 +317,7 @@ export function AppShell({ title, subtitle, badge, children }: AppShellProps) {
 
 function SidebarOverflowHint({ hasHorizontalOverflow }: { hasHorizontalOverflow: boolean }) {
   const { state } = useSidebar()
-  const [isHintVisible, setIsHintVisible] = useState(false)
-  const lastOverflowStateRef = useRef(false)
-
-  useEffect(() => {
-    const shouldShowHint = hasHorizontalOverflow && state !== "collapsed"
-    const overflowStarted = shouldShowHint && !lastOverflowStateRef.current
-
-    lastOverflowStateRef.current = shouldShowHint
-
-    if (!shouldShowHint) {
-      setIsHintVisible(false)
-      return
-    }
-
-    if (!overflowStarted) {
-      return
-    }
-
-    setIsHintVisible(true)
-    const timeoutId = window.setTimeout(() => {
-      setIsHintVisible(false)
-    }, 3000)
-
-    return () => {
-      window.clearTimeout(timeoutId)
-    }
-  }, [hasHorizontalOverflow, state])
-
-  const showHint = hasHorizontalOverflow && state !== "collapsed" && isHintVisible
+  const showHint = hasHorizontalOverflow && state !== "collapsed"
 
   return (
     <div className="flex shrink-0 items-center gap-2">

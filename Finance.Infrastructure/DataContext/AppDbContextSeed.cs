@@ -84,6 +84,83 @@ namespace Finance.Infrastructure.Data
             await dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
         }
 
+        public static async Task EnsureOtpTablesAsync(
+            AppDbContext dbContext,
+            CancellationToken cancellationToken = default)
+        {
+            const string sql = """
+                CREATE TABLE IF NOT EXISTS "OtpDeviceRegistrations" (
+                    "UserId" uuid NOT NULL,
+                    "TokenHash" character varying(200) NOT NULL,
+                    "CreatedAt" timestamp with time zone NOT NULL,
+                    "UpdatedAt" timestamp with time zone NOT NULL,
+                    CONSTRAINT "PK_OtpDeviceRegistrations" PRIMARY KEY ("UserId"),
+                    CONSTRAINT "FK_OtpDeviceRegistrations_Users_UserId" FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS "OtpRequests" (
+                    "Id" uuid NOT NULL,
+                    "UserId" uuid NOT NULL,
+                    "TargetUserId" uuid NULL,
+                    "RequestedAt" timestamp with time zone NOT NULL,
+                    "ExpiresAt" timestamp with time zone NOT NULL,
+                    "ClosedAt" timestamp with time zone NULL,
+                    "LastForwardedAt" timestamp with time zone NULL,
+                    CONSTRAINT "PK_OtpRequests" PRIMARY KEY ("Id"),
+                    CONSTRAINT "FK_OtpRequests_Users_UserId" FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+                );
+
+                CREATE INDEX IF NOT EXISTS "IX_OtpRequests_UserId_ExpiresAt"
+                    ON "OtpRequests" ("UserId", "ExpiresAt");
+
+                ALTER TABLE "OtpRequests"
+                ADD COLUMN IF NOT EXISTS "TargetUserId" uuid;
+
+                UPDATE "OtpRequests"
+                SET "TargetUserId" = "UserId"
+                WHERE "TargetUserId" IS NULL;
+
+                ALTER TABLE "OtpRequests"
+                ALTER COLUMN "TargetUserId" SET NOT NULL;
+
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM pg_constraint
+                        WHERE conname = 'FK_OtpRequests_Users_TargetUserId'
+                    ) THEN
+                        ALTER TABLE "OtpRequests"
+                        ADD CONSTRAINT "FK_OtpRequests_Users_TargetUserId"
+                        FOREIGN KEY ("TargetUserId") REFERENCES "Users" ("Id") ON DELETE RESTRICT;
+                    END IF;
+                END $$;
+
+                CREATE INDEX IF NOT EXISTS "IX_OtpRequests_TargetUserId_ExpiresAt"
+                    ON "OtpRequests" ("TargetUserId", "ExpiresAt");
+
+                CREATE TABLE IF NOT EXISTS "OtpForwardedMessages" (
+                    "Id" uuid NOT NULL,
+                    "OtpRequestId" uuid NOT NULL,
+                    "UserId" uuid NOT NULL,
+                    "SenderMasked" character varying(100) NOT NULL,
+                    "SenderEncrypted" text NOT NULL,
+                    "MessagePreview" character varying(220) NOT NULL,
+                    "MessageEncrypted" text NOT NULL,
+                    "ReceivedAt" timestamp with time zone NOT NULL,
+                    "CreatedAt" timestamp with time zone NOT NULL,
+                    CONSTRAINT "PK_OtpForwardedMessages" PRIMARY KEY ("Id"),
+                    CONSTRAINT "FK_OtpForwardedMessages_OtpRequests_OtpRequestId" FOREIGN KEY ("OtpRequestId") REFERENCES "OtpRequests" ("Id") ON DELETE CASCADE,
+                    CONSTRAINT "FK_OtpForwardedMessages_Users_UserId" FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+                );
+
+                CREATE INDEX IF NOT EXISTS "IX_OtpForwardedMessages_OtpRequestId_ReceivedAt"
+                    ON "OtpForwardedMessages" ("OtpRequestId", "ReceivedAt");
+                """;
+
+            await dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
+        }
+
         public static async Task SeedBootstrapUsersAsync(
             AppDbContext dbContext,
             IEnumerable<(string Email, string Password)> bootstrapUsers,
