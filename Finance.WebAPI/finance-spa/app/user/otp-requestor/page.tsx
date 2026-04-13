@@ -175,6 +175,48 @@ export default function OtpRequestorPage() {
     }
   }
 
+  async function handleCopyMessage(message: OtpForwardedMessage) {
+    const value = message.message ?? message.messagePreview
+
+    try {
+      await navigator.clipboard.writeText(value)
+      showSnackbar({
+        message: "Message copied.",
+        tone: "success",
+      })
+    } catch {
+      showSnackbar({
+        message: "Failed to copy message.",
+        tone: "error",
+      })
+    }
+  }
+
+  async function handleCopyOtp(message: OtpForwardedMessage) {
+    const otp = extractOtpFromMessage(message.message ?? message.messagePreview)
+
+    if (!otp) {
+      showSnackbar({
+        message: "No OTP detected in this message.",
+        tone: "error",
+      })
+      return
+    }
+
+    try {
+      await navigator.clipboard.writeText(otp)
+      showSnackbar({
+        message: `OTP copied: ${otp}`,
+        tone: "success",
+      })
+    } catch {
+      showSnackbar({
+        message: "Failed to copy OTP.",
+        tone: "error",
+      })
+    }
+  }
+
   return (
     <AppShell
       title="OTP Requestor"
@@ -280,6 +322,25 @@ export default function OtpRequestorPage() {
                   <p className="mt-1.5 line-clamp-3 whitespace-pre-wrap text-muted-foreground">
                     {message.message ?? message.messagePreview}
                   </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleCopyMessage(message)}
+                    >
+                      Copy Message
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleCopyOtp(message)}
+                      disabled={!extractOtpFromMessage(message.message ?? message.messagePreview)}
+                    >
+                      {formatCopyOtpLabel(message)}
+                    </Button>
+                  </div>
                 </div>
               ))
             )}
@@ -434,4 +495,26 @@ function formatDateTime(value: string) {
     dateStyle: "medium",
     timeStyle: "short",
   })
+}
+
+function extractOtpFromMessage(message: string) {
+  const prioritizedPatterns = [
+    /\b(?:otp|code|passcode|verification code|one[- ]time password)[^\d]{0,20}(\d{4,8})\b/i,
+    /\b(\d{6})\b/,
+    /\b(\d{4,8})\b/,
+  ]
+
+  for (const pattern of prioritizedPatterns) {
+    const match = message.match(pattern)
+    if (match?.[1]) {
+      return match[1]
+    }
+  }
+
+  return null
+}
+
+function formatCopyOtpLabel(message: OtpForwardedMessage) {
+  const otp = extractOtpFromMessage(message.message ?? message.messagePreview)
+  return otp ? `Copy OTP '${otp}'` : "Copy OTP"
 }
