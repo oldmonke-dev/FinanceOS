@@ -180,16 +180,16 @@ export default function OtpRequestorPage() {
       title="OTP Requestor"
       subtitle="Request secure OTP forwarding windows and download your MacroDroid template"
     >
-      <div className="mx-auto grid w-full max-w-5xl gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-        <section className="rounded-3xl border bg-card p-6 shadow-sm">
+      <div className="mx-auto grid w-full max-w-7xl gap-4 xl:grid-cols-3">
+        <section className="rounded-3xl border bg-card p-5 shadow-sm">
           <div className="space-y-2">
             <h2 className="text-lg font-semibold">Request Window</h2>
             <p className="text-sm text-muted-foreground">
-              Each request opens a 5-minute window. Forwarded SMS is accepted only while a request is active, and message payloads are encrypted at rest on the backend.
+              Each request opens a 5-minute window for the selected target user.
             </p>
           </div>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-3">
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
             <StatusCard
               label="Status"
               value={activeRequest ? "Active" : "Idle"}
@@ -203,12 +203,11 @@ export default function OtpRequestorPage() {
             <StatusCard
               label="Target User"
               value={activeRequest?.targetDisplayName ?? "Not selected"}
-              subvalue={activeRequest?.targetEmail ?? ""}
               tone="muted"
             />
           </div>
 
-          <label className="mt-6 block space-y-2">
+          <label className="mt-4 block space-y-2">
             <span className="text-sm font-medium">Request OTP From</span>
             <select
               value={selectedTargetUserId}
@@ -223,7 +222,7 @@ export default function OtpRequestorPage() {
             </select>
           </label>
 
-          <div className="mt-6 flex flex-wrap gap-3">
+          <div className="mt-4 flex flex-wrap gap-2">
             <Button
               type="button"
               onClick={() => void handleRequestOtp()}
@@ -245,49 +244,86 @@ export default function OtpRequestorPage() {
             </Button>
           </div>
 
-          <div className="mt-6 rounded-2xl border bg-background/70 p-4">
+          <div className="mt-4 rounded-2xl border bg-background/70 p-3">
             <p className="text-sm font-medium">Workflow</p>
-            <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
-              <li>Download your MacroDroid template to register or rotate your device token.</li>
-              <li>Select the specific user whose phone will forward the OTP SMS.</li>
-              <li>Request an OTP window before starting the target login or verification flow.</li>
-              <li>Forwarded SMS is accepted only during the active 5-minute window for that selected user.</li>
-            </ol>
+            <div className="mt-2 space-y-1 text-sm text-muted-foreground">
+              <p>1. Download template.</p>
+              <p>2. Select target user.</p>
+              <p>3. Open 5-minute window.</p>
+              <p>4. Receive forwarded SMS.</p>
+            </div>
           </div>
 
           {isLoading ? <p className="mt-4 text-sm text-muted-foreground">Loading OTP activity...</p> : null}
         </section>
 
-        <section className="space-y-6">
-          <section className="rounded-3xl border bg-card p-6 shadow-sm">
+        <section className="rounded-3xl border bg-card p-5 shadow-sm">
+          <div className="space-y-1">
+            <h2 className="text-lg font-semibold">Forwarded SMS</h2>
+            <p className="text-sm text-muted-foreground">
+              Active requests show full sender and OTP text.
+            </p>
+          </div>
+
+          <div className="mt-3 space-y-2.5">
+            {recentMessages.length === 0 ? (
+              <div className="rounded-2xl border border-dashed bg-background/50 p-3 text-sm text-muted-foreground">
+                No forwarded SMS received yet.
+              </div>
+            ) : (
+              pagedMessages.map((message) => (
+                <div key={message.id} className="rounded-2xl border bg-background/70 p-3 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-medium">{message.sender ?? message.senderMasked}</span>
+                    <span className="text-xs text-muted-foreground">{formatDateTime(message.receivedAt)}</span>
+                  </div>
+                  <p className="mt-1.5 line-clamp-3 whitespace-pre-wrap text-muted-foreground">
+                    {message.message ?? message.messagePreview}
+                  </p>
+                </div>
+              ))
+            )}
+          </div>
+          {recentMessages.length > PAGE_SIZE ? (
+            <PaginationControls
+              page={messagePage}
+              pageCount={messagePageCount}
+              onPrevious={() => setMessagePage((current) => Math.max(1, current - 1))}
+              onNext={() => setMessagePage((current) => Math.min(messagePageCount, current + 1))}
+            />
+          ) : null}
+        </section>
+
+        <section className="space-y-4">
+          <section className="rounded-3xl border bg-card p-5 shadow-sm">
             <div className="space-y-1">
               <h2 className="text-lg font-semibold">Template Identity</h2>
               <p className="text-sm text-muted-foreground">
-                The template is tied to your current user and posts to `https://finos-staging.oldmonke.com/api-proxy/OtpRequests/ingest`.
+                Template is tied to your current user.
               </p>
             </div>
 
-            <dl className="mt-4 space-y-3 text-sm">
+            <dl className="mt-3 space-y-2 text-sm">
               <IdentityRow label="User ID" value={user?.id ?? "Unavailable"} />
               <IdentityRow label="Display Name" value={user?.displayName ?? "Unavailable"} />
               <IdentityRow label="Email" value={user?.email ?? "Unavailable"} />
             </dl>
           </section>
 
-          <section className="rounded-3xl border bg-card p-6 shadow-sm">
+          <section className="rounded-3xl border bg-card p-5 shadow-sm">
             <div className="space-y-1">
               <h2 className="text-lg font-semibold">Recent Requests</h2>
               <p className="text-sm text-muted-foreground">
-                Server-backed request history for your latest OTP windows.
+                Latest OTP windows.
               </p>
             </div>
 
-            <div className="mt-4 space-y-3">
+            <div className="mt-3 space-y-2.5">
               {requests.length === 0 && !isLoading ? (
                 <p className="text-sm text-muted-foreground">No OTP requests yet.</p>
               ) : (
                 pagedRequests.map((item) => (
-                  <div key={item.id} className="rounded-2xl border bg-background/70 p-4 text-sm">
+                  <div key={item.id} className="rounded-2xl border bg-background/70 p-3 text-sm">
                     <div className="flex items-center justify-between gap-3">
                       <div className="font-medium">{formatDateTime(item.requestedAt)}</div>
                       <span className={`rounded-full px-2 py-1 text-xs font-medium ${
@@ -318,43 +354,6 @@ export default function OtpRequestorPage() {
               />
             ) : null}
           </section>
-
-          <section className="rounded-3xl border bg-card p-6 shadow-sm">
-            <div className="space-y-1">
-              <h2 className="text-lg font-semibold">Forwarded SMS</h2>
-              <p className="text-sm text-muted-foreground">
-                Active requests show full sender and OTP text. Closed requests fall back to masked sender details and redacted previews.
-              </p>
-            </div>
-
-            <div className="mt-4 space-y-3">
-              {recentMessages.length === 0 ? (
-                <div className="rounded-2xl border border-dashed bg-background/50 p-4 text-sm text-muted-foreground">
-                  No forwarded SMS received yet.
-                </div>
-              ) : (
-                pagedMessages.map((message) => (
-                  <div key={message.id} className="rounded-2xl border bg-background/70 p-4 text-sm">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="font-medium">{message.sender ?? message.senderMasked}</span>
-                      <span className="text-xs text-muted-foreground">{formatDateTime(message.receivedAt)}</span>
-                    </div>
-                    <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
-                      {message.message ?? message.messagePreview}
-                    </p>
-                  </div>
-                ))
-              )}
-            </div>
-            {recentMessages.length > PAGE_SIZE ? (
-              <PaginationControls
-                page={messagePage}
-                pageCount={messagePageCount}
-                onPrevious={() => setMessagePage((current) => Math.max(1, current - 1))}
-                onNext={() => setMessagePage((current) => Math.min(messagePageCount, current + 1))}
-              />
-            ) : null}
-          </section>
         </section>
       </div>
     </AppShell>
@@ -373,11 +372,11 @@ function StatusCard({
   tone: "success" | "muted"
 }) {
   return (
-    <div className="rounded-2xl border bg-background/70 p-4">
+    <div className="rounded-2xl border bg-background/70 p-3">
       <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
         {label}
       </p>
-      <p className={`mt-2 text-lg font-semibold ${tone === "success" ? "text-emerald-700" : ""}`}>
+      <p className={`mt-1.5 text-base font-semibold ${tone === "success" ? "text-emerald-700" : ""}`}>
         {value}
       </p>
       {subvalue ? <p className="mt-1 text-xs text-muted-foreground">{subvalue}</p> : null}
@@ -387,7 +386,7 @@ function StatusCard({
 
 function IdentityRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b pb-3 last:border-b-0 last:pb-0">
+    <div className="flex items-start justify-between gap-4 border-b pb-2 last:border-b-0 last:pb-0">
       <dt className="text-muted-foreground">{label}</dt>
       <dd className="text-right font-medium">{value}</dd>
     </div>
@@ -406,7 +405,7 @@ function PaginationControls({
   onNext: () => void
 }) {
   return (
-    <div className="mt-4 flex items-center justify-between gap-3 text-sm">
+    <div className="mt-3 flex items-center justify-between gap-3 text-sm">
       <Button type="button" variant="outline" size="sm" onClick={onPrevious} disabled={page <= 1}>
         Previous
       </Button>

@@ -51,7 +51,7 @@ export function UserAccountPermissionMatrixPage() {
 
   return (
     <AppShell
-      title="Permission Matrix"
+      title="Permissions"
       subtitle="Current effective access for your account list"
       badge={badgeText}
     >
@@ -116,7 +116,7 @@ export function UserAccountPermissionMatrixPage() {
                         href={
                           account.currentUserPermissions.canManageAccess
                             ? `/accounts/${account.id}/permissions`
-                            : `/accounts/${account.id}`
+                            : `/accounts/${account.id}?from=permissions`
                         }
                         className="text-sm font-medium text-primary hover:underline"
                       >

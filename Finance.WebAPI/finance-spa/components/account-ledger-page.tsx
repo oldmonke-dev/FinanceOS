@@ -4,7 +4,7 @@ import { Fragment } from "react"
 import Link from "next/link"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { ArrowLeft, ChevronRight, Landmark, ReceiptText, Redo2, Save, Scale, Trash2, Undo2 } from "lucide-react"
-import { notFound } from "next/navigation"
+import { notFound, useSearchParams } from "next/navigation"
 
 import { AccountSearchSelect } from "@/components/account-search-select"
 import { AppShell } from "@/components/app-shell"
@@ -44,6 +44,7 @@ import type { Transaction } from "@/models/transaction"
 const ACCOUNT_TREE_RESTORE_PENDING_KEY = "finance.account-tree.restore-pending"
 
 export function AccountLedgerPage({ accountId }: { accountId: string }) {
+  const searchParams = useSearchParams()
   const { accounts, isLoading, errorMessage, updateAccount } = useAccounts()
   const { confirm } = useConfirmationDialog()
   const { showSnackbar } = useSnackbar()
@@ -153,6 +154,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
     )
   const canUndo = historyIndex > 0
   const canRedo = historyIndex >= 0 && historyIndex < history.length - 1
+  const isFromPermissionsPage = searchParams.get("from") === "permissions"
 
   useEffect(() => {
     let isCancelled = false
@@ -592,15 +594,15 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
           <div className="flex flex-wrap gap-2">
             <Button asChild type="button" variant="outline">
               <Link
-                href="/accounts"
+                href={isFromPermissionsPage ? "/user/permissions" : "/accounts"}
                 onClick={() => {
-                  if (typeof window !== "undefined") {
+                  if (!isFromPermissionsPage && typeof window !== "undefined") {
                     window.sessionStorage.setItem(ACCOUNT_TREE_RESTORE_PENDING_KEY, "1")
                   }
                 }}
               >
                 <ArrowLeft />
-                Back to account tree
+                {isFromPermissionsPage ? "Back to Permissions Page" : "Back to account tree"}
               </Link>
             </Button>
             {account.currentUserPermissions.canManageAccess ? (

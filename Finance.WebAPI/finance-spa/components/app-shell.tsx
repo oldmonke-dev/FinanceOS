@@ -73,7 +73,7 @@ const importNavItems: NavItem[] = [
 ]
 
 const userNavItems: NavItem[] = [
-  { title: "Permission Matrix", href: "/user/permissions", icon: ShieldCheck },
+  { title: "Permissions", href: "/user/permissions", icon: ShieldCheck },
   { title: "User Preferences", href: "/user/preferences", icon: UserCog },
   { title: "OTP Requestor", href: "/user/otp-requestor", icon: KeyRound },
 ]
