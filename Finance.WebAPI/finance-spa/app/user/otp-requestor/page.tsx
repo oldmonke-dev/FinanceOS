@@ -15,6 +15,8 @@ import {
 import { type OtpForwardedMessage, type OtpRequest } from "@/models/otp"
 import { type User } from "@/models/user"
 
+const PAGE_SIZE = 5
+
 export default function OtpRequestorPage() {
   const { user } = useAuth()
   const { showSnackbar } = useSnackbar()
@@ -25,6 +27,8 @@ export default function OtpRequestorPage() {
   const [isRequesting, setIsRequesting] = useState(false)
   const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false)
   const [now, setNow] = useState(() => Date.now())
+  const [requestPage, setRequestPage] = useState(1)
+  const [messagePage, setMessagePage] = useState(1)
 
   const activeRequest = useMemo(() => {
     return requests.find((item) => item.isActive && new Date(item.expiresAt).getTime() > now) ?? null
@@ -47,8 +51,20 @@ export default function OtpRequestorPage() {
 
     return flattened
       .sort((left, right) => new Date(right.receivedAt).getTime() - new Date(left.receivedAt).getTime())
-      .slice(0, 10)
   }, [requests])
+
+  const pagedRequests = useMemo(() => {
+    const startIndex = (requestPage - 1) * PAGE_SIZE
+    return requests.slice(startIndex, startIndex + PAGE_SIZE)
+  }, [requestPage, requests])
+
+  const pagedMessages = useMemo(() => {
+    const startIndex = (messagePage - 1) * PAGE_SIZE
+    return recentMessages.slice(startIndex, startIndex + PAGE_SIZE)
+  }, [messagePage, recentMessages])
+
+  const requestPageCount = Math.max(1, Math.ceil(requests.length / PAGE_SIZE))
+  const messagePageCount = Math.max(1, Math.ceil(recentMessages.length / PAGE_SIZE))
 
   const loadRequests = useCallback(async (showErrors = true) => {
     try {
@@ -62,6 +78,8 @@ export default function OtpRequestorPage() {
       setSelectedTargetUserId((current) =>
         current || nextUsers[0]?.id || "",
       )
+      setRequestPage(1)
+      setMessagePage(1)
     } catch (error) {
       if (showErrors) {
         showSnackbar({
@@ -268,7 +286,7 @@ export default function OtpRequestorPage() {
               {requests.length === 0 && !isLoading ? (
                 <p className="text-sm text-muted-foreground">No OTP requests yet.</p>
               ) : (
-                requests.map((item) => (
+                pagedRequests.map((item) => (
                   <div key={item.id} className="rounded-2xl border bg-background/70 p-4 text-sm">
                     <div className="flex items-center justify-between gap-3">
                       <div className="font-medium">{formatDateTime(item.requestedAt)}</div>
@@ -279,7 +297,7 @@ export default function OtpRequestorPage() {
                       </span>
                     </div>
                     <div className="mt-1 text-muted-foreground">
-                      Target: {item.targetDisplayName}{item.targetEmail ? ` (${item.targetEmail})` : ""}
+                      Target User: {item.targetDisplayName}
                     </div>
                     <div className="mt-1 text-muted-foreground">
                       Expires at {formatDateTime(item.expiresAt)}
@@ -291,6 +309,14 @@ export default function OtpRequestorPage() {
                 ))
               )}
             </div>
+            {requests.length > PAGE_SIZE ? (
+              <PaginationControls
+                page={requestPage}
+                pageCount={requestPageCount}
+                onPrevious={() => setRequestPage((current) => Math.max(1, current - 1))}
+                onNext={() => setRequestPage((current) => Math.min(requestPageCount, current + 1))}
+              />
+            ) : null}
           </section>
 
           <section className="rounded-3xl border bg-card p-6 shadow-sm">
@@ -307,7 +333,7 @@ export default function OtpRequestorPage() {
                   No forwarded SMS received yet.
                 </div>
               ) : (
-                recentMessages.map((message) => (
+                pagedMessages.map((message) => (
                   <div key={message.id} className="rounded-2xl border bg-background/70 p-4 text-sm">
                     <div className="flex items-center justify-between gap-3">
                       <span className="font-medium">{message.sender ?? message.senderMasked}</span>
@@ -320,6 +346,14 @@ export default function OtpRequestorPage() {
                 ))
               )}
             </div>
+            {recentMessages.length > PAGE_SIZE ? (
+              <PaginationControls
+                page={messagePage}
+                pageCount={messagePageCount}
+                onPrevious={() => setMessagePage((current) => Math.max(1, current - 1))}
+                onNext={() => setMessagePage((current) => Math.min(messagePageCount, current + 1))}
+              />
+            ) : null}
           </section>
         </section>
       </div>
@@ -356,6 +390,32 @@ function IdentityRow({ label, value }: { label: string; value: string }) {
     <div className="flex items-start justify-between gap-4 border-b pb-3 last:border-b-0 last:pb-0">
       <dt className="text-muted-foreground">{label}</dt>
       <dd className="text-right font-medium">{value}</dd>
+    </div>
+  )
+}
+
+function PaginationControls({
+  page,
+  pageCount,
+  onPrevious,
+  onNext,
+}: {
+  page: number
+  pageCount: number
+  onPrevious: () => void
+  onNext: () => void
+}) {
+  return (
+    <div className="mt-4 flex items-center justify-between gap-3 text-sm">
+      <Button type="button" variant="outline" size="sm" onClick={onPrevious} disabled={page <= 1}>
+        Previous
+      </Button>
+      <span className="text-muted-foreground">
+        Page {page} of {pageCount}
+      </span>
+      <Button type="button" variant="outline" size="sm" onClick={onNext} disabled={page >= pageCount}>
+        Next
+      </Button>
     </div>
   )
 }
