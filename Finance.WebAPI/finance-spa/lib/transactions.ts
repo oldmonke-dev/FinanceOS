@@ -14,6 +14,7 @@ function normalizeTransaction(raw: Record<string, unknown>): Transaction {
   return {
     id: String(raw.id ?? raw.Id ?? ""),
     transactionDate: String(raw.transactionDate ?? raw.TransactionDate ?? ""),
+    ledgerSequence: Number(raw.ledgerSequence ?? raw.LedgerSequence ?? raw.sortOrder ?? raw.SortOrder ?? 0),
     description: String(raw.description ?? raw.Description ?? ""),
     referenceNumber:
       raw.referenceNumber == null && raw.ReferenceNumber == null

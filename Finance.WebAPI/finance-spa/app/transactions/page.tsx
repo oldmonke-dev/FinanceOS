@@ -22,24 +22,30 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { getOppositeSide, getSignedAmount, type SplitSide } from "@/lib/accounting"
+import {
+  getAccountEffectForSplitSide,
+  getOppositeSide,
+  getSplitSideForAccountEffect,
+  getSignedAmount,
+  getTwoSplitAccountLabel,
+  type AccountEffect,
+  type SplitSide,
+} from "@/lib/accounting"
 import { createTransaction } from "@/lib/transactions"
 import { type CreateTransactionInput, type Transaction } from "@/models/transaction"
-
-type SplitSign = "cr" | "dr"
 
 type SplitDraft = {
   accountId: string
   amount: string
   memo: string
-  sign: SplitSign
+  side: SplitSide
 }
 
-const emptySplit = (sign: SplitSign = "dr"): SplitDraft => ({
+const emptySplit = (side: SplitSide = "debit"): SplitDraft => ({
   accountId: "",
   amount: "",
   memo: "",
-  sign,
+  side,
 })
 
 export default function TransactionsPage() {
@@ -52,10 +58,14 @@ export default function TransactionsPage() {
   )
   const [description, setDescription] = useState("")
   const [referenceNumber, setReferenceNumber] = useState("")
-  const [splits, setSplits] = useState<SplitDraft[]>([emptySplit("dr"), emptySplit("cr")])
+  const [splits, setSplits] = useState<SplitDraft[]>([emptySplit("debit"), emptySplit("credit")])
   const hasTwoSplitMirrorMode = splits.length === 2
+  const postableAccounts = useMemo(
+    () => accounts.filter((account) => account.currentUserPermissions.canPost),
+    [accounts],
+  )
   const accountPathLookup = useMemo(() => {
-    const accountById = new Map(accounts.map((account) => [account.id, account]))
+    const accountById = new Map(postableAccounts.map((account) => [account.id, account]))
     const pathById = new Map<string, string>()
 
     function buildPath(accountId: string): string {
@@ -80,25 +90,30 @@ export default function TransactionsPage() {
       return path
     }
 
-    accounts.forEach((account) => {
+    postableAccounts.forEach((account) => {
       buildPath(account.id)
     })
 
     return pathById
-  }, [accounts])
+  }, [postableAccounts])
+  const accountTypeById = useMemo(
+    () => new Map(postableAccounts.map((account) => [account.id, account.accountType])),
+    [postableAccounts],
+  )
 
   const splitTotal = splits.reduce(
     (total, split) => total + getEffectiveSplitAmount(split),
     0,
   )
+  const primarySplitSide = splits[0]?.side ?? "debit"
   const signTooltip =
     hasTwoSplitMirrorMode
-      ? "Choose Dr or Cr for the first split. The paired split automatically uses the opposite sign."
-      : "Dr saves the split as a negative amount. Cr saves it as a positive amount."
+      ? "Choose Increase or Decrease for the first split. The paired split automatically uses the opposite posting side."
+      : "Choose whether the split increases or decreases the selected account."
   const amountTooltip =
     hasTwoSplitMirrorMode
       ? "Enter one amount. The second split mirrors it automatically."
-      : "Enter the absolute amount. The Sign field determines whether it is saved as negative or positive."
+      : "Enter the absolute amount. The Balance Change field determines whether it increases or decreases the selected account."
 
   function updateSplit(index: number, field: keyof SplitDraft, value: string) {
     setSplits((current) => {
@@ -117,19 +132,33 @@ export default function TransactionsPage() {
         }))
       }
 
-      if (field === "sign") {
-        const nextSign = value as SplitSign
-        const mirroredSign = getOppositeSign(nextSign)
-
-        return current.map((split, splitIndex) => ({
-          ...split,
-          sign: splitIndex === index ? nextSign : mirroredSign,
-        }))
-      }
-
       return current.map((split, splitIndex) =>
         splitIndex === index ? { ...split, [field]: value } : split,
       )
+    })
+  }
+
+  function updateSplitEffect(index: number, effect: AccountEffect) {
+    setSplits((current) => {
+      const currentSplit = current[index]
+      if (!currentSplit) {
+        return current
+      }
+
+      const currentAccountType = accountTypeById.get(currentSplit.accountId)
+      const nextSide = getSplitSideForAccountEffect(currentAccountType, effect)
+
+      if (current.length !== 2) {
+        return current.map((split, splitIndex) =>
+          splitIndex === index ? { ...split, side: nextSide } : split,
+        )
+      }
+
+      const mirroredSide = getOppositeSide(nextSide)
+      return current.map((split, splitIndex) => ({
+        ...split,
+        side: splitIndex === index ? nextSide : mirroredSide,
+      }))
     })
   }
 
@@ -154,14 +183,14 @@ export default function TransactionsPage() {
           splits: splits.map((split) => ({
             accountId: split.accountId,
             amount: Math.abs(Number(split.amount || 0)),
-            side: split.sign === "dr" ? "debit" : "credit",
+            side: split.side,
             memo: split.memo,
           })),
         }
 
       const created = await createTransaction(payload)
       setCreatedTransaction(created)
-      setSplits([emptySplit("dr"), emptySplit("cr")])
+      setSplits([emptySplit("debit"), emptySplit("credit")])
       setDescription("")
       setReferenceNumber("")
       showSnackbar({ message: "Transaction created.", tone: "success" })
@@ -179,8 +208,9 @@ export default function TransactionsPage() {
     <AppShell
       title="Transactions"
       subtitle="Create a balanced transaction with split lines"
-      badge={isLoading ? "Loading accounts" : `${accounts.length} accounts available`}
+      badge={isLoading ? "Loading accounts" : `${postableAccounts.length} postable accounts`}
     >
+      <div className="mx-auto w-full space-y-4 xl:w-[65%]">
       <section>
         <form onSubmit={handleSubmit} className="rounded-3xl border bg-card p-6 shadow-sm">
           <div className="grid gap-4 md:grid-cols-2">
@@ -233,10 +263,12 @@ export default function TransactionsPage() {
                 >
                   <label className="space-y-2 text-sm">
                     <span className="flex h-5 items-center font-medium leading-none">
-                      {hasTwoSplitMirrorMode ? (index === 0 ? "From account" : "To account") : "Account"}
+                      {hasTwoSplitMirrorMode
+                        ? getTwoSplitAccountLabel(index, primarySplitSide)
+                        : "Account"}
                     </span>
                     <AccountSearchSelect
-                      accounts={accounts}
+                      accounts={postableAccounts}
                       value={split.accountId}
                       onValueChange={(value) => updateSplit(index, "accountId", value ?? "")}
                       placeholder="Select account"
@@ -244,20 +276,20 @@ export default function TransactionsPage() {
                     />
                   </label>
                   <label className="space-y-2 text-sm">
-                    <span className="flex h-5 items-center gap-1.5 font-medium leading-none">
-                      <span>Sign</span>
+                    <span className="flex h-5 items-center gap-1.5 font-medium leading-none whitespace-nowrap">
+                      <span className="whitespace-nowrap">Balance Change</span>
                       <FieldInfoTooltip content={signTooltip} />
                     </span>
                     <Select
-                      value={split.sign}
-                      onValueChange={(value) => updateSplit(index, "sign", value)}
+                      value={getAccountEffectForSplitSide(accountTypeById.get(split.accountId), split.side)}
+                      onValueChange={(value) => updateSplitEffect(index, value as AccountEffect)}
                     >
                       <SelectTrigger className="h-9">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="cr">Cr</SelectItem>
-                        <SelectItem value="dr">Dr</SelectItem>
+                        <SelectItem value="increase">Increase</SelectItem>
+                        <SelectItem value="decrease">Decrease</SelectItem>
                       </SelectContent>
                     </Select>
                   </label>
@@ -343,7 +375,7 @@ export default function TransactionsPage() {
                   {accountPathLookup.get(split.accountId) ?? "Account"}
                 </p>
                 <p className="text-muted-foreground">
-                  Amount: {split.amount} {split.side === "debit" ? "Dr" : "Cr"}
+                  Balance change: {capitalizeEffect(getAccountEffectForSplitSide(accountTypeById.get(split.accountId), split.side))} {split.amount}
                 </p>
                 {split.memo ? <p className="text-muted-foreground">Memo: {split.memo}</p> : null}
               </div>
@@ -355,6 +387,7 @@ export default function TransactionsPage() {
           </p>
         )}
       </section>
+      </div>
     </AppShell>
   )
 }
@@ -367,15 +400,13 @@ function normalizeUnsignedAmount(value: string) {
   return value.replace(/^[+-]/, "")
 }
 
-function getOppositeSign(sign: SplitSign): SplitSign {
-  const oppositeSide = getOppositeSide(sign === "dr" ? "debit" : "credit")
-  return oppositeSide === "debit" ? "dr" : "cr"
-}
-
 function getEffectiveSplitAmount(split: SplitDraft) {
   const numericValue = Math.abs(Number(split.amount || 0))
-  const side: SplitSide = split.sign === "dr" ? "debit" : "credit"
-  return getSignedAmount(numericValue, side)
+  return getSignedAmount(numericValue, split.side)
+}
+
+function capitalizeEffect(effect: AccountEffect) {
+  return effect === "increase" ? "Increase" : "Decrease"
 }
 
 function FieldInfoTooltip({ content }: { content: string }) {

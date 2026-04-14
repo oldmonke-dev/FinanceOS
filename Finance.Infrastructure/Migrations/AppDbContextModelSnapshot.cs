@@ -39,6 +39,16 @@ namespace Finance.Infrastructure.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<bool>("IsCore")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<bool>("IsGloballyShared")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text");
@@ -52,6 +62,13 @@ namespace Finance.Infrastructure.Migrations
                     b.Property<Guid?>("ParentAccountId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("ReportingMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasDefaultValue("Included");
+
                     b.HasKey("Id");
 
                     b.HasIndex("OwnerUserId");
@@ -59,6 +76,43 @@ namespace Finance.Infrastructure.Migrations
                     b.HasIndex("ParentAccountId");
 
                     b.ToTable("Accounts");
+                });
+
+            modelBuilder.Entity("Finance.Domain.Entities.Core.AccountAccess", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("CanDeleteTransaction")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("CanEditTransaction")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("CanManageAccess")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("CanPost")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("CanView")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("AccountId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("AccountAccesses");
                 });
 
             modelBuilder.Entity("Finance.Domain.Entities.Core.Split", b =>
@@ -106,6 +160,11 @@ namespace Finance.Infrastructure.Migrations
                     b.Property<string>("Description")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<int>("LedgerSequence")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
 
                     b.Property<string>("ReferenceNumber")
                         .HasColumnType("text");
@@ -379,6 +438,107 @@ namespace Finance.Infrastructure.Migrations
                     b.ToTable("ImportSessionRows");
                 });
 
+            modelBuilder.Entity("Finance.Domain.Entities.UserSession.OtpDeviceRegistration", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProtectedToken")
+                        .HasColumnType("text");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("UserId");
+
+                    b.ToTable("OtpDeviceRegistrations");
+                });
+
+            modelBuilder.Entity("Finance.Domain.Entities.UserSession.OtpForwardedMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MessageEncrypted")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("MessagePreview")
+                        .IsRequired()
+                        .HasMaxLength(220)
+                        .HasColumnType("character varying(220)");
+
+                    b.Property<Guid>("OtpRequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SenderEncrypted")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SenderMasked")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OtpRequestId", "ReceivedAt");
+
+                    b.ToTable("OtpForwardedMessages");
+                });
+
+            modelBuilder.Entity("Finance.Domain.Entities.UserSession.OtpRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ClosedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastForwardedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("RequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("TargetUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TargetUserId", "ExpiresAt");
+
+                    b.HasIndex("UserId", "ExpiresAt");
+
+                    b.ToTable("OtpRequests");
+                });
+
             modelBuilder.Entity("Finance.Domain.Entities.Core.Account", b =>
                 {
                     b.HasOne("Finance.Domain.Entities.Core.User", "OwnerUser")
@@ -394,6 +554,25 @@ namespace Finance.Infrastructure.Migrations
                     b.Navigation("OwnerUser");
 
                     b.Navigation("ParentAccount");
+                });
+
+            modelBuilder.Entity("Finance.Domain.Entities.Core.AccountAccess", b =>
+                {
+                    b.HasOne("Finance.Domain.Entities.Core.Account", "Account")
+                        .WithMany("AccessEntries")
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Finance.Domain.Entities.Core.User", "User")
+                        .WithMany("AccountAccessEntries")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Account");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Finance.Domain.Entities.Core.Split", b =>
@@ -508,8 +687,30 @@ namespace Finance.Infrastructure.Migrations
                     b.Navigation("ImportSession");
                 });
 
+            modelBuilder.Entity("Finance.Domain.Entities.UserSession.OtpForwardedMessage", b =>
+                {
+                    b.HasOne("Finance.Domain.Entities.UserSession.OtpRequest", "OtpRequest")
+                        .WithMany("Messages")
+                        .HasForeignKey("OtpRequestId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("OtpRequest");
+                });
+
+            modelBuilder.Entity("Finance.Domain.Entities.UserSession.OtpRequest", b =>
+                {
+                    b.HasOne("Finance.Domain.Entities.Core.User", null)
+                        .WithMany()
+                        .HasForeignKey("TargetUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Finance.Domain.Entities.Core.Account", b =>
                 {
+                    b.Navigation("AccessEntries");
+
                     b.Navigation("Children");
 
                     b.Navigation("Splits");
@@ -522,6 +723,8 @@ namespace Finance.Infrastructure.Migrations
 
             modelBuilder.Entity("Finance.Domain.Entities.Core.User", b =>
                 {
+                    b.Navigation("AccountAccessEntries");
+
                     b.Navigation("Preference");
                 });
 
@@ -533,6 +736,11 @@ namespace Finance.Infrastructure.Migrations
             modelBuilder.Entity("Finance.Domain.Entities.UserSession.ImportSessionRow", b =>
                 {
                     b.Navigation("LearningEntries");
+                });
+
+            modelBuilder.Entity("Finance.Domain.Entities.UserSession.OtpRequest", b =>
+                {
+                    b.Navigation("Messages");
                 });
 #pragma warning restore 612, 618
         }

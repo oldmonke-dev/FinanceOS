@@ -5,6 +5,7 @@ import {
   ArrowRight,
   BrainCircuit,
   FileSpreadsheet,
+  FileText,
   FolderTree,
   Receipt,
   TableOfContents,
@@ -28,8 +29,8 @@ const cards = [
     icon: Receipt,
   },
   {
-    title: "Importer",
-    description: "Prototype column mapping and filtering before backend import exists.",
+    title: "CSV Imports",
+    description: "Prototype column mapping and filtering, then create import sessions.",
     href: "/import",
     icon: FileSpreadsheet,
   },
@@ -38,6 +39,12 @@ const cards = [
     description: "Review the frontend-only sessions created from importer selections.",
     href: "/import-sessions",
     icon: TableOfContents,
+  },
+  {
+    title: "PDF Imports",
+    description: "Mock placeholder page while PDF extraction remains disabled.",
+    href: "/import/pdf",
+    icon: FileText,
   },
   {
     title: "Strategies",

@@ -1,11 +1,12 @@
 using Finance.Domain.Entities.Core;
 using Finance.Domain.Entities.UserSession;
 using Finance.Domain.Enums;
+using Finance.BusinessLayer.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace Finance.Infrastructure.Data
 {
-    public class AppDbContext : DbContext
+    public class AppDbContext : DbContext, IAppDbContext
     {
         public AppDbContext(DbContextOptions<AppDbContext> options)
             : base(options)
@@ -13,6 +14,7 @@ namespace Finance.Infrastructure.Data
         }
 
         public DbSet<Account> Accounts => Set<Account>();
+        public DbSet<AccountAccess> AccountAccesses => Set<AccountAccess>();
         public DbSet<Split> Splits => Set<Split>();
         public DbSet<Transaction> Transactions => Set<Transaction>();
         public DbSet<User> Users => Set<User>();
@@ -21,6 +23,9 @@ namespace Finance.Infrastructure.Data
         public DbSet<ImportSessionRow> ImportSessionRows => Set<ImportSessionRow>();
         public DbSet<ImportLearningStat> ImportLearningStats => Set<ImportLearningStat>();
         public DbSet<ImportSessionLearningEntry> ImportSessionLearningEntries => Set<ImportSessionLearningEntry>();
+        public DbSet<OtpDeviceRegistration> OtpDeviceRegistrations => Set<OtpDeviceRegistration>();
+        public DbSet<OtpRequest> OtpRequests => Set<OtpRequest>();
+        public DbSet<OtpForwardedMessage> OtpForwardedMessages => Set<OtpForwardedMessage>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -46,6 +51,38 @@ namespace Finance.Infrastructure.Data
                 .Property(a => a.Description)
                 .HasMaxLength(500);
 
+            modelBuilder.Entity<Account>()
+                .Property(a => a.IsCore)
+                .HasDefaultValue(false);
+
+            modelBuilder.Entity<Account>()
+                .Property(a => a.IsGloballyShared)
+                .HasDefaultValue(false);
+
+            modelBuilder.Entity<Account>()
+                .Property(a => a.ReportingMode)
+                .HasConversion<string>()
+                .HasMaxLength(40)
+                .HasDefaultValue(AccountReportingMode.Included);
+
+            modelBuilder.Entity<AccountAccess>(entity =>
+            {
+                entity.HasKey(access => access.Id);
+
+                entity.HasIndex(access => new { access.AccountId, access.UserId })
+                    .IsUnique();
+
+                entity.HasOne(access => access.Account)
+                    .WithMany(account => account.AccessEntries)
+                    .HasForeignKey(access => access.AccountId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(access => access.User)
+                    .WithMany(user => user.AccountAccessEntries)
+                    .HasForeignKey(access => access.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
             modelBuilder.Entity<Split>()
                 .HasOne(s => s.Account)
                 .WithMany(a => a.Splits)
@@ -66,6 +103,10 @@ namespace Finance.Infrastructure.Data
                 .Property(s => s.Side)
                 .HasConversion<string>()
                 .HasMaxLength(20);
+
+            modelBuilder.Entity<Transaction>()
+                .Property(transaction => transaction.LedgerSequence)
+                .HasDefaultValue(0);
 
             modelBuilder.Entity<User>(entity =>
             {
@@ -257,6 +298,83 @@ namespace Finance.Infrastructure.Data
                     .WithMany()
                     .HasForeignKey(item => item.DestinationAccountId)
                     .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<OtpDeviceRegistration>(entity =>
+            {
+                entity.HasKey(item => item.UserId);
+
+                entity.Property(item => item.TokenHash)
+                    .IsRequired()
+                    .HasMaxLength(200);
+
+                entity.Property(item => item.ProtectedToken)
+                    .HasColumnType("text");
+
+                entity.Property(item => item.CreatedAt)
+                    .HasColumnType("timestamp with time zone");
+
+                entity.Property(item => item.UpdatedAt)
+                    .HasColumnType("timestamp with time zone");
+            });
+
+            modelBuilder.Entity<OtpRequest>(entity =>
+            {
+                entity.HasKey(item => item.Id);
+
+                entity.HasIndex(item => new { item.UserId, item.ExpiresAt });
+                entity.HasIndex(item => new { item.TargetUserId, item.ExpiresAt });
+
+                entity.Property(item => item.RequestedAt)
+                    .HasColumnType("timestamp with time zone");
+
+                entity.Property(item => item.ExpiresAt)
+                    .HasColumnType("timestamp with time zone");
+
+                entity.Property(item => item.ClosedAt)
+                    .HasColumnType("timestamp with time zone");
+
+                entity.Property(item => item.LastForwardedAt)
+                    .HasColumnType("timestamp with time zone");
+
+                entity.HasOne<User>()
+                    .WithMany()
+                    .HasForeignKey(item => item.TargetUserId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<OtpForwardedMessage>(entity =>
+            {
+                entity.HasKey(item => item.Id);
+
+                entity.Property(item => item.SenderMasked)
+                    .IsRequired()
+                    .HasMaxLength(100);
+
+                entity.Property(item => item.SenderEncrypted)
+                    .IsRequired()
+                    .HasColumnType("text");
+
+                entity.Property(item => item.MessagePreview)
+                    .IsRequired()
+                    .HasMaxLength(220);
+
+                entity.Property(item => item.MessageEncrypted)
+                    .IsRequired()
+                    .HasColumnType("text");
+
+                entity.Property(item => item.ReceivedAt)
+                    .HasColumnType("timestamp with time zone");
+
+                entity.Property(item => item.CreatedAt)
+                    .HasColumnType("timestamp with time zone");
+
+                entity.HasIndex(item => new { item.OtpRequestId, item.ReceivedAt });
+
+                entity.HasOne(item => item.OtpRequest)
+                    .WithMany(request => request.Messages)
+                    .HasForeignKey(item => item.OtpRequestId)
+                    .OnDelete(DeleteBehavior.Cascade);
             });
 
         }

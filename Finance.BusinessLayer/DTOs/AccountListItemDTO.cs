@@ -18,10 +18,17 @@ namespace Finance.BusinessLayer.DTOs
 
         public decimal OpeningBalance { get; set; }
 
+        public bool IsCore { get; set; }
+        public bool IsGloballyShared { get; set; }
+
         public Guid? OwnerUserId { get; set; }
 
         public string? OwnerDisplayName { get; set; }
 
         public string? OwnerEmail { get; set; }
+
+        public AccountReportingMode ReportingMode { get; set; }
+
+        public AccountPermissionSummaryDTO CurrentUserPermissions { get; set; } = new();
     }
 }

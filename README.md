@@ -49,4 +49,4 @@ See [dev.readme.md](./dev.readme.md) for:
 - Plan and execute major refactorings where the current structure is too coupled.
 - Replace string-based matches and magic string workflows with enums or stronger typed models.
 - Extract large components and services into smaller, focused modules.
-- Make Next.js app router pages more modular and easier to reason about.
+- Make Next.js app router pages more modular and easier to reason about. test

@@ -3,7 +3,6 @@ using Finance.BusinessLayer.Services;
 using Finance.Domain.Interfaces;
 using Finance.Infrastructure.Data;
 using Finance.Infrastructure.Repositories;
-using Finance.Infrastructure.Services;
 using Finance.WebAPI.Configuration;
 using Finance.WebAPI.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -23,7 +22,9 @@ if (string.IsNullOrWhiteSpace(authOptions.JwtSecret))
 }
 
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection("Auth"));
+builder.Services.Configure<OtpOptions>(builder.Configuration.GetSection("Otp"));
 builder.Services.Configure<TabulaOptions>(builder.Configuration.GetSection("Tabula"));
+builder.Services.Configure<CamelotOptions>(builder.Configuration.GetSection("Camelot"));
 
 // Add services to the container.
 
@@ -36,6 +37,7 @@ builder.Services.AddControllers()
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+builder.Services.AddDataProtection();
 var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(authOptions.JwtSecret));
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -82,7 +84,9 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString));
+builder.Services.AddScoped<IAppDbContext>(serviceProvider => serviceProvider.GetRequiredService<AppDbContext>());
 builder.Services.AddScoped<AccountRepository>();
+builder.Services.AddScoped<IAccountAccessService, AccountAccessService>();
 builder.Services.AddScoped<IAccountRepository>(serviceProvider => serviceProvider.GetRequiredService<AccountRepository>());
 builder.Services.AddScoped<IAccountWorkflowService, AccountWorkflowService>();
 builder.Services.AddScoped<IImportSessionRepository, ImportSessionRepository>();
@@ -93,6 +97,8 @@ builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
 builder.Services.AddScoped<ITransactionService, TransactionService>();
 builder.Services.AddScoped<IUserPreferenceRepository, UserPreferenceRepository>();
 builder.Services.AddScoped<ITabulaPdfExtractionService, TabulaPdfExtractionService>();
+builder.Services.AddScoped<IPdfImportStorageService, PdfImportStorageService>();
+builder.Services.AddScoped<IPdfTableDetectionService, CamelotPdfTableDetectionService>();
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
@@ -100,6 +106,7 @@ using (var scope = app.Services.CreateScope())
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     dbContext.Database.Migrate();
     await AppDbContextSeed.EnsureAccountMetadataColumnsAsync(dbContext);
+    await AppDbContextSeed.EnsureOtpTablesAsync(dbContext);
     await AppDbContextSeed.SeedBootstrapUsersAsync(
         dbContext,
         authOptions.BootstrapUsers.Select(user => (user.Email, user.Password)));

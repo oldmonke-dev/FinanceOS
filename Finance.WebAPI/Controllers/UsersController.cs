@@ -1,4 +1,5 @@
 using System.Net.Mail;
+using Finance.BusinessLayer.DTOs;
 using Finance.BusinessLayer.DTOs.Users;
 using Finance.Domain.Entities.Core;
 using Finance.Infrastructure.Data;
@@ -33,6 +34,27 @@ namespace Finance.WebAPI.Controllers
             var users = await _context.Users
                 .OrderBy(item => item.Email)
                 .Select(item => MapUser(item))
+                .ToListAsync(cancellationToken);
+
+            return Ok(users);
+        }
+
+        [HttpGet("options")]
+        public async Task<ActionResult<List<UserOptionDTO>>> GetUserOptions(CancellationToken cancellationToken)
+        {
+            var currentUserId = User.GetRequiredUserId();
+
+            var users = await _context.Users
+                .Where(item => item.IsActive && item.Id != currentUserId)
+                .OrderBy(item => item.DisplayName)
+                .ThenBy(item => item.Email)
+                .Select(item => new UserOptionDTO
+                {
+                    Id = item.Id,
+                    DisplayName = item.DisplayName,
+                    Email = item.Email,
+                    IsAdmin = item.IsAdmin,
+                })
                 .ToListAsync(cancellationToken);
 
             return Ok(users);

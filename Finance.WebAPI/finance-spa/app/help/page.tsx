@@ -14,14 +14,14 @@ export default async function HelpPage() {
       subtitle="Application manual and feature reference"
       badge="User manual"
     >
-      <section className="rounded-3xl border bg-card p-6 shadow-sm">
-        <div className="mb-4">
-          <h2 className="text-lg font-semibold">User Manual</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
+      <section className="mx-auto w-full rounded-3xl border bg-card p-4 shadow-sm xl:w-[72%]">
+        <div className="mb-3">
+          <h2 className="text-base font-semibold">User Manual</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
             This page renders the contents of <code>USER_MANUAL.md</code>.
           </p>
         </div>
-        <div className="rounded-2xl border bg-background/70 p-5">
+        <div className="rounded-2xl border bg-background/70 p-4">
           <MarkdownDocument content={manual} />
         </div>
       </section>
@@ -73,7 +73,7 @@ function MarkdownDocument({ content }: { content: string }) {
       blocks.push(
         <pre
           key={`code-${blocks.length}`}
-          className="overflow-x-auto rounded-xl border bg-muted/40 px-4 py-3 text-sm whitespace-pre-wrap"
+          className="overflow-x-auto rounded-lg border bg-muted/40 px-3 py-2 text-xs whitespace-pre-wrap"
         >
           <code>{codeLines.join("\n")}</code>
         </pre>,
@@ -85,7 +85,7 @@ function MarkdownDocument({ content }: { content: string }) {
 
     if (trimmed.startsWith("# ")) {
       blocks.push(
-        <h1 key={`h1-${blocks.length}`} className="text-2xl font-semibold tracking-tight">
+        <h1 key={`h1-${blocks.length}`} className="text-xl font-semibold tracking-tight">
           {trimmed.slice(2)}
         </h1>,
       )
@@ -95,7 +95,7 @@ function MarkdownDocument({ content }: { content: string }) {
 
     if (trimmed.startsWith("## ")) {
       blocks.push(
-        <h2 key={`h2-${blocks.length}`} className="mt-4 text-xl font-semibold tracking-tight">
+        <h2 key={`h2-${blocks.length}`} className="mt-3 text-lg font-semibold tracking-tight">
           {trimmed.slice(3)}
         </h2>,
       )
@@ -105,11 +105,64 @@ function MarkdownDocument({ content }: { content: string }) {
 
     if (trimmed.startsWith("### ")) {
       blocks.push(
-        <h3 key={`h3-${blocks.length}`} className="mt-3 text-base font-semibold">
+        <h3 key={`h3-${blocks.length}`} className="mt-2 text-sm font-semibold">
           {trimmed.slice(4)}
         </h3>,
       )
       index += 1
+      continue
+    }
+
+    if (isMarkdownTableStart(lines, index)) {
+      const header = splitTableRow(lines[index])
+      const alignments = parseTableAlignments(lines[index + 1])
+      const rows: string[][] = []
+
+      index += 2
+
+      while (index < lines.length) {
+        const row = lines[index].trim()
+
+        if (!row || !row.includes("|")) {
+          break
+        }
+
+        rows.push(splitTableRow(lines[index]))
+        index += 1
+      }
+
+      blocks.push(
+        <div key={`table-${blocks.length}`} className="overflow-x-auto rounded-lg border">
+          <table className="min-w-full border-collapse text-xs">
+            <thead className="bg-muted/40">
+              <tr>
+                {header.map((cell, cellIndex) => (
+                  <th
+                    key={`th-${cellIndex}`}
+                    className={`border-b px-2.5 py-1.5 font-semibold ${getTableAlignmentClass(alignments[cellIndex])}`}
+                  >
+                    {renderInlineMarkdown(cell)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, rowIndex) => (
+                <tr key={`row-${rowIndex}`} className="odd:bg-background even:bg-muted/10">
+                  {header.map((_, cellIndex) => (
+                    <td
+                      key={`td-${rowIndex}-${cellIndex}`}
+                      className={`border-t px-2.5 py-1.5 align-top ${getTableAlignmentClass(alignments[cellIndex])}`}
+                    >
+                      {renderInlineMarkdown(row[cellIndex] ?? "")}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>,
+      )
       continue
     }
 
@@ -122,7 +175,7 @@ function MarkdownDocument({ content }: { content: string }) {
       }
 
       blocks.push(
-        <ul key={`ul-${blocks.length}`} className="ml-5 list-disc space-y-1 text-sm leading-6 text-foreground/90">
+        <ul key={`ul-${blocks.length}`} className="ml-4 list-disc space-y-0.5 text-sm leading-5 text-foreground/90">
           {items.map((item, itemIndex) => (
             <li key={`${blocks.length}-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
           ))}
@@ -145,13 +198,13 @@ function MarkdownDocument({ content }: { content: string }) {
     }
 
     blocks.push(
-      <p key={`p-${blocks.length}`} className="text-sm leading-6 text-foreground/90">
+      <p key={`p-${blocks.length}`} className="text-sm leading-5 text-foreground/90">
         {renderInlineMarkdown(paragraphLines.join(" "))}
       </p>,
     )
   }
 
-  return <article className="space-y-4">{blocks}</article>
+  return <article className="space-y-3">{blocks}</article>
 }
 
 function renderInlineMarkdown(text: string) {
@@ -160,7 +213,7 @@ function renderInlineMarkdown(text: string) {
   return parts.map((part, index) => {
     if (part.startsWith("`") && part.endsWith("`")) {
       return (
-        <code key={index} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.9em]">
+        <code key={index} className="rounded bg-muted px-1 py-0.5 font-mono text-[0.9em]">
           {part.slice(1, -1)}
         </code>
       )
@@ -168,4 +221,57 @@ function renderInlineMarkdown(text: string) {
 
     return <span key={index}>{part}</span>
   })
+}
+
+function isMarkdownTableStart(lines: string[], index: number) {
+  if (index + 1 >= lines.length) {
+    return false
+  }
+
+  const header = lines[index].trim()
+  const separator = lines[index + 1].trim()
+
+  return header.includes("|") && isMarkdownTableSeparator(separator)
+}
+
+function isMarkdownTableSeparator(line: string) {
+  const cells = splitTableRow(line)
+
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()))
+}
+
+function splitTableRow(line: string) {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim())
+}
+
+function parseTableAlignments(separatorLine: string) {
+  return splitTableRow(separatorLine).map((cell) => {
+    const trimmed = cell.trim()
+
+    if (trimmed.startsWith(":") && trimmed.endsWith(":")) {
+      return "center"
+    }
+
+    if (trimmed.endsWith(":")) {
+      return "right"
+    }
+
+    return "left"
+  })
+}
+
+function getTableAlignmentClass(alignment?: string) {
+  switch (alignment) {
+    case "center":
+      return "text-center"
+    case "right":
+      return "text-right"
+    default:
+      return "text-left"
+  }
 }

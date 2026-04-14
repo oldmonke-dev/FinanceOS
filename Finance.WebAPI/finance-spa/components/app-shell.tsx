@@ -4,18 +4,21 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 import {
+  type LucideIcon,
   FileSpreadsheet,
   FolderTree,
   HelpCircle,
   Home,
-  LineChart,
+  KeyRound,
   LogOut,
+  ScanText,
   PieChart,
   Receipt,
   Settings,
+  ShieldCheck,
   SlidersHorizontal,
   TableOfContents,
-  Wallet,
+  UserCog,
 } from "lucide-react"
 
 import { useAuth } from "@/components/providers/auth-provider"
@@ -36,17 +39,43 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 
-const navItems = [
+type NavItem = {
+  title: string
+  href: string
+  icon: LucideIcon
+  disabled?: boolean
+  matches?: (pathname: string) => boolean
+}
+
+const primaryNavItems: NavItem[] = [
   { title: "Overview", href: "/", icon: Home },
   { title: "Account Tree", href: "/accounts", icon: FolderTree },
   { title: "Transactions", href: "/transactions", icon: Receipt },
   { title: "Advanced Filter", href: "/transactions/advanced", icon: TableOfContents },
   { title: "Reports", href: "/reports", icon: PieChart },
-  { title: "Importer", href: "/import", icon: FileSpreadsheet },
-  { title: "Import Sessions", href: "/import-sessions", icon: TableOfContents },
   { title: "Strategies", href: "/strategies", icon: SlidersHorizontal },
-  { title: "Budgets", href: "#", icon: Wallet, disabled: true },
-  { title: "Investments", href: "#", icon: LineChart, disabled: true },
+]
+
+const importNavItems: NavItem[] = [
+  { title: "Sessions", href: "/import-sessions", icon: TableOfContents },
+  {
+    title: "CSV Imports",
+    href: "/import",
+    icon: FileSpreadsheet,
+    matches: (pathname) => pathname === "/import",
+  },
+  {
+    title: "PDF Imports",
+    href: "/import/pdf",
+    icon: ScanText,
+    matches: (pathname) => pathname === "/import/pdf",
+  },
+]
+
+const userNavItems: NavItem[] = [
+  { title: "Permissions", href: "/user/permissions", icon: ShieldCheck },
+  { title: "User Preferences", href: "/user/preferences", icon: UserCog },
+  { title: "OTP Requestor", href: "/user/otp-requestor", icon: KeyRound },
 ]
 
 type AppShellProps = {
@@ -145,11 +174,63 @@ export function AppShell({ title, subtitle, badge, children }: AppShellProps) {
             <SidebarGroupLabel>Navigation</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {navItems.map((item) => (
+                {primaryNavItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
                       asChild
-                      isActive={pathname === item.href}
+                      isActive={item.matches ? item.matches(pathname) : pathname === item.href}
+                      tooltip={item.title}
+                    >
+                      <Link
+                        href={item.href}
+                        aria-disabled={item.disabled}
+                        className={item.disabled ? "pointer-events-none opacity-50" : ""}
+                      >
+                        <item.icon />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+
+          <SidebarGroup>
+            <SidebarGroupLabel>Imports</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {importNavItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={item.matches ? item.matches(pathname) : pathname === item.href}
+                      tooltip={item.title}
+                    >
+                      <Link
+                        href={item.href}
+                        aria-disabled={item.disabled}
+                        className={item.disabled ? "pointer-events-none opacity-50" : ""}
+                      >
+                        <item.icon />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+
+          <SidebarGroup>
+            <SidebarGroupLabel>User</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {userNavItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={item.matches ? item.matches(pathname) : pathname === item.href}
                       tooltip={item.title}
                     >
                       <Link
@@ -171,6 +252,14 @@ export function AppShell({ title, subtitle, badge, children }: AppShellProps) {
         <SidebarFooter className="p-3">
           {user ? (
             <div className="mb-3 rounded-xl border border-sidebar-border bg-sidebar-accent/50 px-3 py-2 text-xs text-sidebar-foreground/80">
+              {user.isAdmin ? (
+                <div className="mb-2">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-sidebar-border bg-sidebar px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-sidebar-foreground">
+                    <ShieldCheck className="size-3" />
+                    Admin
+                  </span>
+                </div>
+              ) : null}
               <p className="truncate font-medium text-sidebar-foreground">{user.displayName}</p>
               <p className="truncate opacity-70">{user.email}</p>
             </div>
@@ -228,35 +317,7 @@ export function AppShell({ title, subtitle, badge, children }: AppShellProps) {
 
 function SidebarOverflowHint({ hasHorizontalOverflow }: { hasHorizontalOverflow: boolean }) {
   const { state } = useSidebar()
-  const [isHintVisible, setIsHintVisible] = useState(false)
-  const lastOverflowStateRef = useRef(false)
-
-  useEffect(() => {
-    const shouldShowHint = hasHorizontalOverflow && state !== "collapsed"
-    const overflowStarted = shouldShowHint && !lastOverflowStateRef.current
-
-    lastOverflowStateRef.current = shouldShowHint
-
-    if (!shouldShowHint) {
-      setIsHintVisible(false)
-      return
-    }
-
-    if (!overflowStarted) {
-      return
-    }
-
-    setIsHintVisible(true)
-    const timeoutId = window.setTimeout(() => {
-      setIsHintVisible(false)
-    }, 3000)
-
-    return () => {
-      window.clearTimeout(timeoutId)
-    }
-  }, [hasHorizontalOverflow, state])
-
-  const showHint = hasHorizontalOverflow && state !== "collapsed" && isHintVisible
+  const showHint = hasHorizontalOverflow && state !== "collapsed"
 
   return (
     <div className="flex shrink-0 items-center gap-2">

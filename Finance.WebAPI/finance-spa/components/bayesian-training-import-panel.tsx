@@ -1,14 +1,20 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { Download, Upload } from "lucide-react"
 
 import { useAccounts } from "@/components/providers/accounts-provider"
 import { useSnackbar } from "@/components/providers/snackbar-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { createAccount } from "@/lib/accounts"
-import { importBayesianTrainingData } from "@/lib/strategies"
 import {
+  exportBayesianStatistics,
+  importBayesianStatistics,
+  importBayesianTrainingData,
+} from "@/lib/strategies"
+import {
+  type BayesianStatisticsExport,
   type BayesianTrainingExample,
 } from "@/models/strategy"
 import { type Account, type AccountType } from "@/models/account"
@@ -17,13 +23,16 @@ type ParsedCsv = {
   rows: string[][]
 }
 
-export function BayesianTrainingImportPanel() {
+export function BayesianTrainingImportPanel({ onImported }: { onImported?: () => void }) {
   const { accounts, addAccount, refreshAccounts } = useAccounts()
   const { showSnackbar } = useSnackbar()
   const [rawCsv, setRawCsv] = useState("")
   const [fileName, setFileName] = useState<string | null>(null)
   const [isImporting, setIsImporting] = useState(false)
   const [isCreatingAccounts, setIsCreatingAccounts] = useState(false)
+  const [statisticsFileName, setStatisticsFileName] = useState<string | null>(null)
+  const [isImportingStatistics, setIsImportingStatistics] = useState(false)
+  const [isExportingStatistics, setIsExportingStatistics] = useState(false)
 
   const parsed = useMemo(() => parseCsv(rawCsv), [rawCsv])
   const examples = useMemo(() => buildTrainingExamples(parsed.rows), [parsed.rows])
@@ -62,6 +71,7 @@ export function BayesianTrainingImportPanel() {
         tone: "success",
         durationMs: 2600,
       })
+      onImported?.()
     } catch (error) {
       showSnackbar({
         message: error instanceof Error ? error.message : "Failed to import Bayesian training data.",
@@ -88,6 +98,7 @@ export function BayesianTrainingImportPanel() {
         tone: "success",
         durationMs: 2600,
       })
+      onImported?.()
     } catch (error) {
       showSnackbar({
         message: error instanceof Error ? error.message : "Failed to create missing accounts.",
@@ -95,6 +106,54 @@ export function BayesianTrainingImportPanel() {
       })
     } finally {
       setIsCreatingAccounts(false)
+    }
+  }
+
+  async function handleStatisticsFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) {
+      return
+    }
+
+    setStatisticsFileName(file.name)
+
+    try {
+      const payload = JSON.parse(await file.text()) as BayesianStatisticsExport
+      setIsImportingStatistics(true)
+      const result = await importBayesianStatistics(payload)
+      showSnackbar({
+        message: `Imported ${result.importedEntryCount} Bayesian statistics entries. Skipped ${result.skippedEntryCount}.`,
+        tone: "success",
+      })
+      onImported?.()
+    } catch (error) {
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Failed to import Bayesian statistics.",
+        tone: "error",
+      })
+    } finally {
+      setIsImportingStatistics(false)
+      event.target.value = ""
+    }
+  }
+
+  async function handleExportStatistics() {
+    setIsExportingStatistics(true)
+
+    try {
+      const payload = await exportBayesianStatistics()
+      downloadJsonFile(
+        `bayesian-statistics-${new Date().toISOString().slice(0, 10)}.json`,
+        payload,
+      )
+      showSnackbar({ message: "Exported Bayesian statistics JSON.", tone: "success" })
+    } catch (error) {
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Failed to export Bayesian statistics.",
+        tone: "error",
+      })
+    } finally {
+      setIsExportingStatistics(false)
     }
   }
 
@@ -160,8 +219,56 @@ export function BayesianTrainingImportPanel() {
         </div>
       ) : null}
 
+      <div className="mt-4 rounded-xl border bg-background/70 p-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-sm font-medium">Bayesian Statistics Transfer</p>
+            <p className="text-xs text-muted-foreground">
+              Export the raw learned counts to JSON, or import the same JSON back into this environment.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void handleExportStatistics()}
+              disabled={isExportingStatistics || isImportingStatistics}
+            >
+              <Download className="size-4" />
+              {isExportingStatistics ? "Exporting..." : "Export Statistics"}
+            </Button>
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm font-medium shadow-sm">
+              <Upload className="size-4" />
+              <span>{isImportingStatistics ? "Importing..." : "Import Statistics"}</span>
+              <input
+                type="file"
+                accept=".json,application/json"
+                className="sr-only"
+                onChange={(event) => void handleStatisticsFileChange(event)}
+                disabled={isImportingStatistics || isExportingStatistics}
+              />
+            </label>
+          </div>
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          {statisticsFileName ? `Last statistics file: ${statisticsFileName}` : "No statistics JSON imported yet."}
+        </p>
+      </div>
+
     </section>
   )
+}
+
+function downloadJsonFile(fileName: string, payload: unknown) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }
 
 async function createMissingAccounts(

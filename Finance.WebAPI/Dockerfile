@@ -17,6 +17,9 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 
 ARG TABULA_VERSION=1.0.5
+ARG OTP_FRONTEND_BASE_URL=https://finos-staging.oldmonke.com/
+ARG OTP_ACTIVE_WINDOW_MINUTES=5
+ARG OTP_REQUEST_HISTORY_LIMIT=20
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends openjdk-21-jre-headless curl ca-certificates \
@@ -26,6 +29,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 EXPOSE 8080
+
+ENV Otp__FrontendBaseUrl=${OTP_FRONTEND_BASE_URL}
+ENV Otp__ActiveWindowMinutes=${OTP_ACTIVE_WINDOW_MINUTES}
+ENV Otp__RequestHistoryLimit=${OTP_REQUEST_HISTORY_LIMIT}
 
 COPY --from=build /app/publish .
 

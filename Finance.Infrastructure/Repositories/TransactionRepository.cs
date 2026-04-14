@@ -26,16 +26,43 @@ namespace Finance.Infrastructure.Repositories
             CancellationToken cancellationToken = default)
         {
             var transactionList = transactions.ToList();
+            foreach (var group in transactionList.GroupBy(transaction => transaction.TransactionDate.Date))
+            {
+                var nextLedgerSequence = await GetNextLedgerSequenceForDateAsync(group.Key, cancellationToken);
+
+                foreach (var transaction in group.OrderBy(item => item.CreatedAt).ThenBy(item => item.Id))
+                {
+                    transaction.LedgerSequence = nextLedgerSequence;
+                    nextLedgerSequence += 1;
+                }
+            }
+
             _context.Transactions.AddRange(transactionList);
             await _context.SaveChangesAsync(cancellationToken);
             return transactionList;
         }
 
-        public async Task<List<Transaction>> GetTransactionsAsync(Guid? accountId = null, CancellationToken cancellationToken = default)
+        public async Task<List<Transaction>> GetTransactionsAsync(
+            IEnumerable<Guid> accessibleAccountIds,
+            Guid? accountId = null,
+            CancellationToken cancellationToken = default)
         {
+            var accessibleAccountIdSet = accessibleAccountIds
+                .Where(accountIdValue => accountIdValue != Guid.Empty)
+                .Distinct()
+                .ToArray();
+
             var query = _context.Transactions
                 .Include(transaction => transaction.Splits)
                 .AsQueryable();
+
+            if (accessibleAccountIdSet.Length == 0)
+            {
+                return new List<Transaction>();
+            }
+
+            query = query.Where(transaction =>
+                transaction.Splits.Any(split => accessibleAccountIdSet.Contains(split.AccountId)));
 
             if (accountId.HasValue)
             {
@@ -44,8 +71,21 @@ namespace Finance.Infrastructure.Repositories
 
             return await query
                 .OrderByDescending(transaction => transaction.TransactionDate)
-                .ThenByDescending(transaction => transaction.CreatedAt)
+                .ThenBy(transaction => transaction.LedgerSequence)
+                .ThenBy(transaction => transaction.CreatedAt)
                 .ToListAsync(cancellationToken);
+        }
+
+        public async Task<int> GetNextLedgerSequenceForDateAsync(
+            DateTime transactionDate,
+            CancellationToken cancellationToken = default)
+        {
+            var maxLedgerSequence = await _context.Transactions
+                .Where(transaction => transaction.TransactionDate.Date == transactionDate.Date)
+                .Select(transaction => (int?)transaction.LedgerSequence)
+                .MaxAsync(cancellationToken);
+
+            return (maxLedgerSequence ?? 0) + 1;
         }
 
         public async Task<Transaction?> GetByIdAsync(Guid transactionId, CancellationToken cancellationToken = default)

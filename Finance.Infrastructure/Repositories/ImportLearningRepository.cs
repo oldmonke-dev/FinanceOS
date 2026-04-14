@@ -14,10 +14,9 @@ namespace Finance.Infrastructure.Repositories
             _context = context;
         }
 
-        public async Task<List<ImportLearningStat>> GetGlobalStatsAsync(Guid userId, CancellationToken cancellationToken = default)
+        public async Task<List<ImportLearningStat>> GetGlobalStatsAsync(CancellationToken cancellationToken = default)
         {
             return await _context.ImportLearningStats
-                .Where(item => item.UserId == userId)
                 .ToListAsync(cancellationToken);
         }
 
@@ -75,12 +74,11 @@ namespace Finance.Infrastructure.Repositories
         }
 
         public async Task<int> DeleteGlobalStatsByDestinationAccountAsync(
-            Guid userId,
             Guid destinationAccountId,
             CancellationToken cancellationToken = default)
         {
             var stats = await _context.ImportLearningStats
-                .Where(item => item.UserId == userId && item.DestinationAccountId == destinationAccountId)
+                .Where(item => item.DestinationAccountId == destinationAccountId)
                 .ToListAsync(cancellationToken);
 
             if (stats.Count == 0)

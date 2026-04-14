@@ -11,6 +11,7 @@ export type Split = {
 export type Transaction = {
   id: string
   transactionDate: string
+  ledgerSequence: number
   description: string
   referenceNumber: string | null
   createdAt: string
@@ -40,6 +41,7 @@ export type CreateTransactionInput = {
 }
 
 export type UpdateTransactionInput = {
+  ledgerSequence?: number
   description?: string
   referenceNumber?: string | null
   splits: UpdateSplitInput[]

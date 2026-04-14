@@ -29,9 +29,11 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { buildAccountTree, formatAccountType } from "@/lib/accounts"
+import { getBalanceDeltaForAccount } from "@/lib/accounting"
+import { getTransactionDateKey, isTransactionDateInRange, parseDateKeyToLocalDate } from "@/lib/transaction-date"
 import { getTransactions } from "@/lib/transactions"
 import { cn } from "@/lib/utils"
-import type { AccountNode } from "@/models/account"
+import type { Account, AccountNode } from "@/models/account"
 import type { Transaction } from "@/models/transaction"
 
 type ImportSessionFilter = "all" | "archived" | "active" | "none"
@@ -107,6 +109,15 @@ export function ReportsPage() {
   }, [accounts])
 
   const accountTree = useMemo(() => buildAccountTree(accounts), [accounts])
+  const reportableAccountIds = useMemo(
+    () =>
+      new Set(
+        accounts
+          .filter((account) => account.reportingMode === "Included")
+          .map((account) => account.id),
+      ),
+    [accounts],
+  )
   const filteredAccountTree = useMemo(
     () => filterAccountTree(accountTree, accountQuery.trim().toLowerCase()),
     [accountQuery, accountTree],
@@ -175,17 +186,17 @@ export function ReportsPage() {
     }
 
     const sortedDates = transactions
-      .map((transaction) => new Date(transaction.transactionDate))
-      .filter((date) => !Number.isNaN(date.getTime()))
-      .sort((left, right) => left.getTime() - right.getTime())
+      .map((transaction) => getTransactionDateKey(transaction.transactionDate))
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => left.localeCompare(right))
 
     if (sortedDates.length === 0) {
       return { earliest: "", latest: "" }
     }
 
     return {
-      earliest: sortedDates[0].toISOString().slice(0, 10),
-      latest: sortedDates[sortedDates.length - 1].toISOString().slice(0, 10),
+      earliest: sortedDates[0],
+      latest: sortedDates[sortedDates.length - 1],
     }
   }, [transactions])
 
@@ -226,8 +237,8 @@ export function ReportsPage() {
       return []
     }
 
-    const earliestDate = new Date(transactionDateRange.earliest)
-    const latestDate = new Date(transactionDateRange.latest)
+    const earliestDate = parseDateKeyToLocalDate(transactionDateRange.earliest)
+    const latestDate = parseDateKeyToLocalDate(transactionDateRange.latest)
 
     if (Number.isNaN(earliestDate.getTime()) || Number.isNaN(latestDate.getTime())) {
       return []
@@ -280,21 +291,8 @@ export function ReportsPage() {
 
   const filteredTransactions = useMemo(() => {
     return transactions.filter((transaction) => {
-      const transactionDate = new Date(transaction.transactionDate)
-      const transactionTime = transactionDate.getTime()
-
-      if (effectiveDateRange.from) {
-        const fromTime = new Date(`${effectiveDateRange.from}T00:00:00`).getTime()
-        if (transactionTime < fromTime) {
-          return false
-        }
-      }
-
-      if (effectiveDateRange.to) {
-        const toTime = new Date(`${effectiveDateRange.to}T23:59:59.999`).getTime()
-        if (transactionTime > toTime) {
-          return false
-        }
+      if (!isTransactionDateInRange(transaction.transactionDate, effectiveDateRange)) {
+        return false
       }
 
       if (
@@ -309,30 +307,71 @@ export function ReportsPage() {
         return false
       }
 
+      if (!transaction.splits.some((split) => reportableAccountIds.has(split.accountId))) {
+        return false
+      }
+
       return true
     })
-  }, [effectiveDateRange.from, effectiveDateRange.to, importSessionFilter, importSessionStatusByTransactionId, selectedAccountIds, transactions])
+  }, [effectiveDateRange.from, effectiveDateRange.to, importSessionFilter, importSessionStatusByTransactionId, reportableAccountIds, selectedAccountIds, transactions])
 
-  const expenseByAccount = useMemo(() => {
+  const expenseBalancesByAccount = useMemo(() => {
     const totals = new Map<string, number>()
+    const reportEndTime = effectiveDateRange.to
+      ? new Date(`${effectiveDateRange.to}T23:59:59.999`).getTime()
+      : Number.POSITIVE_INFINITY
 
-    filteredTransactions.forEach((transaction) => {
+    accounts.forEach((account) => {
+      const isExpense = account.accountType === 5 || account.accountType === "Expense"
+      if (!isExpense) {
+        return
+      }
+
+      if (!reportableAccountIds.has(account.id)) {
+        return
+      }
+
+      if (selectedAccountIds.size > 0 && !selectedAccountIds.has(account.id)) {
+        return
+      }
+
+      totals.set(account.id, account.openingBalance)
+    })
+
+    transactions.forEach((transaction) => {
+      const transactionDate = new Date(transaction.transactionDate)
+      const transactionTime = transactionDate.getTime()
+      if (Number.isNaN(transactionTime) || transactionTime > reportEndTime) {
+        return
+      }
+
+      const importSessionStatus = importSessionStatusByTransactionId.get(transaction.id) ?? "none"
+      if (importSessionFilter !== "all" && importSessionStatus !== importSessionFilter) {
+        return
+      }
+
       transaction.splits.forEach((split) => {
+        if (!totals.has(split.accountId)) {
+          return
+        }
+
         const account = accounts.find((item) => item.id === split.accountId)
         if (!account) {
           return
         }
 
-        const isExpense = account.accountType === 5 || account.accountType === "Expense"
-        if (!isExpense) {
-          return
-        }
-
-        totals.set(split.accountId, (totals.get(split.accountId) ?? 0) + Math.abs(split.amount))
+        const nextValue =
+          (totals.get(split.accountId) ?? 0) + getBalanceDeltaForAccount(account.accountType, split)
+        totals.set(split.accountId, nextValue)
       })
     })
 
-    return [...totals.entries()]
+    return totals
+  }, [accounts, effectiveDateRange.to, importSessionFilter, importSessionStatusByTransactionId, reportableAccountIds, selectedAccountIds, transactions])
+
+  const expenseByAccount = useMemo(() => {
+    return [...expenseBalancesByAccount.entries()]
+      .filter(([, value]) => value > 0)
       .map(([accountId, value]) => ({
         id: accountId,
         label: accountPathLookup.get(accountId) ?? accountId,
@@ -340,7 +379,7 @@ export function ReportsPage() {
       }))
       .sort((left, right) => right.value - left.value)
       .slice(0, 6)
-  }, [accountPathLookup, accounts, filteredTransactions])
+  }, [accountPathLookup, expenseBalancesByAccount])
 
   const monthlyTotals = useMemo(() => {
     const totals = new Map<string, { income: number; expense: number }>()
@@ -360,15 +399,20 @@ export function ReportsPage() {
           return
         }
 
-        const isExpense = account.accountType === 5 || account.accountType === "Expense"
-        const isIncome = account.accountType === 4 || account.accountType === "Income"
-
-        if (isExpense) {
-          current.expense += Math.abs(split.amount)
+        if (!reportableAccountIds.has(account.id)) {
+          return
         }
 
-        if (isIncome) {
-          current.income += Math.abs(split.amount)
+        const isExpense = account.accountType === 5 || account.accountType === "Expense"
+        const isIncome = account.accountType === 4 || account.accountType === "Income"
+        const delta = getBalanceDeltaForAccount(account.accountType, split)
+
+        if (isExpense && delta > 0) {
+          current.expense += delta
+        }
+
+        if (isIncome && delta > 0) {
+          current.income += delta
         }
       })
 
@@ -382,7 +426,7 @@ export function ReportsPage() {
         expense: value.expense,
       }))
       .sort((left, right) => left.month.localeCompare(right.month))
-  }, [accounts, filteredTransactions])
+  }, [accounts, filteredTransactions, reportableAccountIds])
 
   useEffect(() => {
     setMonthlyTrendPage(1)
@@ -395,62 +439,46 @@ export function ReportsPage() {
     return monthlyTotals.slice(startIndex, startIndex + monthlyTrendPageSize)
   }, [monthlyTotals, monthlyTrendPage])
 
-  const compactSankeyLinks = useMemo(() => {
-    const links = new Map<string, number>()
-    const accountById = new Map(accounts.map((account) => [account.id, account]))
+  const sankeyScopedTransactions = useMemo(() => {
+    const reportEndTime = effectiveDateRange.to
+      ? new Date(`${effectiveDateRange.to}T23:59:59.999`).getTime()
+      : Number.POSITIVE_INFINITY
 
-    filteredTransactions.forEach((transaction) => {
-      const creditSplits = transaction.splits.filter((split) => split.side === "credit")
-      const debitSplits = transaction.splits.filter((split) => split.side === "debit")
-      const totalCredits = creditSplits.reduce((sum, split) => sum + split.amount, 0)
-
-      if (creditSplits.length === 0 || debitSplits.length === 0 || totalCredits <= 0) {
-        return
+    return transactions.filter((transaction) => {
+      const transactionDate = new Date(transaction.transactionDate)
+      const transactionTime = transactionDate.getTime()
+      if (Number.isNaN(transactionTime) || transactionTime > reportEndTime) {
+        return false
       }
 
-      debitSplits.forEach((debitSplit) => {
-        creditSplits.forEach((creditSplit) => {
-          const distributedAmount = (creditSplit.amount / totalCredits) * debitSplit.amount
-          if (distributedAmount <= 0) {
-            return
-          }
+      if (
+        selectedAccountIds.size > 0 &&
+        !transaction.splits.some((split) => selectedAccountIds.has(split.accountId))
+      ) {
+        return false
+      }
 
-          const sourceLabel = accountPathLookup.get(creditSplit.accountId) ?? creditSplit.accountId
-          const targetLabel = accountPathLookup.get(debitSplit.accountId) ?? debitSplit.accountId
-          const sourceStage = getSankeyStage(accountById.get(creditSplit.accountId)?.accountType)
-          const targetStage = getSankeyStage(accountById.get(debitSplit.accountId)?.accountType)
+      const importSessionStatus = importSessionStatusByTransactionId.get(transaction.id) ?? "none"
+      if (importSessionFilter !== "all" && importSessionStatus !== importSessionFilter) {
+        return false
+      }
 
-          if (sourceStage === targetStage) {
-            return
-          }
+      if (!transaction.splits.some((split) => reportableAccountIds.has(split.accountId))) {
+        return false
+      }
 
-          const isForwardFlow = sourceStage < targetStage
-          const normalizedSourceLabel = isForwardFlow ? sourceLabel : targetLabel
-          const normalizedTargetLabel = isForwardFlow ? targetLabel : sourceLabel
-          const normalizedSourceAccountId = isForwardFlow ? creditSplit.accountId : debitSplit.accountId
-          const normalizedTargetAccountId = isForwardFlow ? debitSplit.accountId : creditSplit.accountId
-          const normalizedSourceStage = isForwardFlow ? sourceStage : targetStage
-          const normalizedTargetStage = isForwardFlow ? targetStage : sourceStage
-          const key = `${normalizedSourceLabel}|||${normalizedTargetLabel}|||${normalizedSourceAccountId}|||${normalizedTargetAccountId}|||${normalizedSourceStage}|||${normalizedTargetStage}`
-
-          links.set(key, (links.get(key) ?? 0) + distributedAmount)
-        })
-      })
+      return true
     })
+  }, [effectiveDateRange.to, importSessionFilter, importSessionStatusByTransactionId, reportableAccountIds, selectedAccountIds, transactions])
 
-    return [...links.entries()]
-      .map(([key, value]) => {
-        const [source, target, sourceAccountId, targetAccountId, sourceStage, targetStage] = key.split("|||")
-        return {
-          source,
-          target,
-          value,
-          sourceAccountId,
-          targetAccountId,
-          sourceStage: Number(sourceStage),
-          targetStage: Number(targetStage),
-        }
-      })
+  const compactSankeyLinks = useMemo(() => {
+    const accountById = new Map(accounts.map((account) => [account.id, account]))
+    return alignSankeyLinksToExpenseBalances(
+      buildDistributedSankeyLinks(sankeyScopedTransactions, accountPathLookup, accountById),
+      expenseBalancesByAccount,
+      accountPathLookup,
+      accountById,
+    )
       .filter(
         (link) =>
           selectedAccountIds.size === 0 ||
@@ -459,59 +487,16 @@ export function ReportsPage() {
       )
       .sort((left, right) => right.value - left.value)
       .slice(0, 8)
-  }, [accountPathLookup, accounts, filteredTransactions, selectedAccountIds])
+  }, [accountPathLookup, accounts, expenseBalancesByAccount, sankeyScopedTransactions, selectedAccountIds])
 
   const detailedSankeyLinks = useMemo(() => {
-    const links = new Map<string, number>()
     const accountById = new Map(accounts.map((account) => [account.id, account]))
-
-    filteredTransactions.forEach((transaction) => {
-      const orderedSplits = transaction.splits
-        .map((split) => ({
-          ...split,
-          label: accountPathLookup.get(split.accountId) ?? split.accountId,
-          stage: getSankeyStage(accountById.get(split.accountId)?.accountType),
-        }))
-        .sort((left, right) => left.stage - right.stage || right.amount - left.amount)
-
-      if (orderedSplits.length < 2) {
-        return
-      }
-
-      for (let index = 0; index < orderedSplits.length - 1; index += 1) {
-        const sourceSplit = orderedSplits[index]
-        const targetSplit = orderedSplits.find(
-          (candidate, candidateIndex) => candidateIndex > index && candidate.stage > sourceSplit.stage,
-        )
-
-        if (!targetSplit) {
-          continue
-        }
-
-        const amount = Math.min(Math.abs(sourceSplit.amount), Math.abs(targetSplit.amount))
-
-        if (amount <= 0) {
-          continue
-        }
-
-        const key = `${sourceSplit.label}|||${targetSplit.label}|||${sourceSplit.accountId}|||${targetSplit.accountId}|||${sourceSplit.stage}|||${targetSplit.stage}`
-        links.set(key, (links.get(key) ?? 0) + amount)
-      }
-    })
-
-    return [...links.entries()]
-      .map(([key, value]) => {
-        const [source, target, sourceAccountId, targetAccountId, sourceStage, targetStage] = key.split("|||")
-        return {
-          source,
-          target,
-          value,
-          sourceAccountId,
-          targetAccountId,
-          sourceStage: Number(sourceStage),
-          targetStage: Number(targetStage),
-        }
-      })
+    return alignSankeyLinksToExpenseBalances(
+      buildDistributedSankeyLinks(sankeyScopedTransactions, accountPathLookup, accountById),
+      expenseBalancesByAccount,
+      accountPathLookup,
+      accountById,
+    )
       .filter(
         (link) =>
           selectedAccountIds.size === 0 ||
@@ -520,10 +505,10 @@ export function ReportsPage() {
       )
       .sort((left, right) => right.value - left.value)
       .slice(0, 14)
-  }, [accountPathLookup, accounts, filteredTransactions, selectedAccountIds])
+  }, [accountPathLookup, accounts, expenseBalancesByAccount, sankeyScopedTransactions, selectedAccountIds])
 
   const reportVolume = filteredTransactions.length
-  const totalExpenses = monthlyTotals.reduce((sum, item) => sum + item.expense, 0)
+  const totalExpenses = [...expenseBalancesByAccount.values()].reduce((sum, value) => sum + value, 0)
   const totalIncome = monthlyTotals.reduce((sum, item) => sum + item.income, 0)
 
   return (
@@ -1518,6 +1503,240 @@ function formatCompactUnit(value: number) {
   return Number.isInteger(roundedValue) ? String(roundedValue) : String(roundedValue)
 }
 
+function buildDistributedSankeyLinks(
+  transactions: Transaction[],
+  accountPathLookup: Map<string, string>,
+  accountById: Map<string, Account>,
+) {
+  const links = new Map<string, number>()
+  const directTransactionAccountIds = new Set(
+    transactions.flatMap((transaction) => transaction.splits.map((split) => split.accountId)),
+  )
+
+  function getSankeyAccountLabel(accountId: string) {
+    const account = accountById.get(accountId)
+    if (!account) {
+      return accountPathLookup.get(accountId) ?? accountId
+    }
+
+    const segments: string[] = []
+    let currentAccountId: string | null | undefined = accountId
+
+    while (currentAccountId) {
+      const currentAccount = accountById.get(currentAccountId)
+      if (!currentAccount) {
+        break
+      }
+
+      const isAssetAccount =
+        currentAccount.accountType === 1 || currentAccount.accountType === "Asset"
+      const shouldIncludeSegment =
+        currentAccountId === accountId ||
+        !isAssetAccount ||
+        directTransactionAccountIds.has(currentAccountId)
+
+      if (shouldIncludeSegment && currentAccount.name) {
+        segments.unshift(currentAccount.name)
+      }
+
+      currentAccountId = currentAccount.parentAccountId
+    }
+
+    return segments.join(" / ") || (accountPathLookup.get(accountId) ?? accountId)
+  }
+
+  function addDistributedLink(
+    sourceAccountId: string,
+    targetAccountId: string,
+    value: number,
+  ) {
+    if (value <= 0) {
+      return
+    }
+
+    const sourceLabel = getSankeyAccountLabel(sourceAccountId)
+    const targetLabel = getSankeyAccountLabel(targetAccountId)
+    const sourceStage = getSankeyStage(accountById.get(sourceAccountId)?.accountType)
+    const targetStage = getSankeyStage(accountById.get(targetAccountId)?.accountType)
+    const { sourceColumn, targetColumn } = getSankeyColumnsForFlow(sourceStage, targetStage)
+    const normalizedSourceLabel = sourceLabel
+    const normalizedTargetLabel = targetLabel
+    const normalizedSourceAccountId = sourceAccountId
+    const normalizedTargetAccountId = targetAccountId
+    const normalizedSourceStage = sourceColumn
+    const normalizedTargetStage = targetColumn
+    const key = `${normalizedSourceLabel}|||${normalizedTargetLabel}|||${normalizedSourceAccountId}|||${normalizedTargetAccountId}|||${normalizedSourceStage}|||${normalizedTargetStage}`
+
+    links.set(key, (links.get(key) ?? 0) + value)
+  }
+
+  transactions.forEach((transaction) => {
+    const splitDeltas = transaction.splits.map((split) => {
+      const accountType = accountById.get(split.accountId)?.accountType
+      const delta = getBalanceDeltaForAccount(accountType, split)
+      return { split, delta, accountType }
+    })
+
+    const increasingSplits = splitDeltas
+      .filter((entry) => entry.delta > 0)
+      .map(({ split, delta }) => ({ split, delta }))
+
+    const decreasingSplits = splitDeltas
+      .filter((entry) => entry.delta < 0)
+      .map(({ split, delta }) => ({ split, delta }))
+
+    const incomeIncreasingSplits = splitDeltas
+      .map((split) => {
+        return split
+      })
+      .filter(
+        (entry) =>
+          entry.delta > 0 && (entry.accountType === 4 || entry.accountType === "Income"),
+      )
+
+    const assetIncreasingSplits = splitDeltas
+      .map((split) => {
+        return split
+      })
+      .filter(
+        (entry) =>
+          entry.delta > 0 && (entry.accountType === 1 || entry.accountType === "Asset"),
+      )
+
+    const totalDecreases = decreasingSplits.reduce((sum, entry) => sum + Math.abs(entry.delta), 0)
+
+    if (increasingSplits.length > 0 && decreasingSplits.length > 0 && totalDecreases > 0) {
+      increasingSplits.forEach(({ split: increasingSplit, delta: increasingDelta }) => {
+        decreasingSplits.forEach(({ split: decreasingSplit, delta: decreasingDelta }) => {
+          const distributedAmount = (Math.abs(decreasingDelta) / totalDecreases) * increasingDelta
+          addDistributedLink(decreasingSplit.accountId, increasingSplit.accountId, distributedAmount)
+        })
+      })
+      return
+    }
+
+    const totalIncomeIncrease = incomeIncreasingSplits.reduce((sum, entry) => sum + entry.delta, 0)
+    if (incomeIncreasingSplits.length === 0 || assetIncreasingSplits.length === 0 || totalIncomeIncrease <= 0) {
+      return
+    }
+
+    assetIncreasingSplits.forEach((targetEntry) => {
+      incomeIncreasingSplits.forEach((sourceEntry) => {
+        const distributedAmount = (sourceEntry.delta / totalIncomeIncrease) * targetEntry.delta
+        addDistributedLink(sourceEntry.split.accountId, targetEntry.split.accountId, distributedAmount)
+      })
+    })
+  })
+
+  return [...links.entries()].map(([key, value]) => {
+    const [source, target, sourceAccountId, targetAccountId, sourceStage, targetStage] = key.split("|||")
+    return {
+      source,
+      target,
+      value,
+      sourceAccountId,
+      targetAccountId,
+      sourceStage: Number(sourceStage),
+      targetStage: Number(targetStage),
+    }
+  })
+}
+
+function alignSankeyLinksToExpenseBalances(
+  links: FlowLink[],
+  expenseBalancesByAccount: Map<string, number>,
+  accountPathLookup: Map<string, string>,
+  accountById: Map<string, Account>,
+) {
+  const adjustedLinks = [...links]
+
+  expenseBalancesByAccount.forEach((expenseBalance, accountId) => {
+    if (expenseBalance <= 0) {
+      return
+    }
+
+    const expenseStage = getSankeyStage(accountById.get(accountId)?.accountType)
+    const incomingIndexes = adjustedLinks
+      .map((link, index) => ({ link, index }))
+      .filter(({ link }) => link.targetAccountId === accountId && link.targetStage === expenseStage)
+
+    const currentIncomingTotal = incomingIndexes.reduce((sum, item) => sum + item.link.value, 0)
+
+    if (currentIncomingTotal > 0) {
+      const scale = expenseBalance / currentIncomingTotal
+      incomingIndexes.forEach(({ index }) => {
+        adjustedLinks[index] = {
+          ...adjustedLinks[index],
+          value: adjustedLinks[index].value * scale,
+        }
+      })
+      return
+    }
+
+    adjustedLinks.push({
+      source: "Opening balances",
+      target: accountPathLookup.get(accountId) ?? accountId,
+      value: expenseBalance,
+      sourceAccountId: "__opening_balances__",
+      targetAccountId: accountId,
+      sourceStage: -1,
+      targetStage: expenseStage,
+    })
+  })
+
+  return adjustedLinks
+}
+
+function getSankeyColumnsForFlow(sourceStage: number, targetStage: number) {
+  if (sourceStage === 0 && targetStage === 1) {
+    return { sourceColumn: 0, targetColumn: 1 }
+  }
+
+  if (sourceStage === 1 && targetStage === 1) {
+    return { sourceColumn: 1, targetColumn: 2 }
+  }
+
+  if (sourceStage === 1 && targetStage === 2) {
+    return { sourceColumn: 2, targetColumn: 3 }
+  }
+
+  if (sourceStage === 1 && targetStage === 3) {
+    return { sourceColumn: 2, targetColumn: 3 }
+  }
+
+  if (sourceStage === 1 && targetStage === 4) {
+    return { sourceColumn: 2, targetColumn: 3 }
+  }
+
+  const normalizedSourceStage = getSankeyBaseColumn(sourceStage)
+  const normalizedTargetStage = Math.max(getSankeyBaseColumn(targetStage), normalizedSourceStage + 1)
+  return { sourceColumn: normalizedSourceStage, targetColumn: normalizedTargetStage }
+}
+
+function getSankeyBaseColumn(stage: number) {
+  if (stage === 0) {
+    return 0
+  }
+
+  if (stage === 1) {
+    return 1
+  }
+
+  if (stage === 2) {
+    return 3
+  }
+
+  if (stage === 3) {
+    return 3
+  }
+
+  if (stage === 4) {
+    return 3
+  }
+
+  return Math.max(stage, 0)
+}
+
 function getSankeyStage(accountType: number | string | undefined) {
   if (accountType === 4 || accountType === "Income") {
     return 0
@@ -1543,24 +1762,26 @@ function getSankeyStage(accountType: number | string | undefined) {
 }
 
 function getSankeyStageLabel(stage: number) {
-  if (stage === 0) {
+  const normalizedStage = stage
+
+  if (normalizedStage === -1) {
+    return "Opening balances"
+  }
+
+  if (normalizedStage === 0) {
     return "Income"
   }
 
-  if (stage === 1) {
-    return "Assets"
+  if (normalizedStage === 1) {
+    return "Assets In"
   }
 
-  if (stage === 2) {
-    return "Other accounts"
+  if (normalizedStage === 2) {
+    return "Intra-Assets"
   }
 
-  if (stage === 3) {
-    return "Expenses"
-  }
-
-  if (stage === 4) {
-    return "Liabilities"
+  if (normalizedStage === 3) {
+    return "Expenses / Liabilities"
   }
 
   return "Other"

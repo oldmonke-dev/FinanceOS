@@ -21,5 +21,7 @@ namespace Finance.Domain.Entities.Core
         public DateTime? LastSeenAt { get; set; }
 
         public UserPreference? Preference { get; set; }
+
+        public ICollection<AccountAccess> AccountAccessEntries { get; set; } = new List<AccountAccess>();
     }
 }

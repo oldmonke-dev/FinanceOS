@@ -15,6 +15,14 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -28,14 +36,16 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import {
+  getAccountEffectForSplitSide,
   getCreditTotal as getSplitCreditTotal,
   getDebitTotal as getSplitDebitTotal,
   getSignedSplitAmount,
 } from "@/lib/accounting"
 import { buildAccountTree } from "@/lib/accounts"
+import { getTransactionDateKey, isTransactionDateInRange, parseDateKeyToLocalDate } from "@/lib/transaction-date"
 import { deleteTransaction, getTransactions, updateTransaction } from "@/lib/transactions"
 import { cn } from "@/lib/utils"
-import type { AccountNode } from "@/models/account"
+import type { Account, AccountNode } from "@/models/account"
 import type { Transaction } from "@/models/transaction"
 
 type SortKey =
@@ -54,10 +64,15 @@ type SortState = {
 }
 
 type ImportSessionFilter = "all" | "archived" | "active" | "none"
+type DateRangeMode = "custom" | "fy" | "ay"
 
 type TransactionImportSessionStatus = "archived" | "active"
 
 type HiddenColumn = "splitCount" | "splitTotal"
+type ReorderMode = {
+  accountId: string
+  date: string
+}
 
 const defaultSort: SortState = {
   key: "transactionDate",
@@ -87,8 +102,10 @@ export function AdvancedTransactionsPage() {
   const [bulkTargetAccountId, setBulkTargetAccountId] = useState<string | null>(null)
   const [descriptionQuery, setDescriptionQuery] = useState("")
   const [memoQuery, setMemoQuery] = useState("")
-  const [dateFrom, setDateFrom] = useState("")
-  const [dateTo, setDateTo] = useState("")
+  const [dateRangeMode, setDateRangeMode] = useState<DateRangeMode>("custom")
+  const [customDateFrom, setCustomDateFrom] = useState("")
+  const [customDateTo, setCustomDateTo] = useState("")
+  const [selectedFiscalYearStart, setSelectedFiscalYearStart] = useState("")
   const [importSessionFilter, setImportSessionFilter] = useState<ImportSessionFilter>("all")
   const [selectedArchivedSessionIds, setSelectedArchivedSessionIds] = useState<Set<string>>(new Set())
   const [sortState, setSortState] = useState<SortState>(defaultSort)
@@ -96,6 +113,14 @@ export function AdvancedTransactionsPage() {
   const [isDeleting, setIsDeleting] = useState(false)
   const [isSavingChanges, setIsSavingChanges] = useState(false)
   const [hiddenColumns, setHiddenColumns] = useState<Set<HiddenColumn>>(new Set())
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(50)
+  const [isReorderSheetOpen, setIsReorderSheetOpen] = useState(false)
+  const [reorderDateDraft, setReorderDateDraft] = useState("")
+  const [reorderAccountIdDraft, setReorderAccountIdDraft] = useState<string | null>(null)
+  const [reorderMode, setReorderMode] = useState<ReorderMode | null>(null)
+  const [draggedReorderTransactionId, setDraggedReorderTransactionId] = useState<string | null>(null)
+  const [dropTargetTransactionId, setDropTargetTransactionId] = useState<string | null>(null)
   const deferredDescriptionQuery = useDeferredValue(descriptionQuery)
   const deferredMemoQuery = useDeferredValue(memoQuery)
   const deferredAccountQuery = useDeferredValue(accountQuery)
@@ -134,6 +159,10 @@ export function AdvancedTransactionsPage() {
   }, [accounts])
 
   const accountTree = useMemo(() => buildAccountTree(accounts), [accounts])
+  const accountTypeById = useMemo(
+    () => new Map(accounts.map((account) => [account.id, account.accountType])),
+    [accounts],
+  )
   const filteredAccountTree = useMemo(
     () => filterAccountTree(accountTree, deferredAccountQuery.trim().toLowerCase()),
     [accountTree, deferredAccountQuery],
@@ -256,25 +285,113 @@ export function AdvancedTransactionsPage() {
     }
   }, [isAccountPopupOpen])
 
+  const transactionDateRange = useMemo(() => {
+    if (draftTransactions.length === 0) {
+      return { earliest: "", latest: "" }
+    }
+
+    const sortedDates = draftTransactions
+      .map((transaction) => getTransactionDateKey(transaction.transactionDate))
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => left.localeCompare(right))
+
+    if (sortedDates.length === 0) {
+      return { earliest: "", latest: "" }
+    }
+
+    return {
+      earliest: sortedDates[0],
+      latest: sortedDates[sortedDates.length - 1],
+    }
+  }, [draftTransactions])
+
+  useEffect(() => {
+    setSelectedTransactionIds((current) => {
+      const next = new Set<string>()
+
+      current.forEach((id) => {
+        if (draftTransactions.some((transaction) => transaction.id === id)) {
+          next.add(id)
+        }
+      })
+
+      return next
+    })
+  }, [draftTransactions])
+
+  useEffect(() => {
+    if (!transactionDateRange.earliest || !transactionDateRange.latest) {
+      return
+    }
+
+    setCustomDateFrom((current) => current || transactionDateRange.earliest)
+    setCustomDateTo((current) => current || transactionDateRange.latest)
+  }, [transactionDateRange.earliest, transactionDateRange.latest])
+
+  const fiscalYearOptions = useMemo(() => {
+    if (!transactionDateRange.earliest || !transactionDateRange.latest) {
+      return []
+    }
+
+    const earliestDate = parseDateKeyToLocalDate(transactionDateRange.earliest)
+    const latestDate = parseDateKeyToLocalDate(transactionDateRange.latest)
+
+    if (Number.isNaN(earliestDate.getTime()) || Number.isNaN(latestDate.getTime())) {
+      return []
+    }
+
+    const startYear = getIndianFiscalYearStart(earliestDate)
+    const endYear = getIndianFiscalYearStart(latestDate)
+    const options: Array<{ value: string; fyLabel: string; ayLabel: string }> = []
+
+    for (let year = endYear; year >= startYear; year -= 1) {
+      options.push({
+        value: String(year),
+        fyLabel: formatFiscalYearLabel(year),
+        ayLabel: formatAssessmentYearLabel(year),
+      })
+    }
+
+    return options
+  }, [transactionDateRange.earliest, transactionDateRange.latest])
+
+  useEffect(() => {
+    if (selectedFiscalYearStart || fiscalYearOptions.length === 0) {
+      return
+    }
+
+    setSelectedFiscalYearStart(fiscalYearOptions[0].value)
+  }, [fiscalYearOptions, selectedFiscalYearStart])
+
+  const effectiveDateRange = useMemo(() => {
+    if (dateRangeMode === "custom") {
+      return {
+        from: customDateFrom,
+        to: customDateTo,
+      }
+    }
+
+    if (!selectedFiscalYearStart) {
+      return {
+        from: "",
+        to: "",
+      }
+    }
+
+    const startYear = Number(selectedFiscalYearStart)
+    return {
+      from: `${startYear}-04-01`,
+      to: `${startYear + 1}-03-31`,
+    }
+  }, [customDateFrom, customDateTo, dateRangeMode, selectedFiscalYearStart])
+
   const filteredTransactions = useMemo(() => {
     const normalizedDescription = deferredDescriptionQuery.trim().toLowerCase()
     const normalizedMemo = deferredMemoQuery.trim().toLowerCase()
 
     return draftTransactions.filter((transaction) => {
-      const transactionDate = getComparableDateValue(transaction.transactionDate)
-
-      if (dateFrom) {
-        const fromDate = new Date(`${dateFrom}T00:00:00`)
-        if (Number.isFinite(transactionDate) && transactionDate < fromDate.getTime()) {
-          return false
-        }
-      }
-
-      if (dateTo) {
-        const toDate = new Date(`${dateTo}T23:59:59.999`)
-        if (Number.isFinite(transactionDate) && transactionDate > toDate.getTime()) {
-          return false
-        }
+      if (!isTransactionDateInRange(transaction.transactionDate, effectiveDateRange)) {
+        return false
       }
 
       if (
@@ -318,11 +435,11 @@ export function AdvancedTransactionsPage() {
       return true
     })
   }, [
-    dateFrom,
-    dateTo,
     deferredDescriptionQuery,
     deferredMemoQuery,
     draftTransactions,
+    effectiveDateRange.from,
+    effectiveDateRange.to,
     importSessionFilter,
     importSessionMetaByTransactionId,
     selectedAccountIds,
@@ -341,51 +458,64 @@ export function AdvancedTransactionsPage() {
     })
   }, [filteredTransactions, sortState])
 
-  const transactionDateRange = useMemo(() => {
-    if (draftTransactions.length === 0) {
-      return { earliest: "", latest: "" }
+  const totalPages = Math.max(1, Math.ceil(sortedTransactions.length / pageSize))
+  const pagedTransactions = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize
+    return sortedTransactions.slice(startIndex, startIndex + pageSize)
+  }, [currentPage, pageSize, sortedTransactions])
+  const reorderTransactions = useMemo(() => {
+    if (!reorderMode) {
+      return []
     }
 
-    const sortedDates = draftTransactions
-      .map((transaction) => transaction.transactionDate)
-      .map((value) => {
-        const date = new Date(value)
-        return Number.isNaN(date.getTime()) ? null : date
-      })
-      .filter((value): value is Date => value != null)
-      .sort((left, right) => left.getTime() - right.getTime())
-
-    if (sortedDates.length === 0) {
-      return { earliest: "", latest: "" }
-    }
-
-    return {
-      earliest: sortedDates[0].toISOString().slice(0, 10),
-      latest: sortedDates[sortedDates.length - 1].toISOString().slice(0, 10),
-    }
-  }, [draftTransactions])
+    return [...draftTransactions]
+      .filter(
+        (transaction) =>
+          getTransactionDateKey(transaction.transactionDate) === reorderMode.date &&
+          transaction.splits.some((split) => split.accountId === reorderMode.accountId),
+      )
+      .sort(compareTransactionsInChronologicalOrder)
+  }, [draftTransactions, reorderMode])
+  const displayedTransactions = reorderMode ? reorderTransactions : pagedTransactions
 
   const visibleTransactionIds = useMemo(
-    () => sortedTransactions.map((transaction) => transaction.id),
-    [sortedTransactions],
+    () => displayedTransactions.map((transaction) => transaction.id),
+    [displayedTransactions],
   )
   const visibleSelectionCount = visibleTransactionIds.filter((id) => selectedTransactionIds.has(id)).length
   const areAllVisibleSelected =
     visibleTransactionIds.length > 0 && visibleSelectionCount === visibleTransactionIds.length
 
   useEffect(() => {
-    setSelectedTransactionIds((current) => {
-      const next = new Set<string>()
+    setCurrentPage(1)
+  }, [
+    customDateFrom,
+    customDateTo,
+    dateRangeMode,
+    deferredDescriptionQuery,
+    deferredMemoQuery,
+    importSessionFilter,
+    selectedFiscalYearStart,
+    selectedAccountIds,
+    selectedArchivedSessionIds,
+    sortState,
+    pageSize,
+  ])
 
-      current.forEach((id) => {
-        if (draftTransactions.some((transaction) => transaction.id === id)) {
-          next.add(id)
-        }
-      })
+  useEffect(() => {
+    setCurrentPage((current) => Math.min(current, totalPages))
+  }, [totalPages])
 
-      return next
-    })
-  }, [draftTransactions])
+  useEffect(() => {
+    if (!reorderMode) {
+      return
+    }
+
+    const hasMatchingAccount = accounts.some((account) => account.id === reorderMode.accountId)
+    if (!hasMatchingAccount) {
+      setReorderMode(null)
+    }
+  }, [accounts, reorderMode])
 
   const hasUnsavedChanges = useMemo(
     () => serializeTransactions(savedTransactions) !== serializeTransactions(draftTransactions),
@@ -491,6 +621,7 @@ export function AdvancedTransactionsPage() {
         }
 
         await updateTransaction(transaction.id, {
+          ledgerSequence: transaction.ledgerSequence,
           description: transaction.description,
           referenceNumber: transaction.referenceNumber,
           splits: transaction.splits.map((split) => ({
@@ -608,6 +739,58 @@ export function AdvancedTransactionsPage() {
   const selectedAccountCount = selectedAccountIds.size
   const showSplitCountColumn = !hiddenColumns.has("splitCount")
   const showSplitTotalColumn = !hiddenColumns.has("splitTotal")
+  const reorderAccount = reorderMode
+    ? accounts.find((account) => account.id === reorderMode.accountId) ?? null
+    : null
+  const reorderAccountLabel = reorderAccount
+    ? accountPathLookup.get(reorderAccount.id) ?? reorderAccount.name
+    : "Unknown account"
+  const reorderDateLabel = reorderMode?.date
+    ? parseDateKeyToLocalDate(reorderMode.date).toLocaleDateString()
+    : ""
+  const reorderBalanceByTransactionId = useMemo(() => {
+    if (!reorderMode || !reorderAccount) {
+      return new Map<string, { delta: number; trailingBalance: number }>()
+    }
+
+    const startingBalance =
+      reorderAccount.openingBalance +
+      draftTransactions
+        .filter(
+          (transaction) =>
+            getTransactionDateKey(transaction.transactionDate) < reorderMode.date &&
+            transaction.splits.some((split) => split.accountId === reorderMode.accountId),
+        )
+        .sort(compareTransactionsInChronologicalOrder)
+        .reduce(
+          (balance, transaction) =>
+            balance + getTransactionBalanceDelta(transaction, reorderMode.accountId, accountTypeById),
+          0,
+        )
+
+    let runningBalance = startingBalance
+    const entries = new Map<string, { delta: number; trailingBalance: number }>()
+
+    reorderTransactions.forEach((transaction) => {
+      const delta = getTransactionBalanceDelta(transaction, reorderMode.accountId, accountTypeById)
+      runningBalance += delta
+      entries.set(transaction.id, { delta, trailingBalance: runningBalance })
+    })
+
+    return entries
+  }, [accountTypeById, draftTransactions, reorderAccount, reorderMode, reorderTransactions])
+  const canStartReorderMode = Boolean(reorderDateDraft && reorderAccountIdDraft)
+  const reorderDateTransactionCount = useMemo(() => {
+    if (!reorderDateDraft || !reorderAccountIdDraft) {
+      return 0
+    }
+
+    return draftTransactions.filter(
+      (transaction) =>
+        getTransactionDateKey(transaction.transactionDate) === reorderDateDraft &&
+        transaction.splits.some((split) => split.accountId === reorderAccountIdDraft),
+    ).length
+  }, [draftTransactions, reorderAccountIdDraft, reorderDateDraft])
   const isBulkChangeDisabled =
     selectedTransactionIds.size === 0 ||
     !bulkTargetAccountId ||
@@ -699,6 +882,71 @@ export function AdvancedTransactionsPage() {
       message: `Updated ${changedSplitCount} source split${changedSplitCount === 1 ? "" : "s"} in the draft.`,
       tone: "success",
     })
+  }
+
+  function openReorderSheet() {
+    setReorderDateDraft(
+      reorderMode?.date ||
+        customDateFrom ||
+        transactionDateRange.latest ||
+        transactionDateRange.earliest,
+    )
+    setReorderAccountIdDraft(
+      reorderMode?.accountId ||
+        (selectedAccountIds.size === 1 ? Array.from(selectedAccountIds)[0] : null),
+    )
+    setIsReorderSheetOpen(true)
+  }
+
+  function applyReorderMode() {
+    if (!reorderDateDraft || !reorderAccountIdDraft) {
+      return
+    }
+
+    setReorderMode({
+      date: reorderDateDraft,
+      accountId: reorderAccountIdDraft,
+    })
+    setIsReorderSheetOpen(false)
+  }
+
+  function applyReorderTransactionIds(reorderedTargetIds: string[]) {
+    if (!reorderMode) {
+      return
+    }
+
+    commitDraft((current) => applyReorderedDayTransactions(current, reorderMode.date, reorderedTargetIds))
+  }
+
+  function handleReorderDragStart(transactionId: string) {
+    setDraggedReorderTransactionId(transactionId)
+    setDropTargetTransactionId(transactionId)
+  }
+
+  function handleReorderDrop(targetTransactionId: string) {
+    if (!draggedReorderTransactionId || draggedReorderTransactionId === targetTransactionId) {
+      setDraggedReorderTransactionId(null)
+      setDropTargetTransactionId(null)
+      return
+    }
+
+    const reorderedTargetIds = reorderTransactions.map((transaction) => transaction.id)
+    const draggedIndex = reorderedTargetIds.indexOf(draggedReorderTransactionId)
+    const targetIndex = reorderedTargetIds.indexOf(targetTransactionId)
+
+    if (draggedIndex < 0 || targetIndex < 0) {
+      setDraggedReorderTransactionId(null)
+      setDropTargetTransactionId(null)
+      return
+    }
+
+    const [movedId] = reorderedTargetIds.splice(draggedIndex, 1)
+    const nextTargetIndex = reorderedTargetIds.indexOf(targetTransactionId)
+    reorderedTargetIds.splice(nextTargetIndex, 0, movedId)
+
+    applyReorderTransactionIds(reorderedTargetIds)
+    setDraggedReorderTransactionId(null)
+    setDropTargetTransactionId(null)
   }
 
   return (
@@ -842,28 +1090,64 @@ export function AdvancedTransactionsPage() {
           </div>
 
           <label className="min-w-[10rem] space-y-1 text-xs">
-            <span className="font-medium text-muted-foreground">From</span>
-            <Input
-              type="date"
-              value={dateFrom}
-              onChange={(event) => setDateFrom(event.target.value)}
-              min={transactionDateRange.earliest || undefined}
-              max={transactionDateRange.latest || undefined}
-              className="h-8"
-            />
+            <span className="font-medium text-muted-foreground">Date mode</span>
+            <Select value={dateRangeMode} onValueChange={(value) => setDateRangeMode(value as DateRangeMode)}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="custom">Custom</SelectItem>
+                <SelectItem value="fy">Financial Year</SelectItem>
+                <SelectItem value="ay">Assessment Year</SelectItem>
+              </SelectContent>
+            </Select>
           </label>
 
-          <label className="min-w-[10rem] space-y-1 text-xs">
-            <span className="font-medium text-muted-foreground">To</span>
-            <Input
-              type="date"
-              value={dateTo}
-              onChange={(event) => setDateTo(event.target.value)}
-              min={transactionDateRange.earliest || undefined}
-              max={transactionDateRange.latest || undefined}
-              className="h-8"
-            />
-          </label>
+          {dateRangeMode === "custom" ? (
+            <>
+              <label className="min-w-[10rem] space-y-1 text-xs">
+                <span className="font-medium text-muted-foreground">From</span>
+                <Input
+                  type="date"
+                  value={customDateFrom}
+                  onChange={(event) => setCustomDateFrom(event.target.value)}
+                  min={transactionDateRange.earliest || undefined}
+                  max={transactionDateRange.latest || undefined}
+                  className="h-8"
+                />
+              </label>
+
+              <label className="min-w-[10rem] space-y-1 text-xs">
+                <span className="font-medium text-muted-foreground">To</span>
+                <Input
+                  type="date"
+                  value={customDateTo}
+                  onChange={(event) => setCustomDateTo(event.target.value)}
+                  min={transactionDateRange.earliest || undefined}
+                  max={transactionDateRange.latest || undefined}
+                  className="h-8"
+                />
+              </label>
+            </>
+          ) : (
+            <label className="min-w-[12rem] space-y-1 text-xs">
+              <span className="font-medium text-muted-foreground">
+                {dateRangeMode === "fy" ? "Financial Year" : "Assessment Year"}
+              </span>
+              <Select value={selectedFiscalYearStart} onValueChange={setSelectedFiscalYearStart}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Select year" />
+                </SelectTrigger>
+                <SelectContent>
+                  {fiscalYearOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {dateRangeMode === "fy" ? option.fyLabel : option.ayLabel}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+          )}
 
           <label className="min-w-[11rem] space-y-1 text-xs">
             <span className="font-medium text-muted-foreground">Import session</span>
@@ -884,6 +1168,15 @@ export function AdvancedTransactionsPage() {
           </label>
 
           <div className="flex flex-wrap items-end gap-2 md:ml-auto">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={openReorderSheet}
+            >
+              <ArrowDownUp />
+              Reorder Same Transactions
+            </Button>
             <Button
               type="button"
               variant="outline"
@@ -922,8 +1215,10 @@ export function AdvancedTransactionsPage() {
                 setMemoQuery("")
                 setAccountQuery("")
                 setIsAccountPopupOpen(false)
-                setDateFrom("")
-                setDateTo("")
+                setDateRangeMode("custom")
+                setCustomDateFrom(transactionDateRange.earliest)
+                setCustomDateTo(transactionDateRange.latest)
+                setSelectedFiscalYearStart(fiscalYearOptions[0]?.value ?? "")
                 setImportSessionFilter("all")
                 setSelectedArchivedSessionIds(new Set())
                 setSelectedAccountIds(new Set())
@@ -944,6 +1239,28 @@ export function AdvancedTransactionsPage() {
             </Button>
           </div>
         </div>
+
+        {reorderMode ? (
+          <div className="mt-3 rounded-xl border border-primary/30 bg-primary/5 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">Reorder mode is active</p>
+                <p className="text-xs text-muted-foreground">
+                  Editing {reorderTransactions.length} transaction{reorderTransactions.length === 1 ? "" : "s"} on{" "}
+                  {reorderDateLabel} for {reorderAccountLabel}. Move rows up or down to change same-day order.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setReorderMode(null)}
+              >
+                Exit reorder mode
+              </Button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="mt-3 rounded-xl border bg-background/70 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1130,17 +1447,81 @@ export function AdvancedTransactionsPage() {
         ) : sortedTransactions.length === 0 ? (
           <div className="p-6 text-sm text-muted-foreground">No transactions match the current filters.</div>
         ) : (
-          <div data-horizontal-scroll-region className="horizontal-scroll-region overflow-x-auto">
+          <>
+            <div className="flex flex-col gap-3 border-b px-4 py-3 md:flex-row md:items-center md:justify-between">
+              <p className="text-sm text-muted-foreground">
+                {reorderMode ? (
+                  <>
+                    Reordering{" "}
+                    <span className="font-medium text-foreground">{reorderTransactions.length}</span> same-day
+                    transaction{reorderTransactions.length === 1 ? "" : "s"}
+                  </>
+                ) : (
+                  <>
+                    Showing{" "}
+                    <span className="font-medium text-foreground">
+                      {(currentPage - 1) * pageSize + 1}-{Math.min(currentPage * pageSize, sortedTransactions.length)}
+                    </span>{" "}
+                    of <span className="font-medium text-foreground">{sortedTransactions.length}</span> transactions
+                  </>
+                )}
+              </p>
+              {!reorderMode ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select
+                    value={String(pageSize)}
+                    onValueChange={(value) => setPageSize(Number(value))}
+                  >
+                    <SelectTrigger className="h-8 w-[8.5rem]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="25">25 / page</SelectItem>
+                      <SelectItem value="50">50 / page</SelectItem>
+                      <SelectItem value="100">100 / page</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    Previous
+                  </Button>
+                  <div className="rounded-md border bg-background px-3 py-1.5 text-xs text-muted-foreground">
+                    Page <span className="font-medium text-foreground">{currentPage}</span> / {totalPages}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                    disabled={currentPage === totalPages}
+                  >
+                    Next
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+            <div data-horizontal-scroll-region className="horizontal-scroll-region overflow-x-auto">
             <table className="min-w-[96rem] w-full border-collapse text-xs">
               <thead className="bg-muted/40">
                 <tr className="border-b">
                   <th className="w-10 px-2 py-2 text-left">
                     <Checkbox
-                      checked={areAllVisibleSelected}
-                      onCheckedChange={(checked) => toggleVisibleSelection(Boolean(checked))}
-                      aria-label="Select visible transactions"
-                    />
+                    checked={areAllVisibleSelected}
+                    onCheckedChange={(checked) => toggleVisibleSelection(Boolean(checked))}
+                    aria-label="Select visible transactions"
+                  />
                   </th>
+                  {reorderMode ? (
+                    <>
+                      <th className="w-28 px-2 py-2 text-left font-medium">Reorder</th>
+                      <th className="w-28 px-2 py-2 text-right font-medium">Trailing balance</th>
+                    </>
+                  ) : null}
                   <SortableHeader
                     label="Date"
                     sortKey="transactionDate"
@@ -1163,7 +1544,7 @@ export function AdvancedTransactionsPage() {
                     className="w-36"
                   />
                   <th className="w-[24rem] px-2 py-2 text-left font-medium">Split account</th>
-                  <th className="w-16 px-2 py-2 text-left font-medium">Side</th>
+                  <th className="w-28 px-2 py-2 text-left font-medium">Balance Change</th>
                   <SortableHeader
                     label="Debits"
                     sortKey="debitTotal"
@@ -1194,18 +1575,24 @@ export function AdvancedTransactionsPage() {
                 </tr>
               </thead>
               <tbody>
-                {sortedTransactions.map((transaction) => {
+                {displayedTransactions.map((transaction) => {
                   const isSelected = selectedTransactionIds.has(transaction.id)
                   const splitTotal = getDebitTotal(transaction)
                   const savedSnapshot = savedTransactions.find((item) => item.id === transaction.id)
                   const isModified =
                     !savedSnapshot || serializeTransaction(savedSnapshot) !== serializeTransaction(transaction)
+                  const reorderBalance = reorderBalanceByTransactionId.get(transaction.id)
+                  const isDropTarget = dropTargetTransactionId === transaction.id
 
                   return (
                     <Fragment key={transaction.id}>
                       {orderSplitsForDisplay(transaction.splits).map((split, splitIndex) => {
                         const splitAccountLabel = accountPathLookup.get(split.accountId) ?? split.accountId
-                        const isDebit = split.side === "debit"
+                        const splitEffect = getAccountEffectForSplitSide(
+                          accountTypeById.get(split.accountId),
+                          split.side,
+                        )
+                        const isIncrease = splitEffect === "increase"
 
                         return (
                           <tr
@@ -1216,7 +1603,41 @@ export function AdvancedTransactionsPage() {
                                 ? "bg-amber-50/80 dark:bg-amber-500/10"
                                 : "bg-background",
                               isSelected && "ring-1 ring-primary/20",
+                              reorderMode && splitIndex === 0 && "cursor-move",
+                              reorderMode && isDropTarget && "ring-2 ring-primary/30",
                             )}
+                            draggable={Boolean(reorderMode && splitIndex === 0)}
+                            onDragStart={
+                              reorderMode && splitIndex === 0
+                                ? () => handleReorderDragStart(transaction.id)
+                                : undefined
+                            }
+                            onDragOver={
+                              reorderMode && splitIndex === 0
+                                ? (event) => {
+                                    event.preventDefault()
+                                    if (dropTargetTransactionId !== transaction.id) {
+                                      setDropTargetTransactionId(transaction.id)
+                                    }
+                                  }
+                                : undefined
+                            }
+                            onDrop={
+                              reorderMode && splitIndex === 0
+                                ? (event) => {
+                                    event.preventDefault()
+                                    handleReorderDrop(transaction.id)
+                                  }
+                                : undefined
+                            }
+                            onDragEnd={
+                              reorderMode && splitIndex === 0
+                                ? () => {
+                                    setDraggedReorderTransactionId(null)
+                                    setDropTargetTransactionId(null)
+                                  }
+                                : undefined
+                            }
                           >
                             {splitIndex === 0 ? (
                               <>
@@ -1229,6 +1650,31 @@ export function AdvancedTransactionsPage() {
                                     aria-label={`Select transaction ${transaction.id}`}
                                   />
                                 </td>
+                                {reorderMode ? (
+                                  <>
+                                    <td className="px-2 py-2" rowSpan={transaction.splits.length}>
+                                      <div className="rounded-md border bg-background px-2 py-1.5 text-[11px] text-muted-foreground">
+                                        Drag row
+                                      </div>
+                                    </td>
+                                    <td
+                                      className="px-2 py-2 text-right font-medium tabular-nums"
+                                      rowSpan={transaction.splits.length}
+                                    >
+                                      <div>{formatNumber(reorderBalance?.trailingBalance ?? 0)}</div>
+                                      <div
+                                        className={cn(
+                                          "text-[11px]",
+                                          (reorderBalance?.delta ?? 0) >= 0
+                                            ? "text-emerald-600 dark:text-emerald-400"
+                                            : "text-rose-600 dark:text-rose-400",
+                                        )}
+                                      >
+                                        {formatSignedAmount(reorderBalance?.delta ?? 0, formatNumber)}
+                                      </div>
+                                    </td>
+                                  </>
+                                ) : null}
                                 <td className="px-2 py-2 whitespace-nowrap" rowSpan={transaction.splits.length}>
                                   {formatDate(transaction.transactionDate)}
                                 </td>
@@ -1273,14 +1719,14 @@ export function AdvancedTransactionsPage() {
                             <td className="px-2 py-2 break-words">{splitAccountLabel}</td>
                             <td
                               className={cn(
-                                "px-2 py-2 font-medium uppercase",
-                                isDebit ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400",
+                                "px-2 py-2 font-medium",
+                                isIncrease ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400",
                               )}
                             >
-                              {isDebit ? "Dr" : "Cr"}
+                              {isIncrease ? "Increase" : "Decrease"}
                             </td>
                             <td className="px-2 py-2 text-right tabular-nums">
-                              {isDebit ? (
+                              {split.side === "debit" ? (
                                 <span className="text-rose-600 dark:text-rose-400">
                                   {formatNumber(Math.abs(split.amount))}
                                 </span>
@@ -1289,7 +1735,7 @@ export function AdvancedTransactionsPage() {
                               )}
                             </td>
                             <td className="px-2 py-2 text-right tabular-nums">
-                              {!isDebit ? (
+                              {split.side === "credit" ? (
                                 <span className="text-emerald-600 dark:text-emerald-400">
                                   {formatNumber(split.amount)}
                                 </span>
@@ -1335,8 +1781,70 @@ export function AdvancedTransactionsPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </section>
+      <Sheet open={isReorderSheetOpen} onOpenChange={setIsReorderSheetOpen}>
+        <SheetContent side="right" className="flex w-full max-w-xl flex-col gap-0 p-0 sm:max-w-xl">
+          <SheetHeader className="border-b bg-card px-6 py-5">
+            <SheetTitle>Reorder Same Transactions</SheetTitle>
+            <SheetDescription>
+              Pick one date and one account. The table will switch into same-day reorder mode and show trailing balances for that account.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="flex-1 space-y-4 px-6 py-5">
+            <label className="block space-y-1 text-sm">
+              <span className="font-medium text-muted-foreground">Transaction date</span>
+              <Input
+                type="date"
+                value={reorderDateDraft}
+                onChange={(event) => setReorderDateDraft(event.target.value)}
+                min={transactionDateRange.earliest || undefined}
+                max={transactionDateRange.latest || undefined}
+              />
+            </label>
+            <label className="block space-y-1 text-sm">
+              <span className="font-medium text-muted-foreground">Account</span>
+              <AccountSearchSelect
+                accounts={accounts}
+                value={reorderAccountIdDraft}
+                onValueChange={setReorderAccountIdDraft}
+                allowEmpty
+                usePortal={false}
+                emptyLabel="Choose account"
+                placeholder="Choose account"
+                getAccountLabel={(account) => accountPathLookup.get(account.id) ?? account.name}
+              />
+            </label>
+            <div className="rounded-xl border bg-background/70 p-3 text-sm text-muted-foreground">
+              {canStartReorderMode ? (
+                <>
+                  Matching transactions for this date/account:{" "}
+                  <span className="font-medium text-foreground">{reorderDateTransactionCount}</span>
+                </>
+              ) : (
+                "Choose both a date and an account to enter reorder mode."
+              )}
+            </div>
+          </div>
+          <SheetFooter className="border-t px-6 py-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsReorderSheetOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={applyReorderMode}
+              disabled={!canStartReorderMode}
+            >
+              Start reorder mode
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
     </AppShell>
   )
 }
@@ -1557,9 +2065,11 @@ function compareTransactions(left: Transaction, right: Transaction, sortState: S
 
   switch (sortState.key) {
     case "transactionDate":
-      return (
+      return withChronologicalTieBreak(
         (getComparableDateValue(left.transactionDate) - getComparableDateValue(right.transactionDate)) *
-        direction
+          direction,
+        left,
+        right,
       )
     case "description":
       return compareStrings(left.description, right.description) * direction
@@ -1574,6 +2084,29 @@ function compareTransactions(left: Transaction, right: Transaction, sortState: S
     default:
       return 0
   }
+}
+
+function compareTransactionsInChronologicalOrder(left: Transaction, right: Transaction) {
+  const dateComparison =
+    getComparableDateValue(left.transactionDate) - getComparableDateValue(right.transactionDate)
+
+  if (dateComparison !== 0) {
+    return dateComparison
+  }
+
+  if (left.ledgerSequence !== right.ledgerSequence) {
+    return left.ledgerSequence - right.ledgerSequence
+  }
+
+  return left.createdAt.localeCompare(right.createdAt)
+}
+
+function withChronologicalTieBreak(comparison: number, left: Transaction, right: Transaction) {
+  if (comparison !== 0) {
+    return comparison
+  }
+
+  return compareTransactionsInChronologicalOrder(left, right)
 }
 
 function compareStrings(left: string, right: string) {
@@ -1602,11 +2135,87 @@ function formatDate(value: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString()
 }
 
+function getIndianFiscalYearStart(date: Date) {
+  return date.getMonth() >= 3 ? date.getFullYear() : date.getFullYear() - 1
+}
+
+function formatFiscalYearLabel(startYear: number) {
+  return `FY ${startYear}-${String((startYear + 1) % 100).padStart(2, "0")}`
+}
+
+function formatAssessmentYearLabel(startYear: number) {
+  const assessmentStart = startYear + 1
+  return `AY ${assessmentStart}-${String((assessmentStart + 1) % 100).padStart(2, "0")}`
+}
+
 function cloneTransactions(transactions: Transaction[]) {
   return transactions.map((transaction) => ({
     ...transaction,
     splits: transaction.splits.map((split) => ({ ...split })),
   }))
+}
+
+function applyReorderedDayTransactions(
+  transactions: Transaction[],
+  dateKey: string,
+  reorderedTargetIds: string[],
+) {
+  const transactionsOnDate = [...transactions]
+    .filter((transaction) => getTransactionDateKey(transaction.transactionDate) === dateKey)
+    .sort(compareTransactionsInChronologicalOrder)
+
+  if (transactionsOnDate.length === 0) {
+    return transactions
+  }
+
+  const reorderedTargetIdSet = new Set(reorderedTargetIds)
+  const replacementQueue = [...reorderedTargetIds]
+  const nextDayOrder = transactionsOnDate.map((transaction) => {
+    if (!reorderedTargetIdSet.has(transaction.id)) {
+      return transaction.id
+    }
+
+    const nextId = replacementQueue.shift()
+    return nextId ?? transaction.id
+  })
+  const ledgerSequenceByTransactionId = new Map(nextDayOrder.map((id, index) => [id, index + 1]))
+
+  return transactions.map((transaction) => {
+    if (getTransactionDateKey(transaction.transactionDate) !== dateKey) {
+      return transaction
+    }
+
+    const nextLedgerSequence = ledgerSequenceByTransactionId.get(transaction.id)
+    if (nextLedgerSequence == null || nextLedgerSequence === transaction.ledgerSequence) {
+      return transaction
+    }
+
+    return {
+      ...transaction,
+      ledgerSequence: nextLedgerSequence,
+    }
+  })
+}
+
+function getTransactionBalanceDelta(
+  transaction: Transaction,
+  accountId: string,
+  accountTypeById: Map<string, Account["accountType"]>,
+) {
+  return transaction.splits
+    .filter((split) => split.accountId === accountId)
+    .reduce((sum, split) => {
+      const effect = getAccountEffectForSplitSide(accountTypeById.get(split.accountId), split.side)
+      return sum + (effect === "increase" ? split.amount : -split.amount)
+    }, 0)
+}
+
+function formatSignedAmount(value: number, formatNumber: (value: number) => string) {
+  if (value === 0) {
+    return formatNumber(0)
+  }
+
+  return `${value > 0 ? "+" : "-"}${formatNumber(Math.abs(value))}`
 }
 
 function serializeTransaction(transaction: Transaction) {

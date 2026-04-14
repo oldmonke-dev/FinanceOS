@@ -5,6 +5,7 @@ export type ImportSessionRow = {
   destinationAccountId: string | null
   destinationAccountError: string | null
   mappingSource: string
+  learningConfidenceScore: number | null
   addedToLedgerAt: string | null
   postedTransactionId: string | null
   projectBalance: number

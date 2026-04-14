@@ -10,8 +10,7 @@ import {
   useRef,
   useState,
 } from "react"
-import { Dialog as DialogPrimitive } from "radix-ui"
-import { Check, FileLock, Filter, LoaderCircle, Upload } from "lucide-react"
+import { Check, Filter, LoaderCircle, Upload } from "lucide-react"
 import { useRouter } from "next/navigation"
 
 import { AccountSearchSelect } from "@/components/account-search-select"
@@ -30,7 +29,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { extractPdfImport } from "@/lib/import-extraction"
 import { type Account } from "@/models/account"
 
 type ParsedCsv = {
@@ -96,11 +94,6 @@ export default function ImportPage() {
   const [search, setSearch] = useState("")
   const [columnMappings, setColumnMappings] = useState<Record<number, ImportField>>({})
   const [fileName, setFileName] = useState<string | null>(null)
-  const [pendingPdfFile, setPendingPdfFile] = useState<File | null>(null)
-  const [isPdfPasswordDialogOpen, setIsPdfPasswordDialogOpen] = useState(false)
-  const [pdfPassword, setPdfPassword] = useState("")
-  const [pdfPasswordError, setPdfPasswordError] = useState<string | null>(null)
-  const [isExtractingPdf, setIsExtractingPdf] = useState(false)
   const [isLoadingSourceFile, setIsLoadingSourceFile] = useState(false)
   const [splitPartCount, setSplitPartCount] = useState<2 | 3 | 4 | 5>(2)
   const [isSplitDialogOpen, setIsSplitDialogOpen] = useState(false)
@@ -267,16 +260,6 @@ export default function ImportPage() {
     }
 
     setIsLoadingSourceFile(true)
-    const lowerCaseName = file.name.toLowerCase()
-    if (lowerCaseName.endsWith(".pdf") || file.type === "application/pdf") {
-      setPendingPdfFile(file)
-      setPdfPassword("")
-      setPdfPasswordError(null)
-      setIsPdfPasswordDialogOpen(true)
-      setIsLoadingSourceFile(false)
-      event.target.value = ""
-      return
-    }
 
     try {
       const text = await file.text()
@@ -289,54 +272,6 @@ export default function ImportPage() {
       setIsLoadingSourceFile(false)
       event.target.value = ""
     }
-  }
-
-  async function submitPdfForExtraction() {
-    if (!pendingPdfFile) {
-      return
-    }
-
-    setIsExtractingPdf(true)
-    setIsLoadingSourceFile(true)
-    setPdfPasswordError(null)
-
-    try {
-      const result = await extractPdfImport(pendingPdfFile, pdfPassword || null)
-
-      startTransition(() => {
-        setRawCsv(result.csvText)
-      })
-      setFileName(result.fileName)
-      showSnackbar({ message: result.message, tone: "success" })
-      setIsPdfPasswordDialogOpen(false)
-      setPendingPdfFile(null)
-      setPdfPassword("")
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to extract PDF import data."
-      showSnackbar({ message, tone: "error" })
-
-      if (message.toLowerCase().includes("password")) {
-        setPdfPasswordError(message)
-      } else {
-        setIsPdfPasswordDialogOpen(false)
-        setPendingPdfFile(null)
-      }
-    } finally {
-      setIsExtractingPdf(false)
-      setIsLoadingSourceFile(false)
-    }
-  }
-
-  function closePdfPasswordDialog() {
-    if (isExtractingPdf) {
-      return
-    }
-
-    setIsPdfPasswordDialogOpen(false)
-    setPendingPdfFile(null)
-    setPdfPassword("")
-    setPdfPasswordError(null)
   }
 
   function downloadPreviewAsCsv() {
@@ -502,8 +437,8 @@ export default function ImportPage() {
 
   return (
     <AppShell
-      title="Importer"
-      subtitle="Load CSV or PDF files, preview mapped rows, then create an import session"
+      title="CSV Imports"
+      subtitle="Load CSV files, preview mapped rows, then create an import session"
       badge={isLoading ? "Loading accounts" : `${previewRows.length} preview rows`}
     >
       <section className="grid min-w-0 gap-4 xl:grid-cols-[1.15fr_0.85fr]">
@@ -515,10 +450,7 @@ export default function ImportPage() {
             <div>
               <h2 className="text-lg font-semibold">Source</h2>
               <p className="text-sm text-muted-foreground">
-                Choose CSV or PDF files, or paste CSV text directly for preview and mapping.
-              </p>
-              <p className="mt-1 text-xs text-amber-700">
-                PDF import via Tabula is experimental.
+                Choose CSV files, or paste CSV text directly for preview and mapping.
               </p>
             </div>
           </div>
@@ -527,7 +459,7 @@ export default function ImportPage() {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".csv,text/csv,.pdf,application/pdf"
+              accept=".csv,text/csv"
               onChange={handleFileChange}
               className="sr-only"
             />
@@ -541,10 +473,10 @@ export default function ImportPage() {
               {isLoadingSourceFile ? (
                 <>
                   <LoaderCircle className="size-4 animate-spin" />
-                  {isExtractingPdf ? "Importing PDF with Tabula..." : "Loading CSV file..."}
+                  Loading CSV file...
                 </>
               ) : (
-                "Choose CSV or PDF files"
+                "Choose CSV file"
               )}
             </Button>
           </div>
@@ -556,7 +488,7 @@ export default function ImportPage() {
           {isLoadingSourceFile ? (
             <div className="mt-3 flex items-center gap-2 rounded-2xl border bg-background/70 px-4 py-3 text-sm text-muted-foreground">
               <LoaderCircle className="size-4 animate-spin" />
-              <span>{isExtractingPdf ? "Tabula is extracting rows from the PDF..." : "Reading CSV file..."}</span>
+              <span>Reading CSV file...</span>
             </div>
           ) : null}
 
@@ -649,7 +581,7 @@ export default function ImportPage() {
                   }
                 />
                 <div>
-                  <p className="font-medium">Merge PDF description continuation rows</p>
+                  <p className="font-medium">Merge continuation description rows</p>
                   <p className="text-muted-foreground">
                     Joins rows where only the description column has text and the rest of the row is blank or "-".
                   </p>
@@ -991,70 +923,6 @@ export default function ImportPage() {
         </div>
       ) : null}
 
-      <DialogPrimitive.Root
-        open={isPdfPasswordDialogOpen}
-        onOpenChange={(open) => {
-          if (!open) {
-            closePdfPasswordDialog()
-          }
-        }}
-      >
-        <DialogPrimitive.Portal>
-          <DialogPrimitive.Overlay className="fixed inset-0 z-[200] bg-black/45" />
-          <DialogPrimitive.Content className="fixed top-1/2 left-1/2 z-[201] w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-3xl border bg-card p-6 shadow-xl">
-            <div className="flex items-start gap-3">
-              <div className="rounded-2xl bg-primary/10 p-3 text-primary">
-                <FileLock className="size-5" />
-              </div>
-              <div className="space-y-2">
-                <DialogPrimitive.Title className="text-lg font-semibold">
-                  PDF password
-                </DialogPrimitive.Title>
-                <DialogPrimitive.Description className="text-sm text-muted-foreground">
-                  Enter the PDF password if the file is protected. Leave it blank if the PDF is not password protected.
-                </DialogPrimitive.Description>
-              </div>
-            </div>
-
-            {pendingPdfFile ? (
-              <div className="mt-4 rounded-2xl border bg-background/70 px-4 py-3 text-sm text-muted-foreground">
-                Selected PDF: {pendingPdfFile.name}
-              </div>
-            ) : null}
-
-            <label className="mt-4 block space-y-2 text-sm">
-              <span className="font-medium">Password</span>
-              <Input
-                type="password"
-                value={pdfPassword}
-                onChange={(event) => {
-                  setPdfPassword(event.target.value)
-                  if (pdfPasswordError) {
-                    setPdfPasswordError(null)
-                  }
-                }}
-                placeholder="Optional"
-                autoFocus
-              />
-            </label>
-
-            {pdfPasswordError ? (
-              <div className="mt-3 rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                {pdfPasswordError}
-              </div>
-            ) : null}
-
-            <div className="mt-6 flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={closePdfPasswordDialog} disabled={isExtractingPdf}>
-                Cancel
-              </Button>
-              <Button type="button" onClick={() => void submitPdfForExtraction()} disabled={!pendingPdfFile || isExtractingPdf}>
-                {isExtractingPdf ? "Extracting..." : "Extract PDF"}
-              </Button>
-            </div>
-          </DialogPrimitive.Content>
-        </DialogPrimitive.Portal>
-      </DialogPrimitive.Root>
     </AppShell>
   )
 }

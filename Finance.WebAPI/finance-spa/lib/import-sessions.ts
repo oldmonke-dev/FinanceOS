@@ -26,6 +26,10 @@ function normalizeImportSessionRow(raw: Record<string, unknown>): ImportSessionR
         ? null
         : String(raw.destinationAccountError ?? raw.DestinationAccountError),
     mappingSource: String(raw.mappingSource ?? raw.MappingSource ?? "none"),
+    learningConfidenceScore:
+      raw.learningConfidenceScore == null && raw.LearningConfidenceScore == null
+        ? null
+        : Number(raw.learningConfidenceScore ?? raw.LearningConfidenceScore),
     addedToLedgerAt:
       raw.addedToLedgerAt == null && raw.AddedToLedgerAt == null
         ? null

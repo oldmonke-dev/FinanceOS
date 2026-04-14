@@ -4,7 +4,7 @@ import { Fragment } from "react"
 import Link from "next/link"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { ArrowLeft, ChevronRight, Landmark, ReceiptText, Redo2, Save, Scale, Trash2, Undo2 } from "lucide-react"
-import { notFound } from "next/navigation"
+import { notFound, useSearchParams } from "next/navigation"
 
 import { AccountSearchSelect } from "@/components/account-search-select"
 import { AppShell } from "@/components/app-shell"
@@ -29,19 +29,22 @@ import {
   renameAccount,
 } from "@/lib/accounts"
 import {
+  getAccountEffectForSplitSide,
   getBalanceDeltaForAccount,
   getDisplayBalanceForAccount,
   getDisplaySplitAmountForAccount,
-  getSignedSplitAmount,
+  getSplitSideForAccountEffect,
   getStoredBalanceFromDisplay,
   type SplitSide,
 } from "@/lib/accounting"
 import { deleteTransaction, getTransactions, updateTransaction } from "@/lib/transactions"
+import type { Account } from "@/models/account"
 import type { Transaction } from "@/models/transaction"
 
 const ACCOUNT_TREE_RESTORE_PENDING_KEY = "finance.account-tree.restore-pending"
 
 export function AccountLedgerPage({ accountId }: { accountId: string }) {
+  const searchParams = useSearchParams()
   const { accounts, isLoading, errorMessage, updateAccount } = useAccounts()
   const { confirm } = useConfirmationDialog()
   const { showSnackbar } = useSnackbar()
@@ -65,6 +68,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
   const account = accounts.find((item) => item.id === accountId) ?? null
   const resolvedAccountId = account?.id ?? null
   const tree = useMemo(() => buildAccountTree(accounts), [accounts])
+  const accountById = useMemo(() => new Map(accounts.map((item) => [item.id, item])), [accounts])
   const accountPathLookup = useMemo(() => buildAccountPathLookup(accounts), [accounts])
   const availableDestinationAccounts = useMemo(
     () =>
@@ -150,6 +154,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
     )
   const canUndo = historyIndex > 0
   const canRedo = historyIndex >= 0 && historyIndex < history.length - 1
+  const isFromPermissionsPage = searchParams.get("from") === "permissions"
 
   useEffect(() => {
     let isCancelled = false
@@ -450,7 +455,12 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
     )
   }
 
-  function updateSplitSign(transactionId: string, splitId: string, sign: "dr" | "cr") {
+  function updateSplitEffect(
+    transactionId: string,
+    splitId: string,
+    accountType: Account["accountType"] | null | undefined,
+    effect: "increase" | "decrease",
+  ) {
     commitDraft((current) =>
       current.map((transaction) => {
         if (transaction.id !== transactionId) {
@@ -462,7 +472,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
           return transaction
         }
 
-        const nextSide: SplitSide = sign === "dr" ? "debit" : "credit"
+        const nextSide = getSplitSideForAccountEffect(accountType, effect)
 
         return {
           ...transaction,
@@ -558,6 +568,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
           account.accountType,
           Number(openingBalanceDraft) || 0,
         ),
+        parentAccountId: account.parentAccountId,
       })
 
       updateAccount(updatedAccount)
@@ -580,19 +591,29 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
     >
       <div className="space-y-4">
         <div>
-          <Button asChild type="button" variant="outline">
-            <Link
-              href="/accounts"
-              onClick={() => {
-                if (typeof window !== "undefined") {
-                  window.sessionStorage.setItem(ACCOUNT_TREE_RESTORE_PENDING_KEY, "1")
-                }
-              }}
-            >
-              <ArrowLeft />
-              Back to account tree
-            </Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild type="button" variant="outline">
+              <Link
+                href={isFromPermissionsPage ? "/user/permissions" : "/accounts"}
+                onClick={() => {
+                  if (!isFromPermissionsPage && typeof window !== "undefined") {
+                    window.sessionStorage.setItem(ACCOUNT_TREE_RESTORE_PENDING_KEY, "1")
+                  }
+                }}
+              >
+                <ArrowLeft />
+                {isFromPermissionsPage ? "Back to Permissions Page" : "Back to account tree"}
+              </Link>
+            </Button>
+            {account.currentUserPermissions.canManageAccess ? (
+              <Button asChild type="button" variant="outline">
+                <Link href={`/accounts/${account.id}/permissions`}>
+                  <Scale />
+                  Permissions
+                </Link>
+              </Button>
+            ) : null}
+          </div>
         </div>
 
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
@@ -656,7 +677,9 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
               <div>
                 <h3 className="text-sm font-semibold">Account details</h3>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Update account metadata here without leaving the general ledger.
+                  {resolvedAccount.isCore
+                    ? "Core accounts are fixed and cannot be edited from the ledger."
+                    : "Update account metadata here without leaving the general ledger."}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -677,7 +700,9 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                       ),
                     )
                   }}
-                  disabled={!hasAccountDetailChanges || isSavingAccountDetails}
+                  disabled={
+                    resolvedAccount.isCore || !hasAccountDetailChanges || isSavingAccountDetails
+                  }
                 >
                   Reset
                 </Button>
@@ -685,7 +710,9 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                   type="button"
                   size="sm"
                   onClick={() => void handleSaveAccountDetails()}
-                  disabled={!hasAccountDetailChanges || isSavingAccountDetails}
+                  disabled={
+                    resolvedAccount.isCore || !hasAccountDetailChanges || isSavingAccountDetails
+                  }
                 >
                   <Save />
                   {isSavingAccountDetails ? "Saving..." : "Save account details"}
@@ -701,6 +728,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                   onChange={(event) => setAccountNameDraft(event.target.value)}
                   placeholder="Account name"
                   maxLength={200}
+                  disabled={resolvedAccount.isCore}
                 />
               </label>
               <label className="space-y-1 text-sm">
@@ -710,6 +738,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                   onChange={(event) => setAccountNumberDraft(event.target.value)}
                   placeholder="Optional"
                   maxLength={50}
+                  disabled={resolvedAccount.isCore}
                 />
               </label>
               <label className="space-y-1 text-sm">
@@ -720,6 +749,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                   value={openingBalanceDraft}
                   onChange={(event) => setOpeningBalanceDraft(event.target.value)}
                   placeholder="0.00"
+                  disabled={resolvedAccount.isCore}
                 />
               </label>
               <label className="space-y-1 text-sm md:col-span-2">
@@ -730,6 +760,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                   placeholder="Optional notes for this account"
                   maxLength={500}
                   rows={3}
+                  disabled={resolvedAccount.isCore}
                   className="flex min-h-[5rem] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 />
               </label>
@@ -827,10 +858,10 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                     <th className="w-24 border-b pl-9 pr-2 py-2 text-left font-medium sm:w-28 sm:pl-12 sm:pr-3">Date</th>
                     <th className="w-[13rem] border-b px-2 py-2 text-left font-medium sm:w-[15rem]">Description</th>
                     <th className="w-24 border-b px-2 py-2 text-left font-medium sm:w-28">Reference</th>
-                    <th className="w-[16rem] border-b px-2 py-2 text-left font-medium sm:w-[20rem] lg:w-[22rem]">Destination</th>
+                    <th className="w-[16rem] border-b px-2 py-2 text-left font-medium sm:w-[20rem] lg:w-[22rem]">Other Account</th>
                     <th className="w-28 border-b px-2 py-2 text-left font-medium sm:w-32">Memo</th>
                     <th className="w-28 border-b px-2 py-2 text-right font-medium sm:w-32 sm:px-3">Amount</th>
-                    <th className="w-32 border-b px-2 py-2 text-right font-medium sm:w-36 sm:px-3">Trailing Balance</th>
+                    <th className="w-32 border-b px-2 py-2 text-right font-medium sm:w-36 sm:px-3">Running Balance</th>
                     <th className="w-14 border-b px-2 py-2 text-right font-medium sm:w-16 sm:px-3">Actions</th>
                   </tr>
                 </thead>
@@ -903,7 +934,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                               onValueChange={(value) =>
                                 value ? updateDestinationAccount(transaction.id, value) : undefined
                               }
-                              placeholder="Select destination account"
+                              placeholder="Select other account"
                               className="w-full min-w-0"
                               triggerClassName="h-8 px-1.5 text-xs"
                               getAccountLabel={(account) =>
@@ -957,15 +988,16 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                               <div className="rounded-xl border border-border/70 bg-background/55 shadow-sm">
                                 <div className="flex items-center justify-between gap-3 border-b px-3 py-2">
                                   <h4 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                                    Split breakdown
+                                    Split Details
                                   </h4>
                                   <span className="text-[11px] text-muted-foreground">
                                     {transaction.splits.length} split{transaction.splits.length === 1 ? "" : "s"}
                                   </span>
                                 </div>
                                 <div data-horizontal-scroll-region className="horizontal-scroll-region">
-                                  {orderSplitsForDisplay(transaction.splits).map((split, splitIndex) => {
-                                    const splitSignedAmount = getSignedSplitAmount(split)
+                                  {orderSplitsForDisplay(transaction.splits, resolvedAccount.id).map((split, splitIndex) => {
+                                    const splitAccountType = accountById.get(split.accountId)?.accountType
+                                    const splitDisplayAmount = getDisplaySplitAmountForAccount(splitAccountType, split)
 
                                     return (
                                     <div
@@ -1009,15 +1041,16 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                                           rows={1}
                                         />
                                       </div>
-                                      <div className="pr-1 text-[11px] text-muted-foreground">Sign</div>
+                                      <div className="pr-1 text-[11px] text-muted-foreground">Balance Change</div>
                                       <div>
                                         <Select
-                                          value={getSplitSign(split.side)}
+                                          value={getAccountEffectForSplitSide(splitAccountType, split.side)}
                                           onValueChange={(value) =>
-                                            updateSplitSign(
+                                            updateSplitEffect(
                                               transaction.id,
                                               split.id,
-                                              value as "dr" | "cr",
+                                              splitAccountType,
+                                              value as "increase" | "decrease",
                                             )
                                           }
                                         >
@@ -1025,13 +1058,13 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                                             <SelectValue />
                                           </SelectTrigger>
                                           <SelectContent>
-                                            <SelectItem value="dr">Dr</SelectItem>
-                                            <SelectItem value="cr">Cr</SelectItem>
+                                            <SelectItem value="increase">Increase</SelectItem>
+                                            <SelectItem value="decrease">Decrease</SelectItem>
                                           </SelectContent>
                                         </Select>
                                       </div>
-                                      <div className="pr-1 text-[11px] text-muted-foreground">Amount</div>
-                                      <div className={getAmountToneClass(splitSignedAmount)}>
+                                      <div className="pr-1 text-[11px] text-muted-foreground">Posted Amount</div>
+                                      <div className={getAmountToneClass(splitDisplayAmount)}>
                                         <Input
                                           type="number"
                                           step="0.01"
@@ -1043,7 +1076,7 @@ export function AccountLedgerPage({ accountId }: { accountId: string }) {
                                               event.target.value,
                                             )
                                           }
-                                          className={`${inlineNumberInputClassName} ${getAmountToneClass(splitSignedAmount)}`}
+                                          className={`${inlineNumberInputClassName} ${getAmountToneClass(splitDisplayAmount)}`}
                                         />
                                       </div>
                                     </div>
@@ -1152,12 +1185,26 @@ function formatSignedNumber(
 
 function orderSplitsForDisplay(
   splits: Transaction["splits"],
+  currentAccountId?: string,
 ) {
-  return [...splits]
-}
+  return [...splits].sort((left, right) => {
+    const leftIsCurrent = currentAccountId != null && left.accountId === currentAccountId
+    const rightIsCurrent = currentAccountId != null && right.accountId === currentAccountId
 
-function getSplitSign(side: "debit" | "credit"): "dr" | "cr" {
-  return side === "debit" ? "dr" : "cr"
+    if (leftIsCurrent && !rightIsCurrent) {
+      return -1
+    }
+
+    if (!leftIsCurrent && rightIsCurrent) {
+      return 1
+    }
+
+    if (left.side !== right.side) {
+      return left.side === "debit" ? -1 : 1
+    }
+
+    return left.accountId.localeCompare(right.accountId)
+  })
 }
 
 function applyBalancedSplitEdit(

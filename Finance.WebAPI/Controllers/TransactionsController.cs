@@ -1,5 +1,6 @@
 using Finance.BusinessLayer.DTOs.Transactions;
 using Finance.BusinessLayer.Interfaces;
+using Finance.WebAPI.Extensions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -24,7 +25,11 @@ namespace Finance.WebAPI.Controllers
         {
             try
             {
-                var transactions = await _transactionService.GetTransactionsAsync(accountId, cancellationToken);
+                var transactions = await _transactionService.GetTransactionsAsync(
+                    User.GetRequiredUserId(),
+                    User.IsAdmin(),
+                    accountId,
+                    cancellationToken);
                 return Ok(transactions);
             }
             catch (InvalidOperationException exception)
@@ -41,7 +46,12 @@ namespace Finance.WebAPI.Controllers
         {
             try
             {
-                var updatedTransaction = await _transactionService.UpdateTransactionAsync(id, transaction, cancellationToken);
+                var updatedTransaction = await _transactionService.UpdateTransactionAsync(
+                    User.GetRequiredUserId(),
+                    User.IsAdmin(),
+                    id,
+                    transaction,
+                    cancellationToken);
                 return Ok(updatedTransaction);
             }
             catch (InvalidOperationException exception)
@@ -61,7 +71,11 @@ namespace Finance.WebAPI.Controllers
         {
             try
             {
-                var createdTransaction = await _transactionService.CreateTransactionAsync(transaction, cancellationToken);
+                var createdTransaction = await _transactionService.CreateTransactionAsync(
+                    User.GetRequiredUserId(),
+                    User.IsAdmin(),
+                    transaction,
+                    cancellationToken);
 
                 return CreatedAtAction(
                     nameof(CreateTransaction),
@@ -81,7 +95,11 @@ namespace Finance.WebAPI.Controllers
         {
             try
             {
-                await _transactionService.DeleteTransactionAsync(id, cancellationToken);
+                await _transactionService.DeleteTransactionAsync(
+                    User.GetRequiredUserId(),
+                    User.IsAdmin(),
+                    id,
+                    cancellationToken);
                 return NoContent();
             }
             catch (KeyNotFoundException exception)

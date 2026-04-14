@@ -23,8 +23,20 @@ namespace Finance.WebAPI.Controllers
         {
             var strategy = await _strategyService.GetBayesianStrategyAsync(
                 User.GetRequiredUserId(),
+                User.IsAdmin(),
                 cancellationToken);
             return Ok(strategy);
+        }
+
+        [HttpGet("bayesian/export")]
+        public async Task<ActionResult<BayesianStatisticsExportDTO>> ExportBayesianStatistics(
+            CancellationToken cancellationToken)
+        {
+            var result = await _strategyService.ExportBayesianStatisticsAsync(
+                User.GetRequiredUserId(),
+                User.IsAdmin(),
+                cancellationToken);
+            return Ok(result);
         }
 
         [HttpPost("bayesian/import-training")]
@@ -34,6 +46,20 @@ namespace Finance.WebAPI.Controllers
         {
             var result = await _strategyService.ImportBayesianTrainingDataAsync(
                 User.GetRequiredUserId(),
+                User.IsAdmin(),
+                request,
+                cancellationToken);
+            return Ok(result);
+        }
+
+        [HttpPost("bayesian/import-statistics")]
+        public async Task<ActionResult<ImportBayesianStatisticsResultDTO>> ImportBayesianStatistics(
+            [FromBody] BayesianStatisticsExportDTO request,
+            CancellationToken cancellationToken)
+        {
+            var result = await _strategyService.ImportBayesianStatisticsAsync(
+                User.GetRequiredUserId(),
+                User.IsAdmin(),
                 request,
                 cancellationToken);
             return Ok(result);
@@ -48,6 +74,7 @@ namespace Finance.WebAPI.Controllers
             {
                 await _strategyService.DeleteBayesianLearningForAccountAsync(
                     User.GetRequiredUserId(),
+                    User.IsAdmin(),
                     destinationAccountId,
                     cancellationToken);
 

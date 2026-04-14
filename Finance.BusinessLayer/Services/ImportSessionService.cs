@@ -19,17 +19,20 @@ namespace Finance.BusinessLayer.Services
         };
 
         private readonly IAccountRepository _accountRepository;
+        private readonly IAccountAccessService _accountAccessService;
         private readonly IImportLearningRepository _importLearningRepository;
         private readonly IImportSessionRepository _importSessionRepository;
         private readonly ITransactionRepository _transactionRepository;
 
         public ImportSessionService(
             IAccountRepository accountRepository,
+            IAccountAccessService accountAccessService,
             IImportLearningRepository importLearningRepository,
             IImportSessionRepository importSessionRepository,
             ITransactionRepository transactionRepository)
         {
             _accountRepository = accountRepository;
+            _accountAccessService = accountAccessService;
             _importLearningRepository = importLearningRepository;
             _importSessionRepository = importSessionRepository;
             _transactionRepository = transactionRepository;
@@ -37,6 +40,7 @@ namespace Finance.BusinessLayer.Services
 
         public async Task<ImportSessionDTO> CreateImportSessionAsync(
             Guid userId,
+            bool isAdmin,
             CreateImportSessionDTO sessionDto,
             CancellationToken cancellationToken = default)
         {
@@ -55,6 +59,11 @@ namespace Finance.BusinessLayer.Services
                     .Select(row => row.DestinationAccountId!.Value));
 
             await ValidateAccountsExistAsync(accountIdsToValidate, cancellationToken);
+            await _accountAccessService.EnsureCanPostAccountsAsync(
+                accountIdsToValidate,
+                userId,
+                isAdmin,
+                cancellationToken);
 
             var normalizedLabel = NormalizeLabel(sessionDto.Label);
 
@@ -94,16 +103,16 @@ namespace Finance.BusinessLayer.Services
             var loaded = await _importSessionRepository.GetByIdAsync(created.Id, userId, cancellationToken)
                 ?? throw new InvalidOperationException("Created import session could not be reloaded.");
 
-            return MapSession(loaded);
+            return await MapSessionAsync(loaded, userId, isAdmin, cancellationToken);
         }
 
-        public async Task<List<ImportSessionDTO>> GetImportSessionsAsync(Guid userId, CancellationToken cancellationToken = default)
+        public async Task<List<ImportSessionDTO>> GetImportSessionsAsync(Guid userId, bool isAdmin, CancellationToken cancellationToken = default)
         {
             var sessions = await _importSessionRepository.GetByUserIdAsync(userId, cancellationToken);
-            return sessions.Select(MapSession).ToList();
+            return await MapSessionsAsync(sessions, userId, isAdmin, cancellationToken);
         }
 
-        public async Task<ImportSessionDTO> GetImportSessionAsync(Guid userId, Guid sessionId, CancellationToken cancellationToken = default)
+        public async Task<ImportSessionDTO> GetImportSessionAsync(Guid userId, bool isAdmin, Guid sessionId, CancellationToken cancellationToken = default)
         {
             var session = await _importSessionRepository.GetByIdAsync(sessionId, userId, cancellationToken);
 
@@ -112,7 +121,7 @@ namespace Finance.BusinessLayer.Services
                 throw new KeyNotFoundException("Import session was not found.");
             }
 
-            return MapSession(session);
+            return await MapSessionAsync(session, userId, isAdmin, cancellationToken);
         }
 
         public async Task DeleteImportSessionAsync(Guid userId, Guid sessionId, CancellationToken cancellationToken = default)
@@ -146,6 +155,7 @@ namespace Finance.BusinessLayer.Services
 
         public async Task<ImportSessionDTO> UpdateSourceAccountAsync(
             Guid userId,
+            bool isAdmin,
             Guid sessionId,
             Guid? sourceAccountId,
             CancellationToken cancellationToken = default)
@@ -153,6 +163,11 @@ namespace Finance.BusinessLayer.Services
             if (sourceAccountId.HasValue)
             {
                 await ValidateAccountsExistAsync(new[] { sourceAccountId.Value }, cancellationToken);
+                await _accountAccessService.EnsureCanPostAccountsAsync(
+                    new[] { sourceAccountId.Value },
+                    userId,
+                    isAdmin,
+                    cancellationToken);
             }
 
             var updated = await _importSessionRepository.UpdateSourceAccountAsync(
@@ -172,11 +187,12 @@ namespace Finance.BusinessLayer.Services
             UpdateSessionLifecycleState(session);
             await _importSessionRepository.SaveChangesAsync(cancellationToken);
 
-            return MapSession(session);
+            return await MapSessionAsync(session, userId, isAdmin, cancellationToken);
         }
 
         public async Task<ImportSessionDTO> UpdateTitleAsync(
             Guid userId,
+            bool isAdmin,
             Guid sessionId,
             string? fileName,
             CancellationToken cancellationToken = default)
@@ -200,11 +216,12 @@ namespace Finance.BusinessLayer.Services
             UpdateSessionLifecycleState(session);
             await _importSessionRepository.SaveChangesAsync(cancellationToken);
 
-            return MapSession(session);
+            return await MapSessionAsync(session, userId, isAdmin, cancellationToken);
         }
 
         public async Task<ImportSessionRowDTO> UpdateRowDestinationAccountAsync(
             Guid userId,
+            bool isAdmin,
             Guid sessionId,
             Guid rowId,
             Guid? destinationAccountId,
@@ -213,6 +230,11 @@ namespace Finance.BusinessLayer.Services
             if (destinationAccountId.HasValue)
             {
                 await ValidateAccountsExistAsync(new[] { destinationAccountId.Value }, cancellationToken);
+                await _accountAccessService.EnsureCanPostAccountsAsync(
+                    new[] { destinationAccountId.Value },
+                    userId,
+                    isAdmin,
+                    cancellationToken);
             }
 
             var updated = await _importSessionRepository.UpdateRowDestinationAccountAsync(
@@ -264,6 +286,7 @@ namespace Finance.BusinessLayer.Services
 
         public async Task<AddImportSessionToLedgerResultDTO> AddSessionToLedgerAsync(
             Guid userId,
+            bool isAdmin,
             Guid sessionId,
             CancellationToken cancellationToken = default)
         {
@@ -275,18 +298,28 @@ namespace Finance.BusinessLayer.Services
                 throw new InvalidOperationException("Import session must have a valid source account before posting to the ledger.");
             }
 
-            var includedRows = session.Rows
-                .Where(row =>
-                    row.AddedToLedgerAt is null
-                    && row.DestinationAccountId.HasValue
-                    && row.DestinationAccountId.Value != Guid.Empty)
+            var pendingRows = session.Rows
+                .Where(row => row.AddedToLedgerAt is null)
                 .OrderBy(row => row.RowIndex)
                 .ToList();
+
+            var unmappedRowIndexes = pendingRows
+                .Where(row => !row.DestinationAccountId.HasValue || row.DestinationAccountId.Value == Guid.Empty)
+                .Select(row => row.RowIndex + 1)
+                .ToArray();
+
+            if (unmappedRowIndexes.Length > 0)
+            {
+                throw new InvalidOperationException(
+                    $"All pending import-session rows must be mapped before posting. Unmapped rows: {string.Join(", ", unmappedRowIndexes)}.");
+            }
+
+            var includedRows = pendingRows;
 
             if (includedRows.Count == 0)
             {
                 throw new InvalidOperationException(
-                    "Import session does not contain any destination-tagged rows ready for the ledger.");
+                    "Import session does not contain any pending rows ready for the ledger.");
             }
 
             var accountIdsToValidate = includedRows
@@ -294,6 +327,11 @@ namespace Finance.BusinessLayer.Services
                 .Append(session.SourceAccountId.Value);
 
             await ValidateAccountsExistAsync(accountIdsToValidate, cancellationToken);
+            await _accountAccessService.EnsureCanPostAccountsAsync(
+                accountIdsToValidate,
+                userId,
+                isAdmin,
+                cancellationToken);
 
             var columnMappings = DeserializeColumnMappings(session.ColumnMappingsJson);
             var rowTransactions = includedRows
@@ -343,6 +381,7 @@ namespace Finance.BusinessLayer.Services
 
         public async Task<ImportSessionDTO> ReapplyLearningAsync(
             Guid userId,
+            bool isAdmin,
             Guid sessionId,
             CancellationToken cancellationToken = default)
         {
@@ -354,20 +393,21 @@ namespace Finance.BusinessLayer.Services
                 throw new InvalidOperationException("Archived import sessions cannot be rescored.");
             }
 
-            var candidateAccounts = await _accountRepository.GetAllAccountsAsync(userId, isAdmin: false);
-            var candidateAccountIds = candidateAccounts
-                .Select(account => account.Id)
+            var candidateAccountIds = (await _accountAccessService.GetPostableAccountIdsAsync(
+                    userId,
+                    isAdmin,
+                    cancellationToken))
                 .Where(accountId => accountId != session.SourceAccountId)
                 .Distinct()
                 .ToList();
 
             if (candidateAccountIds.Count == 0)
             {
-                return MapSession(session);
+                return await MapSessionAsync(session, userId, isAdmin, cancellationToken);
             }
 
             var columnMappings = DeserializeColumnMappings(session.ColumnMappingsJson);
-            var globalStats = await _importLearningRepository.GetGlobalStatsAsync(userId, cancellationToken);
+            var globalStats = await _importLearningRepository.GetGlobalStatsAsync(cancellationToken);
             var sessionEntries = await _importLearningRepository.GetSessionEntriesAsync(sessionId, userId, cancellationToken);
 
             if (globalStats.Count == 0 && sessionEntries.Count == 0)
@@ -397,11 +437,12 @@ namespace Finance.BusinessLayer.Services
             var updatedSession = await _importSessionRepository.GetByIdAsync(sessionId, userId, cancellationToken)
                 ?? throw new KeyNotFoundException("Import session was not found.");
 
-            return MapSession(updatedSession);
+            return await MapSessionAsync(updatedSession, userId, isAdmin, cancellationToken);
         }
 
         public async Task<ImportSessionDTO> RevertSessionLearningAsync(
             Guid userId,
+            bool isAdmin,
             Guid sessionId,
             CancellationToken cancellationToken = default)
         {
@@ -428,11 +469,12 @@ namespace Finance.BusinessLayer.Services
             var updatedSession = await _importSessionRepository.GetByIdAsync(sessionId, userId, cancellationToken)
                 ?? throw new KeyNotFoundException("Import session was not found.");
 
-            return MapSession(updatedSession);
+            return await MapSessionAsync(updatedSession, userId, isAdmin, cancellationToken);
         }
 
         public async Task<ImportSessionDTO> DeleteRowsAsync(
             Guid userId,
+            bool isAdmin,
             Guid sessionId,
             IEnumerable<Guid> rowIds,
             CancellationToken cancellationToken = default)
@@ -454,7 +496,7 @@ namespace Finance.BusinessLayer.Services
             UpdateSessionLifecycleState(session);
             await _importSessionRepository.SaveChangesAsync(cancellationToken);
 
-            return MapSession(session);
+            return await MapSessionAsync(session, userId, isAdmin, cancellationToken);
         }
 
         private async Task ValidateAccountsExistAsync(
@@ -542,7 +584,128 @@ namespace Finance.BusinessLayer.Services
                 ?? new List<string>();
         }
 
-        private static ImportSessionDTO MapSession(ImportSession session)
+        private async Task<List<ImportSessionDTO>> MapSessionsAsync(
+            IEnumerable<ImportSession> sessions,
+            Guid userId,
+            bool isAdmin,
+            CancellationToken cancellationToken)
+        {
+            var sessionList = sessions.ToList();
+            if (sessionList.Count == 0)
+            {
+                return new List<ImportSessionDTO>();
+            }
+
+            var globalStats = await _importLearningRepository.GetGlobalStatsAsync(cancellationToken);
+            var candidateAccountIdsBySessionId = await GetCandidateAccountIdsBySessionIdAsync(
+                sessionList,
+                userId,
+                isAdmin);
+
+            var results = new List<ImportSessionDTO>(sessionList.Count);
+            foreach (var session in sessionList)
+            {
+                var confidenceScores = await BuildLearningConfidenceScoresAsync(
+                    session,
+                    userId,
+                    globalStats,
+                    candidateAccountIdsBySessionId,
+                    cancellationToken);
+
+                results.Add(MapSession(session, confidenceScores));
+            }
+
+            return results;
+        }
+
+        private async Task<Dictionary<Guid, List<Guid>>> GetCandidateAccountIdsBySessionIdAsync(
+            IEnumerable<ImportSession> sessions,
+            Guid userId,
+            bool isAdmin)
+        {
+            var allCandidateAccountIds = (await _accountAccessService.GetPostableAccountIdsAsync(
+                    userId,
+                    isAdmin))
+                .Distinct()
+                .ToList();
+
+            return sessions.ToDictionary(
+                session => session.Id,
+                session => allCandidateAccountIds
+                    .Where(accountId => accountId != session.SourceAccountId)
+                    .ToList());
+        }
+
+        private async Task<ImportSessionDTO> MapSessionAsync(
+            ImportSession session,
+            Guid userId,
+            bool isAdmin,
+            CancellationToken cancellationToken)
+        {
+            var globalStats = await _importLearningRepository.GetGlobalStatsAsync(cancellationToken);
+            var candidateAccountIdsBySessionId = await GetCandidateAccountIdsBySessionIdAsync(
+                new[] { session },
+                userId,
+                isAdmin);
+            var confidenceScores = await BuildLearningConfidenceScoresAsync(
+                session,
+                userId,
+                globalStats,
+                candidateAccountIdsBySessionId,
+                cancellationToken);
+
+            return MapSession(session, confidenceScores);
+        }
+
+        private async Task<IReadOnlyDictionary<Guid, double?>> BuildLearningConfidenceScoresAsync(
+            ImportSession session,
+            Guid userId,
+            IReadOnlyCollection<ImportLearningStat> globalStats,
+            IReadOnlyDictionary<Guid, List<Guid>> candidateAccountIdsBySessionId,
+            CancellationToken cancellationToken)
+        {
+            var learningRows = session.Rows
+                .Where(row =>
+                    row.MappingSource == "learning"
+                    && row.DestinationAccountId.HasValue
+                    && row.AddedToLedgerAt is null)
+                .ToList();
+
+            if (learningRows.Count == 0)
+            {
+                return new Dictionary<Guid, double?>();
+            }
+
+            if (!candidateAccountIdsBySessionId.TryGetValue(session.Id, out var candidateAccountIds)
+                || candidateAccountIds.Count == 0)
+            {
+                return new Dictionary<Guid, double?>();
+            }
+
+            var sessionEntries = await _importLearningRepository.GetSessionEntriesAsync(
+                session.Id,
+                userId,
+                cancellationToken);
+            var effectiveStats = BuildEffectiveLearningCounts(globalStats, sessionEntries);
+            var columnMappings = DeserializeColumnMappings(session.ColumnMappingsJson);
+            var scoresByRowId = new Dictionary<Guid, double?>();
+
+            foreach (var row in learningRows)
+            {
+                var featureKeys = ExtractLearningFeatureKeys(session, row, columnMappings);
+                scoresByRowId[row.Id] = ScoreDestinationAccountConfidence(
+                    featureKeys,
+                    row.DestinationAccountId!.Value,
+                    candidateAccountIds,
+                    effectiveStats);
+            }
+
+            return scoresByRowId;
+        }
+
+        private static ImportSessionDTO MapSession(
+            ImportSession session,
+            IReadOnlyDictionary<Guid, double?>? learningConfidenceScoreByRowId = null)
         {
             return new ImportSessionDTO
             {
@@ -561,12 +724,17 @@ namespace Finance.BusinessLayer.Services
                 ColumnMappings = DeserializeColumnMappings(session.ColumnMappingsJson),
                 Rows = session.Rows
                     .OrderBy(row => row.RowIndex)
-                    .Select(MapRow)
+                    .Select(row => MapRow(
+                        row,
+                        learningConfidenceScoreByRowId != null
+                            && learningConfidenceScoreByRowId.TryGetValue(row.Id, out var score)
+                                ? score
+                                : null))
                     .ToList(),
             };
         }
 
-        private static ImportSessionRowDTO MapRow(ImportSessionRow row)
+        private static ImportSessionRowDTO MapRow(ImportSessionRow row, double? learningConfidenceScore = null)
         {
             return new ImportSessionRowDTO
             {
@@ -576,6 +744,7 @@ namespace Finance.BusinessLayer.Services
                 DestinationAccountId = row.DestinationAccountId,
                 DestinationAccountError = row.DestinationAccountError,
                 MappingSource = row.MappingSource,
+                LearningConfidenceScore = learningConfidenceScore,
                 AddedToLedgerAt = row.AddedToLedgerAt,
                 PostedTransactionId = row.PostedTransactionId,
             };
@@ -963,6 +1132,78 @@ namespace Finance.BusinessLayer.Services
             }
 
             return bestAccountId;
+        }
+
+        private static double? ScoreDestinationAccountConfidence(
+            IReadOnlyCollection<string> featureKeys,
+            Guid destinationAccountId,
+            IReadOnlyCollection<Guid> candidateAccountIds,
+            IReadOnlyDictionary<Guid, Dictionary<string, int>> effectiveStats)
+        {
+            if (!candidateAccountIds.Contains(destinationAccountId))
+            {
+                return null;
+            }
+
+            var totalExamples = candidateAccountIds.Sum(accountId =>
+                effectiveStats.TryGetValue(accountId, out var byFeature)
+                    && byFeature.TryGetValue(PriorFeatureKey, out var priorCount)
+                        ? priorCount
+                        : 0);
+
+            if (totalExamples == 0)
+            {
+                return null;
+            }
+
+            var vocabulary = new HashSet<string>(
+                effectiveStats.Values.SelectMany(byFeature => byFeature.Keys.Where(key => key != PriorFeatureKey)),
+                StringComparer.Ordinal);
+            var vocabularySize = Math.Max(1, vocabulary.Count);
+            var scores = new List<(Guid AccountId, double Score)>(candidateAccountIds.Count);
+            double bestScore = double.NegativeInfinity;
+
+            foreach (var candidateAccountId in candidateAccountIds)
+            {
+                effectiveStats.TryGetValue(candidateAccountId, out var byFeature);
+                byFeature ??= new Dictionary<string, int>(StringComparer.Ordinal);
+
+                var priorCount = byFeature.TryGetValue(PriorFeatureKey, out var priorValue) ? priorValue : 0;
+                var featureTotal = byFeature
+                    .Where(pair => pair.Key != PriorFeatureKey)
+                    .Sum(pair => pair.Value);
+
+                var score = Math.Log((priorCount + 1d) / (totalExamples + candidateAccountIds.Count));
+
+                foreach (var featureKey in featureKeys)
+                {
+                    var featureCount = byFeature.TryGetValue(featureKey, out var current) ? current : 0;
+                    score += Math.Log((featureCount + 1d) / (featureTotal + vocabularySize));
+                }
+
+                scores.Add((candidateAccountId, score));
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                }
+            }
+
+            if (scores.Count == 0 || double.IsNegativeInfinity(bestScore))
+            {
+                return null;
+            }
+
+            var denominator = scores.Sum(item => Math.Exp(item.Score - bestScore));
+            if (denominator <= 0 || double.IsNaN(denominator))
+            {
+                return null;
+            }
+
+            var selectedScore = scores
+                .FirstOrDefault(item => item.AccountId == destinationAccountId)
+                .Score;
+
+            return Math.Exp(selectedScore - bestScore) / denominator;
         }
 
         private static IReadOnlyCollection<string> ExtractLearningFeatureKeys(

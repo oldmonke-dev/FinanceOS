@@ -1,10 +1,29 @@
 import {
   type Account,
+  type AccountAccessEntry,
+  type BatchUpdateAccountResult,
+  type BatchUpdateAccountsInput,
   type AccountNode,
+  type AccountPermissionSummary,
+  type AccountPermissionUserOption,
+  type AccountPermissionsDetails,
+  type AccountReportingMode,
   type CreateAccountInput,
 } from "@/models/account"
 import { authFetch } from "@/lib/auth"
 import { API_BASE_URL } from "@/lib/api-config"
+
+function normalizeAccountPermissionSummary(raw: Record<string, unknown> | null | undefined): AccountPermissionSummary {
+  return {
+    canView: Boolean(raw?.canView ?? raw?.CanView ?? false),
+    canPost: Boolean(raw?.canPost ?? raw?.CanPost ?? false),
+    canEditTransaction: Boolean(raw?.canEditTransaction ?? raw?.CanEditTransaction ?? false),
+    canDeleteTransaction: Boolean(raw?.canDeleteTransaction ?? raw?.CanDeleteTransaction ?? false),
+    canManageAccess: Boolean(raw?.canManageAccess ?? raw?.CanManageAccess ?? false),
+    canChangeOwner: Boolean(raw?.canChangeOwner ?? raw?.CanChangeOwner ?? false),
+    isOwner: Boolean(raw?.isOwner ?? raw?.IsOwner ?? false),
+  }
+}
 
 function normalizeAccount(raw: Record<string, unknown>): Account {
   return {
@@ -26,6 +45,8 @@ function normalizeAccount(raw: Record<string, unknown>): Account {
         ? null
         : String(raw.parentAccountId ?? raw.ParentAccountId),
     openingBalance: Number(raw.openingBalance ?? raw.OpeningBalance ?? 0),
+    isCore: Boolean(raw.isCore ?? raw.IsCore ?? false),
+    isGloballyShared: Boolean(raw.isGloballyShared ?? raw.IsGloballyShared ?? false),
     ownerUserId:
       raw.ownerUserId == null && raw.OwnerUserId == null
         ? null
@@ -38,6 +59,38 @@ function normalizeAccount(raw: Record<string, unknown>): Account {
       raw.ownerEmail == null && raw.OwnerEmail == null
         ? null
         : String(raw.ownerEmail ?? raw.OwnerEmail),
+    reportingMode: String(
+      raw.reportingMode ?? raw.ReportingMode ?? "Included",
+    ) as AccountReportingMode,
+    currentUserPermissions: normalizeAccountPermissionSummary(
+      (raw.currentUserPermissions ?? raw.CurrentUserPermissions ?? null) as
+        | Record<string, unknown>
+        | null
+        | undefined,
+    ),
+  }
+}
+
+function normalizeAccountAccessEntry(raw: Record<string, unknown>): AccountAccessEntry {
+  return {
+    userId: String(raw.userId ?? raw.UserId ?? ""),
+    userDisplayName: String(raw.userDisplayName ?? raw.UserDisplayName ?? "Unknown user"),
+    userEmail: String(raw.userEmail ?? raw.UserEmail ?? ""),
+    isAdmin: Boolean(raw.isAdmin ?? raw.IsAdmin ?? false),
+    canView: Boolean(raw.canView ?? raw.CanView ?? false),
+    canPost: Boolean(raw.canPost ?? raw.CanPost ?? false),
+    canEditTransaction: Boolean(raw.canEditTransaction ?? raw.CanEditTransaction ?? false),
+    canDeleteTransaction: Boolean(raw.canDeleteTransaction ?? raw.CanDeleteTransaction ?? false),
+    canManageAccess: Boolean(raw.canManageAccess ?? raw.CanManageAccess ?? false),
+  }
+}
+
+function normalizeAccountPermissionUserOption(raw: Record<string, unknown>): AccountPermissionUserOption {
+  return {
+    id: String(raw.id ?? raw.Id ?? ""),
+    displayName: String(raw.displayName ?? raw.DisplayName ?? "Unknown user"),
+    email: String(raw.email ?? raw.Email ?? ""),
+    isAdmin: Boolean(raw.isAdmin ?? raw.IsAdmin ?? false),
   }
 }
 
@@ -144,6 +197,7 @@ export async function renameAccount(
     accountNumber?: string | null
     description?: string | null
     openingBalance: number
+    parentAccountId: string | null
   },
 ): Promise<Account> {
   const response = await authFetch(`${API_BASE_URL}/Accounts/${accountId}`, {
@@ -192,6 +246,128 @@ export async function updateAccountOwner(
 
   const data = (await response.json()) as Record<string, unknown>
   return normalizeAccount(data)
+}
+
+export async function getAccountPermissions(accountId: string): Promise<AccountPermissionsDetails> {
+  const response = await authFetch(`${API_BASE_URL}/Accounts/${accountId}/permissions`, {
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to fetch account permissions: ${response.status} ${response.statusText}`,
+      ),
+    )
+  }
+
+  const data = (await response.json()) as Record<string, unknown>
+  const rawEntries = (Array.isArray(data.entries ?? data.Entries)
+    ? (data.entries ?? data.Entries)
+    : []) as unknown[]
+  const rawUsers = Array.isArray(data.availableUsers ?? data.AvailableUsers)
+    ? ((data.availableUsers ?? data.AvailableUsers) as unknown[])
+    : []
+
+  return {
+    accountId: String(data.accountId ?? data.AccountId ?? accountId),
+    accountName: String(data.accountName ?? data.AccountName ?? "Account"),
+    ownerUserId:
+      data.ownerUserId == null && data.OwnerUserId == null
+        ? null
+        : String(data.ownerUserId ?? data.OwnerUserId),
+    ownerDisplayName:
+      data.ownerDisplayName == null && data.OwnerDisplayName == null
+        ? null
+        : String(data.ownerDisplayName ?? data.OwnerDisplayName),
+    ownerEmail:
+      data.ownerEmail == null && data.OwnerEmail == null
+        ? null
+        : String(data.ownerEmail ?? data.OwnerEmail),
+    isGloballyShared: Boolean(data.isGloballyShared ?? data.IsGloballyShared ?? false),
+    reportingMode: String(
+      data.reportingMode ?? data.ReportingMode ?? "Included",
+    ) as AccountReportingMode,
+    currentUserPermissions: normalizeAccountPermissionSummary(
+      (data.currentUserPermissions ?? data.CurrentUserPermissions ?? null) as
+        | Record<string, unknown>
+        | null
+        | undefined,
+    ),
+    entries: rawEntries.map((entry) => normalizeAccountAccessEntry(entry as Record<string, unknown>)),
+    availableUsers: rawUsers.map((user) =>
+      normalizeAccountPermissionUserOption(user as Record<string, unknown>),
+    ),
+  }
+}
+
+export async function updateAccountPermissions(
+  accountId: string,
+    input: {
+      ownerUserId: string | null
+      isGloballyShared: boolean
+      reportingMode: AccountReportingMode
+      entries: AccountAccessEntry[]
+    },
+): Promise<AccountPermissionsDetails> {
+  const response = await authFetch(`${API_BASE_URL}/Accounts/${accountId}/permissions`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(input),
+  })
+
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to update account permissions: ${response.status} ${response.statusText}`,
+      ),
+    )
+  }
+
+  return getAccountPermissions(accountId)
+}
+
+export async function batchUpdateAccounts(
+  input: BatchUpdateAccountsInput,
+): Promise<BatchUpdateAccountResult[]> {
+  const response = await authFetch(`${API_BASE_URL}/Accounts/batch-update`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(input),
+  })
+
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to update selected accounts: ${response.status} ${response.statusText}`,
+      ),
+    )
+  }
+
+  const data = (await response.json()) as unknown[]
+
+  return data.map((item) => {
+    const raw = item as Record<string, unknown>
+
+    return {
+      id: String(raw.id ?? raw.Id ?? ""),
+      name: String(raw.name ?? raw.Name ?? "Account"),
+      updatedNodeCount: Number(raw.updatedNodeCount ?? raw.UpdatedNodeCount ?? 1),
+      accountTypeChanged: Boolean(raw.accountTypeChanged ?? raw.AccountTypeChanged ?? false),
+    }
+  })
 }
 
 export function buildAccountTree(accounts: Account[]): AccountNode[] {
@@ -264,11 +440,31 @@ export function buildAccountPathLookup(accounts: Account[]) {
 }
 
 export function getAccountOwnerLabel(account: Account) {
+  if (account.isCore) {
+    return "Core Account"
+  }
+
+  if (account.isGloballyShared) {
+    return "Globally Shared"
+  }
+
   if (!account.ownerUserId) {
-    return "Admin"
+    return "Globally Shared"
   }
 
   return account.ownerDisplayName?.trim() || account.ownerEmail?.trim() || account.ownerUserId
+}
+
+export function formatAccountReportingMode(reportingMode: AccountReportingMode) {
+  if (reportingMode === "OperationalOnly") {
+    return "Operational only"
+  }
+
+  if (reportingMode === "Excluded") {
+    return "Excluded"
+  }
+
+  return "Included"
 }
 
 export function getAccountAdminLabel(account: Account, accountPathLookup: Map<string, string>) {

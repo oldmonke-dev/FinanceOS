@@ -5,18 +5,19 @@ using Finance.BusinessLayer.Interfaces;
 using Finance.Domain.Entities.Core;
 using Finance.Domain.Entities.UserSession;
 using Finance.Domain.Enums;
-using Finance.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
-namespace Finance.Infrastructure.Services
+namespace Finance.BusinessLayer.Services
 {
     public class AccountWorkflowService : IAccountWorkflowService
     {
-        private readonly AppDbContext _context;
+        private readonly IAppDbContext _context;
+        private readonly IAccountAccessService _accountAccessService;
 
-        public AccountWorkflowService(AppDbContext context)
+        public AccountWorkflowService(IAppDbContext context, IAccountAccessService accountAccessService)
         {
             _context = context;
+            _accountAccessService = accountAccessService;
         }
 
         public async Task<AccountDeletionResultDTO> DeleteAccountAsync(
@@ -34,9 +35,14 @@ namespace Finance.Infrastructure.Services
                 throw new KeyNotFoundException("Account was not found.");
             }
 
-            if (!isAdmin && account.OwnerUserId != userId)
+            if (account.IsCore)
             {
-                throw new InvalidOperationException("You can only delete your own accounts.");
+                throw new InvalidOperationException("Core accounts cannot be deleted.");
+            }
+
+            if (!isAdmin)
+            {
+                await _accountAccessService.EnsureCanManageAccountAsync(account.Id, userId, isAdmin, cancellationToken);
             }
 
             if (account.Children.Count > 0)
