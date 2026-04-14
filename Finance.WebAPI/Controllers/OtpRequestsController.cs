@@ -212,15 +212,16 @@ namespace Finance.WebAPI.Controllers
         [HttpPost("ingest")]
         [AllowAnonymous]
         public async Task<ActionResult> Ingest(
-            [FromBody] IngestOtpMessageDTO request,
             CancellationToken cancellationToken)
         {
-            if (string.IsNullOrWhiteSpace(request.Sender))
+            var requestModel = await ReadIngestRequestAsync(cancellationToken);
+
+            if (string.IsNullOrWhiteSpace(requestModel.Sender))
             {
                 return BadRequest(new { message = "Sender is required." });
             }
 
-            if (string.IsNullOrWhiteSpace(request.Message))
+            if (string.IsNullOrWhiteSpace(requestModel.Message))
             {
                 return BadRequest(new { message = "Message is required." });
             }
@@ -255,16 +256,16 @@ namespace Finance.WebAPI.Controllers
                 return Conflict(new { message = "No active OTP request window is available for this device." });
             }
 
-            var receivedAt = request.ReceivedAt?.ToUniversalTime() ?? now;
+            var receivedAt = requestModel.ReceivedAt?.ToUniversalTime() ?? now;
             var forwardedMessage = new OtpForwardedMessage
             {
                 Id = Guid.NewGuid(),
                 OtpRequestId = otpRequest.Id,
                 UserId = otpRequest.UserId,
-                SenderMasked = MaskSender(request.Sender),
-                SenderEncrypted = _otpProtector.Protect(request.Sender.Trim()),
-                MessagePreview = BuildMessagePreview(request.Message),
-                MessageEncrypted = _otpProtector.Protect(request.Message.Trim()),
+                SenderMasked = MaskSender(requestModel.Sender),
+                SenderEncrypted = _otpProtector.Protect(requestModel.Sender.Trim()),
+                MessagePreview = BuildMessagePreview(requestModel.Message),
+                MessageEncrypted = _otpProtector.Protect(requestModel.Message.Trim()),
                 ReceivedAt = receivedAt,
                 CreatedAt = now,
             };
@@ -290,6 +291,65 @@ namespace Finance.WebAPI.Controllers
             {
                 deletedCount,
             });
+        }
+
+        private async Task<IngestOtpMessageDTO> ReadIngestRequestAsync(CancellationToken cancellationToken)
+        {
+            var senderHeader = Request.Headers["X-Otp-Sender"].ToString();
+            var receivedAtHeader = Request.Headers["X-Otp-ReceivedAt"].ToString();
+            var contentType = Request.ContentType ?? string.Empty;
+
+            Request.EnableBuffering();
+
+            using var reader = new StreamReader(Request.Body, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+            var rawBody = await reader.ReadToEndAsync(cancellationToken);
+            Request.Body.Position = 0;
+
+            if (contentType.StartsWith("text/plain", StringComparison.OrdinalIgnoreCase))
+            {
+                return new IngestOtpMessageDTO
+                {
+                    Sender = senderHeader,
+                    Message = rawBody,
+                    ReceivedAt = ParseOptionalUtc(receivedAtHeader),
+                };
+            }
+
+            if (!string.IsNullOrWhiteSpace(rawBody))
+            {
+                try
+                {
+                    var parsed = JsonSerializer.Deserialize<IngestOtpMessageDTO>(
+                        rawBody,
+                        new JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true,
+                        });
+
+                    if (parsed is not null)
+                    {
+                        return parsed;
+                    }
+                }
+                catch (JsonException)
+                {
+                    // Fall through to header/query fallback for malformed client payloads.
+                }
+            }
+
+            return new IngestOtpMessageDTO
+            {
+                Sender = Request.Query["sender"].ToString(),
+                Message = Request.Query["message"].ToString(),
+                ReceivedAt = ParseOptionalUtc(Request.Query["receivedAt"].ToString()),
+            };
+        }
+
+        private static DateTime? ParseOptionalUtc(string rawValue)
+        {
+            return DateTime.TryParse(rawValue, out var parsed)
+                ? parsed.ToUniversalTime()
+                : null;
         }
 
         private OtpRequestDTO MapRequest(
@@ -511,8 +571,8 @@ namespace Finance.WebAPI.Controllers
                                 contentBodyFolderDisplayName = string.Empty,
                                 contentBodyFolderUri = string.Empty,
                                 contentBodySource = 0,
-                                contentBodyText = "{\"sender\":\"{sms_number}\",\"message\":\"{sms_message}\"}",
-                                contentType = "application/json",
+                                contentBodyText = "{sms_message}",
+                                contentType = "text/plain; charset=utf-8",
                                 followRedirects = true,
                                 headerParams = new object[]
                                 {
@@ -520,6 +580,11 @@ namespace Finance.WebAPI.Controllers
                                     {
                                         paramName = "Authorization",
                                         paramValue = $"Bearer {deviceToken}",
+                                    },
+                                    new
+                                    {
+                                        paramName = "X-Otp-Sender",
+                                        paramValue = "{sms_number}",
                                     },
                                 },
                                 localFileUri = string.Empty,
