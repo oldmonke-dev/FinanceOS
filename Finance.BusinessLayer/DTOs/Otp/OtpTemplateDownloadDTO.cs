@@ -2,6 +2,6 @@ namespace Finance.BusinessLayer.DTOs.Otp
 {
     public class OtpTemplateDownloadDTO
     {
-        public bool RotateExistingToken { get; set; } = true;
+        public bool RotateExistingToken { get; set; }
     }
 }

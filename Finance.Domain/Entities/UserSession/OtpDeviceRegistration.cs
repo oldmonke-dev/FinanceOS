@@ -5,6 +5,7 @@ namespace Finance.Domain.Entities.UserSession
         public Guid UserId { get; set; }
 
         public string TokenHash { get; set; } = string.Empty;
+        public string? ProtectedToken { get; set; }
 
         public DateTime CreatedAt { get; set; }
 

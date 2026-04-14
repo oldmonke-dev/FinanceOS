@@ -92,11 +92,15 @@ namespace Finance.Infrastructure.Data
                 CREATE TABLE IF NOT EXISTS "OtpDeviceRegistrations" (
                     "UserId" uuid NOT NULL,
                     "TokenHash" character varying(200) NOT NULL,
+                    "ProtectedToken" text NULL,
                     "CreatedAt" timestamp with time zone NOT NULL,
                     "UpdatedAt" timestamp with time zone NOT NULL,
                     CONSTRAINT "PK_OtpDeviceRegistrations" PRIMARY KEY ("UserId"),
                     CONSTRAINT "FK_OtpDeviceRegistrations_Users_UserId" FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
                 );
+
+                ALTER TABLE "OtpDeviceRegistrations"
+                ADD COLUMN IF NOT EXISTS "ProtectedToken" text NULL;
 
                 CREATE TABLE IF NOT EXISTS "OtpRequests" (
                     "Id" uuid NOT NULL,

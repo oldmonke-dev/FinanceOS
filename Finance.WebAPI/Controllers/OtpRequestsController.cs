@@ -135,8 +135,21 @@ namespace Finance.WebAPI.Controllers
             var registration = await _context.OtpDeviceRegistrations
                 .FirstOrDefaultAsync(item => item.UserId == userId, cancellationToken);
 
-            var deviceToken = CreateOpaqueToken();
+            var shouldRotateToken = request?.RotateExistingToken == true;
+            var hasReusableToken = !string.IsNullOrWhiteSpace(registration?.ProtectedToken);
+            string deviceToken;
+
+            if (!shouldRotateToken && hasReusableToken)
+            {
+                deviceToken = _otpProtector.Unprotect(registration!.ProtectedToken!);
+            }
+            else
+            {
+                deviceToken = CreateOpaqueToken();
+            }
+
             var tokenHash = ComputeTokenHash(deviceToken);
+            var protectedToken = _otpProtector.Protect(deviceToken);
 
             if (registration is null)
             {
@@ -144,6 +157,7 @@ namespace Finance.WebAPI.Controllers
                 {
                     UserId = userId,
                     TokenHash = tokenHash,
+                    ProtectedToken = protectedToken,
                     CreatedAt = now,
                     UpdatedAt = now,
                 };
@@ -153,6 +167,7 @@ namespace Finance.WebAPI.Controllers
             else
             {
                 registration.TokenHash = tokenHash;
+                registration.ProtectedToken = protectedToken;
                 registration.UpdatedAt = now;
             }
 

@@ -308,6 +308,9 @@ namespace Finance.Infrastructure.Data
                     .IsRequired()
                     .HasMaxLength(200);
 
+                entity.Property(item => item.ProtectedToken)
+                    .HasColumnType("text");
+
                 entity.Property(item => item.CreatedAt)
                     .HasColumnType("timestamp with time zone");
 

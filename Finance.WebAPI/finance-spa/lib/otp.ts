@@ -120,7 +120,7 @@ export async function downloadOtpTemplate(): Promise<OtpTemplate> {
       "Content-Type": "application/json",
       Accept: "application/json",
     },
-    body: JSON.stringify({ rotateExistingToken: true }),
+    body: JSON.stringify({ rotateExistingToken: false }),
   })
 
   if (!response.ok) {

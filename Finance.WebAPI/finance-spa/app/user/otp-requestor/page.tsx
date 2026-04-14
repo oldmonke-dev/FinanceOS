@@ -7,6 +7,13 @@ import { useAuth } from "@/components/providers/auth-provider"
 import { useSnackbar } from "@/components/providers/snackbar-provider"
 import { Button } from "@/components/ui/button"
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   createOtpRequest,
   downloadOtpTemplate,
   getOtpRequests,
@@ -162,7 +169,7 @@ export default function OtpRequestorPage() {
       window.URL.revokeObjectURL(objectUrl)
 
       showSnackbar({
-        message: "MacroDroid template downloaded. Previous device token has been rotated.",
+        message: "MacroDroid template downloaded.",
         tone: "success",
       })
     } catch (error) {
@@ -251,17 +258,22 @@ export default function OtpRequestorPage() {
 
           <label className="mt-4 block space-y-2">
             <span className="text-sm font-medium">Request OTP From</span>
-            <select
+            <Select
               value={selectedTargetUserId}
-              onChange={(event) => setSelectedTargetUserId(event.target.value)}
-              className="h-10 w-full rounded-xl border bg-background px-3 text-sm outline-none transition focus:border-primary"
+              onValueChange={setSelectedTargetUserId}
+              disabled={targetUsers.length === 0}
             >
-              {targetUsers.map((targetUser) => (
-                <option key={targetUser.id} value={targetUser.id}>
-                  {targetUser.displayName} ({targetUser.email})
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="h-10 w-full rounded-xl px-3">
+                <SelectValue placeholder={isLoading ? "Loading users..." : "Select a target user"} />
+              </SelectTrigger>
+              <SelectContent>
+                {targetUsers.map((targetUser) => (
+                  <SelectItem key={targetUser.id} value={targetUser.id}>
+                    {targetUser.displayName} ({targetUser.email})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </label>
 
           <div className="mt-4 flex flex-wrap gap-2">
