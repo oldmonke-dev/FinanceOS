@@ -1,27 +1,21 @@
-using System.Diagnostics;
 using System.Text.Json;
-using System.ComponentModel;
-using Finance.WebAPI.Configuration;
 using Finance.WebAPI.Contracts.PdfImports;
-using Microsoft.Extensions.Options;
+using System.Net.Http.Headers;
 
 namespace Finance.WebAPI.Services
 {
     public class CamelotPdfTableDetectionService : IPdfTableDetectionService
     {
-        private readonly CamelotOptions _options;
-        private readonly IWebHostEnvironment _environment;
+        private readonly HttpClient _httpClient;
         private readonly ILogger<CamelotPdfTableDetectionService> _logger;
         private readonly IPdfImportStorageService _pdfImportStorageService;
 
         public CamelotPdfTableDetectionService(
-            IOptions<CamelotOptions> options,
-            IWebHostEnvironment environment,
+            HttpClient httpClient,
             ILogger<CamelotPdfTableDetectionService> logger,
             IPdfImportStorageService pdfImportStorageService)
         {
-            _options = options.Value;
-            _environment = environment;
+            _httpClient = httpClient;
             _logger = logger;
             _pdfImportStorageService = pdfImportStorageService;
         }
@@ -31,51 +25,50 @@ namespace Finance.WebAPI.Services
             CancellationToken cancellationToken = default)
         {
             var absolutePdfPath = _pdfImportStorageService.GetAbsolutePath(request.FileId);
-            var startInfo = BuildStartInfo(absolutePdfPath, request);
-            using var process = new Process { StartInfo = startInfo };
+            using var formData = new MultipartFormDataContent();
+            await using var pdfStream = File.OpenRead(absolutePdfPath);
+            using var pdfContent = new StreamContent(pdfStream);
+            pdfContent.Headers.ContentType = new MediaTypeHeaderValue("application/pdf");
+            formData.Add(pdfContent, "file", $"{request.FileId}.pdf");
+            formData.Add(new StringContent(request.FileId), "fileId");
+            formData.Add(new StringContent(string.IsNullOrWhiteSpace(request.Pages) ? "1" : request.Pages), "pages");
+            formData.Add(new StringContent(string.Equals(request.Flavor, "stream", StringComparison.OrdinalIgnoreCase) ? "stream" : "lattice"), "flavor");
+            formData.Add(new StringContent(string.IsNullOrWhiteSpace(request.LineScale) ? "40" : request.LineScale), "lineScale");
+            formData.Add(new StringContent(string.IsNullOrWhiteSpace(request.EdgeTolerance) ? "50" : request.EdgeTolerance), "edgeTolerance");
+            formData.Add(new StringContent(string.IsNullOrWhiteSpace(request.RowTolerance) ? "2" : request.RowTolerance), "rowTolerance");
+            formData.Add(new StringContent(string.IsNullOrWhiteSpace(request.ColumnTolerance) ? "0" : request.ColumnTolerance), "columnTolerance");
+            formData.Add(new StringContent(request.SplitText ? "true" : "false"), "splitText");
+            formData.Add(new StringContent(request.StripText ? "true" : "false"), "stripText");
 
+            HttpResponseMessage response;
             try
             {
-                process.Start();
-            }
-            catch (Win32Exception exception)
-            {
-                _logger.LogError(exception, "Failed to start Camelot Python process. FileName={FileName}", startInfo.FileName);
-                throw new InvalidOperationException(
-                    $"Failed to start the Camelot Python process using '{startInfo.FileName}'. Update Camelot:PythonBinPath and ensure Camelot is installed in that Python environment.");
+                response = await _httpClient.PostAsync("detect-tables", formData, cancellationToken);
             }
             catch (Exception exception)
             {
-                _logger.LogError(exception, "Unexpected error while starting Camelot detection process.");
-                throw new InvalidOperationException("Failed to start Camelot table detection.");
+                _logger.LogError(exception, "Failed to call Camelot worker for {FileId}.", request.FileId);
+                throw new InvalidOperationException("Failed to call the Camelot worker service.");
             }
 
-            var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-            var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-
-            await process.WaitForExitAsync(cancellationToken);
-
-            var stdout = await stdoutTask;
-            var stderr = await stderrTask;
-
-            if (process.ExitCode != 0)
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning(
-                    "Camelot detection failed for {FileId}. ExitCode={ExitCode}. stderr={StdErr}",
+                    "Camelot worker detection failed for {FileId}. StatusCode={StatusCode}. Body={Body}",
                     request.FileId,
-                    process.ExitCode,
-                    stderr);
+                    (int)response.StatusCode,
+                    responseBody);
 
-                var message = string.IsNullOrWhiteSpace(stderr)
-                    ? "Camelot table detection failed."
-                    : stderr.Trim();
+                var message = TryReadWorkerMessage(responseBody)
+                    ?? $"Camelot worker table detection failed with status {(int)response.StatusCode}.";
                 throw new InvalidOperationException(message);
             }
 
             try
             {
                 var result = JsonSerializer.Deserialize<DetectPdfTablesResult>(
-                    stdout,
+                    responseBody,
                     new JsonSerializerOptions
                     {
                         PropertyNameCaseInsensitive = true,
@@ -91,69 +84,32 @@ namespace Finance.WebAPI.Services
             }
             catch (JsonException exception)
             {
-                _logger.LogError(exception, "Failed to parse Camelot JSON response. Raw={StdOut}", stdout);
+                _logger.LogError(exception, "Failed to parse Camelot worker JSON response. Raw={Body}", responseBody);
                 throw new InvalidOperationException("Camelot detection returned invalid JSON.");
             }
         }
 
-        private ProcessStartInfo BuildStartInfo(string pdfPath, DetectPdfTablesRequest request)
+        private static string? TryReadWorkerMessage(string responseBody)
         {
-            var scriptPath = ResolveScriptPath();
-            var pythonBinPath = string.IsNullOrWhiteSpace(_options.PythonBinPath) ? "python" : _options.PythonBinPath;
-            var startInfo = new ProcessStartInfo
+            if (string.IsNullOrWhiteSpace(responseBody))
             {
-                FileName = pythonBinPath,
-                RedirectStandardError = true,
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-
-            if (!string.IsNullOrWhiteSpace(_options.WorkingDirectory))
-            {
-                startInfo.WorkingDirectory = Path.IsPathRooted(_options.WorkingDirectory)
-                    ? _options.WorkingDirectory
-                    : Path.GetFullPath(Path.Combine(_environment.ContentRootPath, _options.WorkingDirectory));
+                return null;
             }
 
-            startInfo.ArgumentList.Add(scriptPath);
-            startInfo.ArgumentList.Add("--pdf");
-            startInfo.ArgumentList.Add(pdfPath);
-            startInfo.ArgumentList.Add("--pages");
-            startInfo.ArgumentList.Add(string.IsNullOrWhiteSpace(request.Pages) ? "1" : request.Pages);
-            startInfo.ArgumentList.Add("--flavor");
-            startInfo.ArgumentList.Add(string.Equals(request.Flavor, "stream", StringComparison.OrdinalIgnoreCase) ? "stream" : "lattice");
-            startInfo.ArgumentList.Add("--line-scale");
-            startInfo.ArgumentList.Add(string.IsNullOrWhiteSpace(request.LineScale) ? "40" : request.LineScale);
-            startInfo.ArgumentList.Add("--edge-tolerance");
-            startInfo.ArgumentList.Add(string.IsNullOrWhiteSpace(request.EdgeTolerance) ? "50" : request.EdgeTolerance);
-            startInfo.ArgumentList.Add("--row-tolerance");
-            startInfo.ArgumentList.Add(string.IsNullOrWhiteSpace(request.RowTolerance) ? "2" : request.RowTolerance);
-            startInfo.ArgumentList.Add("--column-tolerance");
-            startInfo.ArgumentList.Add(string.IsNullOrWhiteSpace(request.ColumnTolerance) ? "0" : request.ColumnTolerance);
-            startInfo.ArgumentList.Add("--split-text");
-            startInfo.ArgumentList.Add(request.SplitText ? "true" : "false");
-            startInfo.ArgumentList.Add("--strip-text");
-            startInfo.ArgumentList.Add(request.StripText ? "true" : "false");
-
-            return startInfo;
-        }
-
-        private string ResolveScriptPath()
-        {
-            var configuredPath = string.IsNullOrWhiteSpace(_options.ScriptPath)
-                ? Path.Combine("Scripts", "detect_tables.py")
-                : _options.ScriptPath;
-            var absolutePath = Path.IsPathRooted(configuredPath)
-                ? configuredPath
-                : Path.GetFullPath(Path.Combine(_environment.ContentRootPath, configuredPath));
-
-            if (!File.Exists(absolutePath))
+            try
             {
-                throw new InvalidOperationException($"Camelot script was not found at '{absolutePath}'.");
+                using var document = JsonDocument.Parse(responseBody);
+                if (document.RootElement.ValueKind == JsonValueKind.Object
+                    && document.RootElement.TryGetProperty("message", out var messageElement))
+                {
+                    return messageElement.GetString();
+                }
+            }
+            catch (JsonException)
+            {
             }
 
-            return absolutePath;
+            return null;
         }
     }
 }

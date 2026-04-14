@@ -26,7 +26,7 @@ if (string.IsNullOrWhiteSpace(authOptions.JwtSecret))
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection("Auth"));
 builder.Services.Configure<OtpOptions>(builder.Configuration.GetSection("Otp"));
 builder.Services.Configure<TabulaOptions>(builder.Configuration.GetSection("Tabula"));
-builder.Services.Configure<CamelotOptions>(builder.Configuration.GetSection("Camelot"));
+builder.Services.Configure<CamelotWorkerOptions>(builder.Configuration.GetSection("CamelotWorker"));
 
 // Add services to the container.
 
@@ -103,7 +103,12 @@ builder.Services.AddScoped<ITransactionService, TransactionService>();
 builder.Services.AddScoped<IUserPreferenceRepository, UserPreferenceRepository>();
 builder.Services.AddScoped<ITabulaPdfExtractionService, TabulaPdfExtractionService>();
 builder.Services.AddScoped<IPdfImportStorageService, PdfImportStorageService>();
-builder.Services.AddScoped<IPdfTableDetectionService, CamelotPdfTableDetectionService>();
+builder.Services.AddHttpClient<IPdfTableDetectionService, CamelotPdfTableDetectionService>((serviceProvider, client) =>
+{
+    var options = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<CamelotWorkerOptions>>().Value;
+    client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromSeconds(Math.Max(options.TimeoutSeconds, 5));
+});
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())

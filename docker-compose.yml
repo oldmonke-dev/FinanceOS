@@ -34,11 +34,15 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      camelot-worker:
+        condition: service_started
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=finance_db;Username=finance_user;Password=strongpassword
       DataProtection__KeysPath: /var/app-data-protection-keys
+      CamelotWorker__BaseUrl: http://camelot-worker:8000
+      CamelotWorker__TimeoutSeconds: 60
       Cors__AllowedOrigins__0: http://localhost:3056
       Cors__AllowedOrigins__1: http://127.0.0.1:3056
       Auth__BootstrapUsers__0__Email: root@finance.local
@@ -50,6 +54,19 @@ services:
       - "5133:8080"
     volumes:
       - finance-api-data-protection-keys:/var/app-data-protection-keys
+    networks:
+      - finance-network
+
+  camelot-worker:
+    build:
+      context: .
+      dockerfile: Finance.CamelotWorker/Dockerfile
+      provenance: false
+      sbom: false
+    container_name: finance-camelot-worker
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
     networks:
       - finance-network
 
