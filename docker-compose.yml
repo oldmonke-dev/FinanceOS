@@ -38,6 +38,7 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=finance_db;Username=finance_user;Password=strongpassword
+      DataProtection__KeysPath: /var/app-data-protection-keys
       Cors__AllowedOrigins__0: http://localhost:3056
       Cors__AllowedOrigins__1: http://127.0.0.1:3056
       Auth__BootstrapUsers__0__Email: root@finance.local
@@ -47,6 +48,8 @@ services:
       Otp__RequestHistoryLimit: 20
     ports:
       - "5133:8080"
+    volumes:
+      - finance-api-data-protection-keys:/var/app-data-protection-keys
     networks:
       - finance-network
 
@@ -74,6 +77,7 @@ services:
 
 volumes:
   finance-postgres-data:
+  finance-api-data-protection-keys:
 
 networks:
   finance-network:

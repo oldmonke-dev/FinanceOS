@@ -141,7 +141,16 @@ namespace Finance.WebAPI.Controllers
 
             if (!shouldRotateToken && hasReusableToken)
             {
-                deviceToken = _otpProtector.Unprotect(registration!.ProtectedToken!);
+                try
+                {
+                    deviceToken = _otpProtector.Unprotect(registration!.ProtectedToken!);
+                }
+                catch (CryptographicException)
+                {
+                    // The app key ring changed, so the old stored device token can no longer be unprotected.
+                    // Regenerate the token instead of failing the template download.
+                    deviceToken = CreateOpaqueToken();
+                }
             }
             else
             {
@@ -416,7 +425,6 @@ namespace Finance.WebAPI.Controllers
             string deviceToken)
         {
             var macroGuid = NextMacroDroidId();
-            var preNotificationGuid = NextMacroDroidId();
             var actionGuid = NextMacroDroidId();
             var postNotificationGuid = NextMacroDroidId();
             var triggerGuid = NextMacroDroidId();
@@ -483,46 +491,6 @@ namespace Finance.WebAPI.Controllers
                     m_GUID = macroGuid,
                     m_actionList = new object[]
                     {
-                        new
-                        {
-                            autoExpand = true,
-                            blockNextAction = false,
-                            dimBackground = true,
-                            disableHtml = false,
-                            displayOverStatusBar = false,
-                            iconText = string.Empty,
-                            iconType = 0,
-                            liveNotification = false,
-                            m_backgroundColor = -16777216,
-                            m_iconBgColor = -769226,
-                            m_imageResourceId = 0,
-                            m_macroGUIDToRun = 0,
-                            m_notificationChannelType = 0,
-                            m_notificationSubject = $"{displayName} has requested OTP",
-                            m_notificationText = "OTPs enabled for 5 mins. Waiting for incoming SMS.",
-                            m_overwriteExisting = false,
-                            m_priority = 0,
-                            m_ringtoneIndex = 0,
-                            m_ringtoneName = "Default",
-                            m_runMacroWhenPressed = false,
-                            m_textColor = -1,
-                            maintainSpaces = false,
-                            notificationActionButtons = Array.Empty<object>(),
-                            notificationChannelName = "Notification action",
-                            notificationIdString = "0",
-                            notificatonId = 0,
-                            preventAndroid16Grouping = true,
-                            preventBackButtonClosing = false,
-                            preventRemovalByBin = false,
-                            showAsOverlayOption = 1,
-                            yPosition = 0.5,
-                            disableLogging = false,
-                            m_SIGUID = preNotificationGuid,
-                            m_classType = "NotificationAction",
-                            m_constraintList = Array.Empty<object>(),
-                            m_isDisabled = false,
-                            m_isOrCondition = false,
-                        },
                         new
                         {
                             requestConfig = new
@@ -597,7 +565,7 @@ namespace Finance.WebAPI.Controllers
                             m_macroGUIDToRun = 0,
                             m_notificationChannelType = 0,
                             m_notificationSubject = "OTP forward result",
-                            m_notificationText = "Completed with HTTP status {v=otp_status_code}.",
+                            m_notificationText = "OTP sent successfully or failed. HTTP status {v=otp_status_code}.",
                             m_overwriteExisting = false,
                             m_priority = 0,
                             m_ringtoneIndex = 0,

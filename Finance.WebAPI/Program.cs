@@ -6,10 +6,12 @@ using Finance.Infrastructure.Repositories;
 using Finance.WebAPI.Configuration;
 using Finance.WebAPI.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text.Json.Serialization;
 using System.Text;
+using System.IO;
 
 var builder = WebApplication.CreateBuilder(args);
 var enableHttpsRedirection = !builder.Environment.IsDevelopment();
@@ -37,7 +39,10 @@ builder.Services.AddControllers()
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
-builder.Services.AddDataProtection();
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(
+        builder.Configuration["DataProtection:KeysPath"]
+        ?? Path.Combine(builder.Environment.ContentRootPath, "data-protection-keys")));
 var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(authOptions.JwtSecret));
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
