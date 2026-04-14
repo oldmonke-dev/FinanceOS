@@ -25,7 +25,8 @@ import {
 import { type OtpForwardedMessage, type OtpRequest } from "@/models/otp"
 import { type User } from "@/models/user"
 
-const PAGE_SIZE = 5
+const MESSAGE_PAGE_SIZE = 5
+const REQUEST_PAGE_SIZE = 3
 
 export default function OtpRequestorPage() {
   const { user } = useAuth()
@@ -66,17 +67,17 @@ export default function OtpRequestorPage() {
   }, [requests])
 
   const pagedRequests = useMemo(() => {
-    const startIndex = (requestPage - 1) * PAGE_SIZE
-    return requests.slice(startIndex, startIndex + PAGE_SIZE)
+    const startIndex = (requestPage - 1) * REQUEST_PAGE_SIZE
+    return requests.slice(startIndex, startIndex + REQUEST_PAGE_SIZE)
   }, [requestPage, requests])
 
   const pagedMessages = useMemo(() => {
-    const startIndex = (messagePage - 1) * PAGE_SIZE
-    return recentMessages.slice(startIndex, startIndex + PAGE_SIZE)
+    const startIndex = (messagePage - 1) * MESSAGE_PAGE_SIZE
+    return recentMessages.slice(startIndex, startIndex + MESSAGE_PAGE_SIZE)
   }, [messagePage, recentMessages])
 
-  const requestPageCount = Math.max(1, Math.ceil(requests.length / PAGE_SIZE))
-  const messagePageCount = Math.max(1, Math.ceil(recentMessages.length / PAGE_SIZE))
+  const requestPageCount = Math.max(1, Math.ceil(requests.length / REQUEST_PAGE_SIZE))
+  const messagePageCount = Math.max(1, Math.ceil(recentMessages.length / MESSAGE_PAGE_SIZE))
 
   const loadRequests = useCallback(async (showErrors = true) => {
     try {
@@ -232,7 +233,7 @@ export default function OtpRequestorPage() {
   async function handleClearAllMessages() {
     const shouldClear = await confirm({
       title: "Clear all forwarded SMS",
-      message: "Delete all forwarded OTP messages from your history? This cannot be undone.",
+      message: "Delete all forwarded OTP messages and request sessions from your history? This cannot be undone.",
       confirmLabel: "Clear all",
       variant: "destructive",
     })
@@ -244,12 +245,12 @@ export default function OtpRequestorPage() {
     setIsClearingMessages(true)
 
     try {
-      const deletedCount = await clearOtpForwardedMessages()
+      const result = await clearOtpForwardedMessages()
       showSnackbar({
         message:
-          deletedCount === 0
-            ? "No forwarded SMS to clear."
-            : `Cleared ${deletedCount} forwarded SMS message${deletedCount === 1 ? "" : "s"}.`,
+          result.deletedMessageCount === 0 && result.deletedRequestCount === 0
+            ? "No OTP history to clear."
+            : `Cleared ${result.deletedMessageCount} message${result.deletedMessageCount === 1 ? "" : "s"} and ${result.deletedRequestCount} request session${result.deletedRequestCount === 1 ? "" : "s"}.`,
         tone: "success",
       })
       await loadRequests(false)
@@ -408,7 +409,7 @@ export default function OtpRequestorPage() {
               ))
             )}
           </div>
-          {recentMessages.length > PAGE_SIZE ? (
+          {recentMessages.length > MESSAGE_PAGE_SIZE ? (
             <PaginationControls
               page={messagePage}
               pageCount={messagePageCount}
@@ -469,7 +470,7 @@ export default function OtpRequestorPage() {
                 ))
               )}
             </div>
-            {requests.length > PAGE_SIZE ? (
+            {requests.length > REQUEST_PAGE_SIZE ? (
               <PaginationControls
                 page={requestPage}
                 pageCount={requestPageCount}

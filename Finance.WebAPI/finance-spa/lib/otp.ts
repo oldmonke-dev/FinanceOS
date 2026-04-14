@@ -3,6 +3,11 @@ import { authFetch } from "@/lib/auth"
 import { type OtpRequest, type OtpTemplate } from "@/models/otp"
 import { type User } from "@/models/user"
 
+type ClearOtpDataResult = {
+  deletedMessageCount: number
+  deletedRequestCount: number
+}
+
 function normalizeForwardedMessage(raw: Record<string, unknown>) {
   return {
     id: String(raw.id ?? raw.Id ?? ""),
@@ -139,7 +144,7 @@ export async function downloadOtpTemplate(): Promise<OtpTemplate> {
   }
 }
 
-export async function clearOtpForwardedMessages(): Promise<number> {
+export async function clearOtpForwardedMessages(): Promise<ClearOtpDataResult> {
   const response = await authFetch(`${API_BASE_URL}/OtpRequests/messages`, {
     method: "DELETE",
     headers: {
@@ -154,5 +159,8 @@ export async function clearOtpForwardedMessages(): Promise<number> {
   }
 
   const raw = (await response.json()) as Record<string, unknown>
-  return Number(raw.deletedCount ?? raw.DeletedCount ?? 0)
+  return {
+    deletedMessageCount: Number(raw.deletedMessageCount ?? raw.DeletedMessageCount ?? 0),
+    deletedRequestCount: Number(raw.deletedRequestCount ?? raw.DeletedRequestCount ?? 0),
+  }
 }

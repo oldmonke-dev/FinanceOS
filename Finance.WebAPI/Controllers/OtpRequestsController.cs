@@ -283,13 +283,18 @@ namespace Finance.WebAPI.Controllers
         {
             var userId = User.GetRequiredUserId();
 
-            var deletedCount = await _context.OtpForwardedMessages
+            var deletedMessageCount = await _context.OtpForwardedMessages
+                .Where(item => item.UserId == userId)
+                .ExecuteDeleteAsync(cancellationToken);
+
+            var deletedRequestCount = await _context.OtpRequests
                 .Where(item => item.UserId == userId)
                 .ExecuteDeleteAsync(cancellationToken);
 
             return Ok(new
             {
-                deletedCount,
+                deletedMessageCount,
+                deletedRequestCount,
             });
         }
 
