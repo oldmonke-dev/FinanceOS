@@ -173,19 +173,19 @@ namespace Finance.WebAPI.Controllers
 
             await _context.SaveChangesAsync(cancellationToken);
 
-            var normalizedFrontendBaseUrl = NormalizeFrontendBaseUrl(_otpOptions.FrontendBaseUrl);
-            if (normalizedFrontendBaseUrl is null)
+            var ingestUrl = ResolveTemplateIngestUrl(_otpOptions);
+            if (ingestUrl is null)
             {
                 return StatusCode(StatusCodes.Status500InternalServerError, new
                 {
-                    message = "Otp:FrontendBaseUrl must be configured with an absolute URL."
+                    message = "Configure either Otp:IngestBaseUrl or Otp:FrontendBaseUrl with an absolute URL."
                 });
             }
 
             var templatePayload = BuildMacroDroidTemplatePayload(
                 user.DisplayName,
                 user.Email,
-                normalizedFrontendBaseUrl,
+                ingestUrl,
                 deviceToken);
 
             return Ok(new OtpTemplateDTO
@@ -265,6 +265,22 @@ namespace Finance.WebAPI.Controllers
             await _context.SaveChangesAsync(cancellationToken);
 
             return Accepted(new { message = "OTP message accepted.", otpRequestId = otpRequest.Id });
+        }
+
+        [HttpDelete("messages")]
+        [Authorize]
+        public async Task<ActionResult> ClearForwardedMessages(CancellationToken cancellationToken)
+        {
+            var userId = User.GetRequiredUserId();
+
+            var deletedCount = await _context.OtpForwardedMessages
+                .Where(item => item.UserId == userId)
+                .ExecuteDeleteAsync(cancellationToken);
+
+            return Ok(new
+            {
+                deletedCount,
+            });
         }
 
         private OtpRequestDTO MapRequest(
@@ -364,8 +380,13 @@ namespace Finance.WebAPI.Controllers
                 .Trim('-');
         }
 
-        private static string? NormalizeFrontendBaseUrl(string value)
+        private static string? NormalizeAbsoluteBaseUrl(string value)
         {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
             if (!Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri))
             {
                 return null;
@@ -374,19 +395,79 @@ namespace Finance.WebAPI.Controllers
             return uri.ToString().TrimEnd('/');
         }
 
+        private static string? ResolveTemplateIngestUrl(OtpOptions options)
+        {
+            var ingestBaseUrl = NormalizeAbsoluteBaseUrl(options.IngestBaseUrl);
+            if (ingestBaseUrl is not null)
+            {
+                return $"{ingestBaseUrl}/OtpRequests/ingest";
+            }
+
+            var frontendBaseUrl = NormalizeAbsoluteBaseUrl(options.FrontendBaseUrl);
+            return frontendBaseUrl is null
+                ? null
+                : $"{frontendBaseUrl}/api-proxy/OtpRequests/ingest";
+        }
+
         private static object BuildMacroDroidTemplatePayload(
             string displayName,
             string email,
-            string frontendBaseUrl,
+            string ingestUrl,
             string deviceToken)
         {
             var macroGuid = NextMacroDroidId();
+            var preNotificationGuid = NextMacroDroidId();
             var actionGuid = NextMacroDroidId();
+            var postNotificationGuid = NextMacroDroidId();
             var triggerGuid = NextMacroDroidId();
 
             return new
             {
-                globalVariables = Array.Empty<object>(),
+                globalVariables = new object[]
+                {
+                    new
+                    {
+                        dictionary = new
+                        {
+                            entries = Array.Empty<object>(),
+                            isArray = false,
+                            variableType = 4,
+                            type = "Dictionary",
+                        },
+                        isActionBlockWorkingVar = false,
+                        isLocalVar = false,
+                        isSecure = false,
+                        m_booleanValue = false,
+                        m_decimalValue = 0.0,
+                        m_intValue = 0,
+                        m_name = "otp_response",
+                        m_stringValue = string.Empty,
+                        m_type = 2,
+                        supportsInput = true,
+                        supportsOutput = true,
+                    },
+                    new
+                    {
+                        dictionary = new
+                        {
+                            entries = Array.Empty<object>(),
+                            isArray = false,
+                            variableType = 4,
+                            type = "Dictionary",
+                        },
+                        isActionBlockWorkingVar = false,
+                        isLocalVar = false,
+                        isSecure = false,
+                        m_booleanValue = false,
+                        m_decimalValue = 0.0,
+                        m_intValue = 0,
+                        m_name = "otp_status_code",
+                        m_stringValue = string.Empty,
+                        m_type = 1,
+                        supportsInput = true,
+                        supportsOutput = true,
+                    },
+                },
                 macro = new
                 {
                     breakpoints = Array.Empty<object>(),
@@ -404,15 +485,63 @@ namespace Finance.WebAPI.Controllers
                     {
                         new
                         {
+                            autoExpand = true,
+                            blockNextAction = false,
+                            dimBackground = true,
+                            disableHtml = false,
+                            displayOverStatusBar = false,
+                            iconText = string.Empty,
+                            iconType = 0,
+                            liveNotification = false,
+                            m_backgroundColor = -16777216,
+                            m_iconBgColor = -769226,
+                            m_imageResourceId = 0,
+                            m_macroGUIDToRun = 0,
+                            m_notificationChannelType = 0,
+                            m_notificationSubject = $"{displayName} has requested OTP",
+                            m_notificationText = "OTPs enabled for 5 mins. Waiting for incoming SMS.",
+                            m_overwriteExisting = false,
+                            m_priority = 0,
+                            m_ringtoneIndex = 0,
+                            m_ringtoneName = "Default",
+                            m_runMacroWhenPressed = false,
+                            m_textColor = -1,
+                            maintainSpaces = false,
+                            notificationActionButtons = Array.Empty<object>(),
+                            notificationChannelName = "Notification action",
+                            notificationIdString = "0",
+                            notificatonId = 0,
+                            preventAndroid16Grouping = true,
+                            preventBackButtonClosing = false,
+                            preventRemovalByBin = false,
+                            showAsOverlayOption = 1,
+                            yPosition = 0.5,
+                            disableLogging = false,
+                            m_SIGUID = preNotificationGuid,
+                            m_classType = "NotificationAction",
+                            m_constraintList = Array.Empty<object>(),
+                            m_isDisabled = false,
+                            m_isOrCondition = false,
+                        },
+                        new
+                        {
                             requestConfig = new
                             {
+                                allFilesAccessPath = string.Empty,
                                 allowAnyCertificate = false,
                                 basicAuthEnabled = false,
                                 basicAuthPassword = string.Empty,
                                 basicAuthUsername = string.Empty,
-                                blockNextAction = false,
+                                blockNextAction = true,
+                                clientCertEnabled = false,
+                                clientCertKeyStoreDisplayName = string.Empty,
+                                clientCertKeyStoreUri = string.Empty,
+                                clientCertPassword = string.Empty,
+                                contentBodyDynamicFileName = string.Empty,
                                 contentBodyFileDisplayName = string.Empty,
                                 contentBodyFileUri = string.Empty,
+                                contentBodyFolderDisplayName = string.Empty,
+                                contentBodyFolderUri = string.Empty,
                                 contentBodySource = 0,
                                 contentBodyText = "{\"sender\":\"{sms_number}\",\"message\":\"{sms_message}\"}",
                                 contentType = "application/json",
@@ -425,21 +554,69 @@ namespace Finance.WebAPI.Controllers
                                         paramValue = $"Bearer {deviceToken}",
                                     },
                                 },
+                                localFileUri = string.Empty,
+                                prettifyJson = false,
                                 queryParams = Array.Empty<object>(),
                                 requestTimeOutSeconds = 15,
                                 requestType = 1,
                                 responseVariableName = "otp_response",
                                 returnCodeVariableName = "otp_status_code",
+                                saveResponseAllFilesAccessPath = string.Empty,
                                 saveResponseFileName = string.Empty,
                                 saveResponseFolderPathDisplayName = string.Empty,
                                 saveResponseFolderPathUri = string.Empty,
                                 saveResponseType = 1,
+                                saveResponseUseAllFilesAccess = false,
                                 saveReturnCodeToVariable = true,
                                 saveReturnHeadersToVariable = false,
-                                urlToOpen = $"{frontendBaseUrl}/api-proxy/OtpRequests/ingest",
+                                urlToOpen = ingestUrl,
+                                useAllFilesAccess = false,
+                                useLocalFileUri = false,
+                                useStaticContentBodyFile = true,
                             },
+                            disableLogging = false,
                             m_SIGUID = actionGuid,
                             m_classType = "HttpRequestAction",
+                            m_constraintList = Array.Empty<object>(),
+                            m_isDisabled = false,
+                            m_isOrCondition = false,
+                        },
+                        new
+                        {
+                            autoExpand = true,
+                            blockNextAction = false,
+                            dimBackground = true,
+                            disableHtml = false,
+                            displayOverStatusBar = false,
+                            iconText = string.Empty,
+                            iconType = 0,
+                            liveNotification = false,
+                            m_backgroundColor = -16777216,
+                            m_iconBgColor = -769226,
+                            m_imageResourceId = 0,
+                            m_macroGUIDToRun = 0,
+                            m_notificationChannelType = 0,
+                            m_notificationSubject = "OTP forward result",
+                            m_notificationText = "Completed with HTTP status {v=otp_status_code}.",
+                            m_overwriteExisting = false,
+                            m_priority = 0,
+                            m_ringtoneIndex = 0,
+                            m_ringtoneName = "Default",
+                            m_runMacroWhenPressed = false,
+                            m_textColor = -1,
+                            maintainSpaces = false,
+                            notificationActionButtons = Array.Empty<object>(),
+                            notificationChannelName = "Notification action",
+                            notificationIdString = "0",
+                            notificatonId = 0,
+                            preventAndroid16Grouping = true,
+                            preventBackButtonClosing = false,
+                            preventRemovalByBin = false,
+                            showAsOverlayOption = 1,
+                            yPosition = 0.5,
+                            disableLogging = false,
+                            m_SIGUID = postNotificationGuid,
+                            m_classType = "NotificationAction",
                             m_constraintList = Array.Empty<object>(),
                             m_isDisabled = false,
                             m_isOrCondition = false,
@@ -459,6 +636,7 @@ namespace Finance.WebAPI.Controllers
                         new
                         {
                             enableRegex = false,
+                            enableRegexPhoneNumber = false,
                             ignoreCase = true,
                             isExcludeContact = false,
                             m_exactMatch = false,
@@ -469,6 +647,7 @@ namespace Finance.WebAPI.Controllers
                             m_smsContent = string.Empty,
                             m_smsFromList = Array.Empty<object>(),
                             m_smsNumberExclude = false,
+                            subscriptionId = -1,
                             disableLogging = false,
                             m_SIGUID = triggerGuid,
                             m_classType = "IncomingSMSTrigger",

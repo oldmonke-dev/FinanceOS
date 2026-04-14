@@ -138,3 +138,21 @@ export async function downloadOtpTemplate(): Promise<OtpTemplate> {
     issuedAt: String(raw.issuedAt ?? raw.IssuedAt ?? new Date().toISOString()),
   }
 }
+
+export async function clearOtpForwardedMessages(): Promise<number> {
+  const response = await authFetch(`${API_BASE_URL}/OtpRequests/messages`, {
+    method: "DELETE",
+    headers: {
+      Accept: "application/json",
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(response, `Failed to clear OTP messages: ${response.status} ${response.statusText}`),
+    )
+  }
+
+  const raw = (await response.json()) as Record<string, unknown>
+  return Number(raw.deletedCount ?? raw.DeletedCount ?? 0)
+}

@@ -1,9 +1,11 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { Trash2 } from "lucide-react"
 
 import { AppShell } from "@/components/app-shell"
 import { useAuth } from "@/components/providers/auth-provider"
+import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider"
 import { useSnackbar } from "@/components/providers/snackbar-provider"
 import { Button } from "@/components/ui/button"
 import {
@@ -14,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
+  clearOtpForwardedMessages,
   createOtpRequest,
   downloadOtpTemplate,
   getOtpRequests,
@@ -26,6 +29,7 @@ const PAGE_SIZE = 5
 
 export default function OtpRequestorPage() {
   const { user } = useAuth()
+  const { confirm } = useConfirmationDialog()
   const { showSnackbar } = useSnackbar()
   const [requests, setRequests] = useState<OtpRequest[]>([])
   const [targetUsers, setTargetUsers] = useState<User[]>([])
@@ -33,6 +37,7 @@ export default function OtpRequestorPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isRequesting, setIsRequesting] = useState(false)
   const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false)
+  const [isClearingMessages, setIsClearingMessages] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const [requestPage, setRequestPage] = useState(1)
   const [messagePage, setMessagePage] = useState(1)
@@ -224,6 +229,40 @@ export default function OtpRequestorPage() {
     }
   }
 
+  async function handleClearAllMessages() {
+    const shouldClear = await confirm({
+      title: "Clear all forwarded SMS",
+      message: "Delete all forwarded OTP messages from your history? This cannot be undone.",
+      confirmLabel: "Clear all",
+      variant: "destructive",
+    })
+
+    if (!shouldClear) {
+      return
+    }
+
+    setIsClearingMessages(true)
+
+    try {
+      const deletedCount = await clearOtpForwardedMessages()
+      showSnackbar({
+        message:
+          deletedCount === 0
+            ? "No forwarded SMS to clear."
+            : `Cleared ${deletedCount} forwarded SMS message${deletedCount === 1 ? "" : "s"}.`,
+        tone: "success",
+      })
+      await loadRequests(false)
+    } catch (error) {
+      showSnackbar({
+        message: error instanceof Error ? error.message : "Failed to clear forwarded SMS.",
+        tone: "error",
+      })
+    } finally {
+      setIsClearingMessages(false)
+    }
+  }
+
   return (
     <AppShell
       title="OTP Requestor"
@@ -312,11 +351,23 @@ export default function OtpRequestorPage() {
         </section>
 
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
-          <div className="space-y-1">
-            <h2 className="text-lg font-semibold">Forwarded SMS</h2>
-            <p className="text-sm text-muted-foreground">
-              Active requests show full sender and OTP text.
-            </p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold">Forwarded SMS</h2>
+              <p className="text-sm text-muted-foreground">
+                Active requests show full sender and OTP text.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={() => void handleClearAllMessages()}
+              disabled={isClearingMessages || recentMessages.length === 0}
+            >
+              <Trash2 className="size-4" />
+              <span>{isClearingMessages ? "Clearing..." : "Clear"}</span>
+            </Button>
           </div>
 
           <div className="mt-3 space-y-2.5">
