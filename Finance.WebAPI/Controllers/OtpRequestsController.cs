@@ -491,7 +491,6 @@ namespace Finance.WebAPI.Controllers
         {
             var macroGuid = NextMacroDroidId();
             var actionGuid = NextMacroDroidId();
-            var postNotificationGuid = NextMacroDroidId();
             var triggerGuid = NextMacroDroidId();
 
             return new
@@ -615,46 +614,6 @@ namespace Finance.WebAPI.Controllers
                             disableLogging = false,
                             m_SIGUID = actionGuid,
                             m_classType = "HttpRequestAction",
-                            m_constraintList = Array.Empty<object>(),
-                            m_isDisabled = false,
-                            m_isOrCondition = false,
-                        },
-                        new
-                        {
-                            autoExpand = true,
-                            blockNextAction = false,
-                            dimBackground = true,
-                            disableHtml = false,
-                            displayOverStatusBar = false,
-                            iconText = string.Empty,
-                            iconType = 0,
-                            liveNotification = false,
-                            m_backgroundColor = -16777216,
-                            m_iconBgColor = -769226,
-                            m_imageResourceId = 0,
-                            m_macroGUIDToRun = 0,
-                            m_notificationChannelType = 0,
-                            m_notificationSubject = "OTP forward result",
-                            m_notificationText = "OTP sent successfully or failed. HTTP status {v=otp_status_code}.",
-                            m_overwriteExisting = false,
-                            m_priority = 0,
-                            m_ringtoneIndex = 0,
-                            m_ringtoneName = "Default",
-                            m_runMacroWhenPressed = false,
-                            m_textColor = -1,
-                            maintainSpaces = false,
-                            notificationActionButtons = Array.Empty<object>(),
-                            notificationChannelName = "Notification action",
-                            notificationIdString = "0",
-                            notificatonId = 0,
-                            preventAndroid16Grouping = true,
-                            preventBackButtonClosing = false,
-                            preventRemovalByBin = false,
-                            showAsOverlayOption = 1,
-                            yPosition = 0.5,
-                            disableLogging = false,
-                            m_SIGUID = postNotificationGuid,
-                            m_classType = "NotificationAction",
                             m_constraintList = Array.Empty<object>(),
                             m_isDisabled = false,
                             m_isOrCondition = false,
